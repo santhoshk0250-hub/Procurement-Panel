@@ -43,6 +43,8 @@ type Location = {
   distance_from_airport_km?: number;
   distance_from_city_center_km?: number;
   popular_landmarks_nearby?: string[];
+  popular_activities_nearby?: string[];
+  popular_cafe_nearby?: string[];
   distance_from_railway_station?: RailwayDistance[];
 };
 
@@ -354,6 +356,8 @@ const [selectedRoom, setSelectedRoom] = useState(0); // default Room 1
 
   // Location fields
   const [address, setAddress] = useState("");
+const [cafesNearby, setCafesNearby] = useState<string>("");
+const [activitiesNearby, setActivitiesNearby] = useState<string>("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [country, setCountry] = useState("");
@@ -363,7 +367,6 @@ const [selectedRoom, setSelectedRoom] = useState(0); // default Room 1
   const [airportDistance, setAirportDistance] = useState<number | "">("");
   const [cityCenterDistance, setCityCenterDistance] = useState<number | "">("");
   const [landmarks, setLandmarks] = useState<string>("");
-
   const [starCategory, setStarCategory] = useState<string | "">("");
     const options = [
     { label: "Hostel", value: "hostel" },
@@ -610,6 +613,8 @@ useEffect(() => {
     setPointsAccrual(hotel.loyalty_program?.points_accrual || false);
     setPointsRedemption(hotel.loyalty_program?.points_redemption || false);
     setAddress(hotel.location?.address || "");
+    setActivitiesNearby(hotel.location?.popular_activities_nearby?.join(", ") || "");
+    setCafesNearby(hotel.location?.popular_cafe_nearby?.join(", ") || "");
     setCity(hotel.location?.city || "");
     setState(hotel.location?.state || "");
     setCountry(hotel.location?.country || "");
@@ -1214,6 +1219,12 @@ const removeImage = (type: keyof MediaGallery, index: number) => {
         popular_landmarks_nearby: landmarks
           ? landmarks.split(",").map((l) => l.trim())
           : [],
+           popular_cafe_nearby: cafesNearby
+          ? cafesNearby.split(",").map((l) => l.trim())
+          : [],
+           popular_activities_nearby: activitiesNearby
+          ? activitiesNearby.split(",").map((l) => l.trim())
+          : [],
         distance_from_railway_station: railwayStations.filter(rs => rs.name && rs.distance_km > 0),
       })
     );
@@ -1364,7 +1375,7 @@ const removeImage = (type: keyof MediaGallery, index: number) => {
     if (petPolicy) formData.append("pet_policy", JSON.stringify(petPolicy));
 
     // -------------------- Submit --------------------
-   await axios.put(
+   await axios.patch(
   `${process.env.NEXT_PUBLIC_API_BASE}hotels/updatehotel/${hotel?._id}`, // pass ID in URL
   formData,
   {
@@ -2003,6 +2014,31 @@ useEffect(() => {
         className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
       />
     </div>
+    {/* Cafes Nearby */}
+<div>
+  <label className="block text-sm font-medium text-gray-700">Cafes Nearby</label>
+  <input
+    type="text"
+    placeholder="Comma separated"
+    value={cafesNearby}
+    onChange={(e) => setCafesNearby(e.target.value)}
+    className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+  />
+  <p className="mt-1 text-xs text-gray-500">Example: Café XYZ, Blue Tokai, Third Wave</p>
+</div>
+
+{/* Activities Nearby */}
+<div>
+  <label className="block text-sm font-medium text-gray-700">Activities Nearby</label>
+  <input
+    type="text"
+    placeholder="Comma separated"
+    value={activitiesNearby}
+    onChange={(e) => setActivitiesNearby(e.target.value)}
+    className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+  />
+  <p className="mt-1 text-xs text-gray-500">Example: Kayaking, Trekking, Heritage walk</p>
+</div>
 
     {/* Railway Stations */}
     <div>

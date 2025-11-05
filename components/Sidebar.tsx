@@ -20,6 +20,7 @@ export default function Sidebar() {
       { label: "Coupons", href: "/dashboard/coupons", icon: Tag },
       { label: "Pick & Drop", href: "/dashboard/pickupdrop", icon: Truck },
       { label: "Rentals", href: "/dashboard/rentals", icon: Key },
+      // { label: "Sightseeing", href: "/dashboard/Sightseeing", icon: Key },
     ],
     []
   );
