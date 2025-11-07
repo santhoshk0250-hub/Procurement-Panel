@@ -17,6 +17,12 @@ import {
   Trash2,
 } from "lucide-react";
 
+// 🔤 Rich text editor
+import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
+import { Editor } from "react-draft-wysiwyg";
+import { EditorState, ContentState, convertFromHTML } from "draft-js";
+import { stateToHTML } from "draft-js-export-html";
+
 /* ---------- Types ---------- */
 interface Pricing {
   oneDay: string;
@@ -36,20 +42,14 @@ interface Fuel {
 }
 
 interface SurgeItem {
-  id: string;                 // local UI key
+  id: string; // local UI key
   mode: "single" | "range";
-  startDate: string;          // YYYY-MM-DD
-  endDate: string;            // YYYY-MM-DD (same as start for "single")
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD (same as start for "single")
   amount: number | "";
-  currency?: string;          // mirrors pricing.currency
+  currency?: string; // mirrors pricing.currency
 }
 type SurgeMode = SurgeItem["mode"];
-
-interface FAQItem {
-  id: string;
-  question: string;
-  answer: string;
-}
 
 interface VehicleFormData {
   _id?: string;
@@ -58,7 +58,7 @@ interface VehicleFormData {
   seaterCapacity: string;
   variant?: string | null;
   images: string[];
-  pricing: Pricing;                 // canonical (mirrors Seller Price for compatibility)
+  pricing: Pricing; // canonical (mirrors Seller Price for compatibility)
   vendorPricing: Pricing;
   sellerPricing: Pricing;
   mileage?: string;
@@ -70,14 +70,10 @@ interface VehicleFormData {
   cancellationPolicy?: string | null;
   supportInfo?: string | null;
   speedLimit?: string;
-  collectingProcedure?: string;
-  handoverProcedure?: string;
-  termsAndConditions: string;
   fuel?: Fuel;
   maxKmPerDay?: number | "";
   reviewsLink?: string | null;
   surges?: SurgeItem[];
-  faqs?: FAQItem[];
 }
 
 interface ImageFile {
@@ -108,7 +104,7 @@ const initialBlankState: VehicleFormData = {
   seaterCapacity: "",
   variant: "",
   images: [],
-  pricing: { ...blankPricing },          // canonical (we mirror sellerPricing into this)
+  pricing: { ...blankPricing }, // canonical (we mirror sellerPricing into this)
   vendorPricing: { ...blankPricing },
   sellerPricing: { ...blankPricing },
   mileage: "",
@@ -120,19 +116,10 @@ const initialBlankState: VehicleFormData = {
   cancellationPolicy: "",
   supportInfo: "",
   speedLimit: "",
-  collectingProcedure:
-    "deliver to your locations, guest need to provide ID proof, Goa Govt vehicle rules and regulations form filling and need to take photos and videos of the vehicle before collecting it",
-  handoverProcedure:
-    "collect from your delivered locations only, returning the guest provided ID proof, checking the vehicle by using the photos and videos taken in the first day and returning the vehicle after all check",
-  termsAndConditions:
-    "The rider must be at least 20 years old to rent a bike.A valid driving license is required.Government-issued identity proof, such as an Aadhaar card, Voter ID, or Passport. A selfie may be required for verification. Before taking the bike, customers must sign a rental agreement. This agreement should outline the rental period, the condition of the vehicle, and any additional terms. It's essential to read the agreement carefully before signing. The minimum rental period is typically 2 days. Vehicles can only be driven throughout Goa. Customers are encouraged to document the vehicle's condition (e.g., via video) before taking it to avoid disputes later. Security deposit is must for damage coverage",
   fuel: { type: "", status: "" },
   maxKmPerDay: "",
   reviewsLink: "",
   surges: [],
-  faqs: [
-    { id: uid(), question: "", answer: "" }, // one row initially
-  ],
 };
 
 /* ---------- Steps (FAQ inserted after Locations) ---------- */
@@ -141,7 +128,6 @@ const STEPS = [
   { key: "pricing", label: "Pricing", icon: <IndianRupee className="size-4" /> },
   { key: "specs", label: "Specs", icon: <Gauge className="size-4" /> },
   { key: "locs", label: "Locations", icon: <MapPin className="size-4" /> },
-  { key: "faq", label: "FAQ", icon: <Star className="size-4" /> }, // NEW
   { key: "images", label: "Images", icon: <ImageIcon className="size-4" /> },
 ] as const;
 
@@ -149,25 +135,13 @@ type StepKey = (typeof STEPS)[number]["key"];
 const LAST_INDEX = STEPS.length - 1;
 
 /* ---------- Presets ---------- */
-const TWO_WHEELER_VARIANTS = [
-  "Dio",
-  "Activa",
-  "Jupyter",
-  "Fascino",
-  "Aprilla",
-  "Vespa",
-] as const;
+const TWO_WHEELER_VARIANTS = ["Dio", "Activa", "Jupyter", "Fascino", "Aprilla", "Vespa"] as const;
 
-const FOUR_WHEELER_4_SEATER_VARIANTS = [
-  "swift",
-  "balano",
-  "Old Model Thar",
-  "New Model Thar",
-] as const;
+const FOUR_WHEELER_4_SEATER_VARIANTS = ["swift", "balano", "Old Model Thar", "New Model Thar"] as const;
 
 const FOUR_WHEELER_7_SEATER_VARIANTS = ["ertiga", "innova"] as const;
 
-/* Optional: textarea autosize */
+/* Optional: textarea autosize (kept for any other textareas if added later) */
 const autosize = (el: HTMLTextAreaElement | null) => {
   if (!el) return;
   el.style.height = "auto";
@@ -204,6 +178,17 @@ export default function AddRentalFormMobile() {
   const [pickupList, setPickupList] = useState<string[]>([""]);
   const [dropList, setDropList] = useState<string[]>([""]);
 
+  // ---------- Rich Text helpers & state ----------
+  const htmlToEditorState = (html?: string) => {
+    const safe = (html ?? "").trim();
+    if (!safe) return EditorState.createEmpty();
+    const blocks = convertFromHTML(safe);
+    const content = ContentState.createFromBlockArray(blocks.contentBlocks, blocks.entityMap);
+    return EditorState.createWithContent(content);
+  };
+
+
+
   // hydrate lists if server data exists
   useEffect(() => {
     if (formData.pickupLocations && formData.pickupLocations.trim().length > 0) {
@@ -212,10 +197,10 @@ export default function AddRentalFormMobile() {
       );
     }
     if (formData.dropLocations && formData.dropLocations.trim().length > 0) {
-      setDropList(
-        formData.dropLocations.split("\n").map((s) => s.trim()).filter(Boolean)
-      );
+      setDropList(formData.dropLocations.split("\n").map((s) => s.trim()).filter(Boolean));
     }
+    
+ 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // run once
 
@@ -302,7 +287,6 @@ export default function AddRentalFormMobile() {
       }
       case "specs":
       case "locs":
-      case "faq":
       case "images":
       default:
         return true;
@@ -406,18 +390,6 @@ export default function AddRentalFormMobile() {
         processedSurges = normalized.length ? normalized : undefined;
       }
 
-      // --- FAQs processing (strip empty rows) ---
-      let processedFaqs: { question: string; answer: string }[] | undefined = undefined;
-      if (Array.isArray(formData.faqs) && formData.faqs.length > 0) {
-        const cleaned = formData.faqs
-          .map(({ question, answer }) => ({
-            question: (question || "").trim(),
-            answer: (answer || "").trim(),
-          }))
-          .filter((f) => f.question.length > 0 || f.answer.length > 0);
-        processedFaqs = cleaned.length ? cleaned : undefined;
-      }
-
       // join pickup/drop lists into newline-separated strings for backend compatibility
       const joinedPickup = pickupList.map((s) => s.trim()).filter(Boolean).join("\n");
       const joinedDrop = dropList.map((s) => s.trim()).filter(Boolean).join("\n");
@@ -443,13 +415,9 @@ export default function AddRentalFormMobile() {
 
       if (processedSurges) {
         processedData.surgeCharges = processedSurges; // plural
-        if (processedSurges.length === 1) {
-          processedData.surgeCharge = processedSurges[0]; // optional legacy single
-        }
-      }
-
-      if (processedFaqs) {
-        processedData.faqs = processedFaqs;
+        // if (processedSurges.length === 1) {
+        //   processedData.surgeCharge = processedSurges[0]; // optional legacy single
+        // }
       }
 
       const submitFormData = new FormData();
@@ -491,13 +459,6 @@ export default function AddRentalFormMobile() {
     }
   };
 
-  /* ---------- Prevent Enter before last step ---------- */
-  const handleFormKeyDown = (e: React.KeyboardEvent<HTMLFormElement>) => {
-    if (e.key === "Enter" && stepIndex < LAST_INDEX) {
-      e.preventDefault();
-      if (!submitting && isStepValid(step.key)) goNext();
-    }
-  };
 
   const resetAll = () => {
     if (submitting) return;
@@ -546,27 +507,8 @@ export default function AddRentalFormMobile() {
   const updateDrop = (i: number, val: string) =>
     setDropList((p) => p.map((v, idx) => (idx === i ? val : v)));
 
-  /* ---------- FAQ helpers ---------- */
-  const addFAQ = () =>
-    setFormData((p): VehicleFormData => ({
-      ...p,
-      faqs: [...(p.faqs || []), { id: uid(), question: "", answer: "" }],
-    }));
-
-  const removeFAQ = (id: string) =>
-    setFormData((p): VehicleFormData => ({
-      ...p,
-      faqs: (p.faqs || []).filter((f) => f.id !== id),
-    }));
-
-  const updateFAQ = (id: string, key: "question" | "answer", value: string) =>
-    setFormData((p): VehicleFormData => ({
-      ...p,
-      faqs: (p.faqs || []).map((f) => (f.id === id ? { ...f, [key]: value } : f)),
-    }));
-
   return (
-    <form className="min-h-screen bg-gray-50" onSubmit={handleSubmit} onKeyDown={handleFormKeyDown}>
+    <form className="min-h-screen bg-gray-50" onSubmit={handleSubmit}>
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-gray-200">
         <div className="px-4 py-3 sm:px-6 max-w-3xl mx-auto">
@@ -578,18 +520,14 @@ export default function AddRentalFormMobile() {
               <h1 className="text-base font-semibold text-gray-900 truncate">
                 Add Vehicle — {formData.variant || "New"}
               </h1>
-              <p className="text-[11px] text-gray-500 truncate">
-                Fill all required sections and submit
-              </p>
+              <p className="text-[11px] text-gray-500 truncate">Fill all required sections and submit</p>
             </div>
             <button
               type="button"
               onClick={resetAll}
               disabled={submitting}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${
-                submitting
-                  ? "border-gray-200 text-gray-400"
-                  : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                submitting ? "border-gray-200 text-gray-400" : "border-gray-300 text-gray-700 hover:bg-gray-50"
               }`}
             >
               Reset
@@ -635,10 +573,7 @@ export default function AddRentalFormMobile() {
 
           {/* Progress */}
           <div className="mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-all ${submitting ? "bg-blue-400" : "bg-blue-600"}`}
-              style={{ width: `${progress}%` }}
-            />
+            <div className={`h-full transition-all ${submitting ? "bg-blue-400" : "bg-blue-600"}`} style={{ width: `${progress}%` }} />
           </div>
         </div>
       </header>
@@ -687,8 +622,7 @@ export default function AddRentalFormMobile() {
               <Field label="Variant">
                 {(() => {
                   const showVariantSelect =
-                    formData.vehicleType === "2 wheeler" ||
-                    formData.vehicleType === "4 wheeler";
+                    formData.vehicleType === "2 wheeler" || formData.vehicleType === "4 wheeler";
                   const variantOptions = getVariantOptions();
                   const currentVariantNotInList =
                     formData.variant &&
@@ -951,9 +885,10 @@ export default function AddRentalFormMobile() {
                 </button>
               </div>
 
-              {(!formData.surges || formData.surges.length === 0) ? (
+              {!formData.surges || formData.surges.length === 0 ? (
                 <p className="mt-2 text-xs text-amber-900/80">
-                  No surge windows added. Click <span className="font-semibold">Add surge</span> to create one.
+                  No surge windows added. Click <span className="font-semibold">Add surge</span> to
+                  create one.
                 </p>
               ) : (
                 <div className="mt-3 space-y-3">
@@ -991,7 +926,11 @@ export default function AddRentalFormMobile() {
                                   setFormData((p): VehicleFormData => {
                                     const next: SurgeItem[] = (p.surges || []).map((x) =>
                                       x.id === s.id
-                                        ? { ...x, mode: "single" as SurgeMode, endDate: x.startDate || "" }
+                                        ? {
+                                            ...x,
+                                            mode: "single" as SurgeMode,
+                                            endDate: x.startDate || "",
+                                          }
                                         : x
                                     );
                                     return { ...p, surges: next };
@@ -1150,9 +1089,7 @@ export default function AddRentalFormMobile() {
                   inputMode="decimal"
                   min={0}
                   value={formData.maxKmPerDay === "" ? "" : Number(formData.maxKmPerDay)}
-                  onChange={(e) =>
-                    onText("maxKmPerDay", e.target.value === "" ? "" : Number(e.target.value))
-                  }
+                  onChange={(e) => onText("maxKmPerDay", e.target.value === "" ? "" : Number(e.target.value))}
                   className="input"
                   placeholder="250"
                   disabled={submitting}
@@ -1198,9 +1135,7 @@ export default function AddRentalFormMobile() {
             {/* Pickup locations (dynamic) */}
             <div className="mb-4">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-gray-700">
-                  Pickup locations
-                </label>
+                <label className="text-sm font-medium text-gray-700">Pickup locations</label>
                 <button
                   type="button"
                   onClick={addPickup}
@@ -1237,128 +1172,6 @@ export default function AddRentalFormMobile() {
                 ))}
               </div>
             </div>
-
-            {/* Procedures & terms */}
-            <Field label="Collecting procedure" className="mt-4">
-              <textarea
-                autoCapitalize="sentences"
-                autoComplete="off"
-                value={formData.collectingProcedure || ""}
-                onChange={(e) => {
-                  onText("collectingProcedure", e.target.value);
-                  autosize(e.currentTarget);
-                }}
-                className="textarea w-full"
-                rows={3}
-                disabled={submitting}
-                placeholder="enter collecting procedure"
-              />
-            </Field>
-
-            <Field label="Handover procedure" className="mt-4">
-              <textarea
-                autoCapitalize="sentences"
-                autoComplete="off"
-                value={formData.handoverProcedure || ""}
-                onChange={(e) => {
-                  onText("handoverProcedure", e.target.value);
-                  autosize(e.currentTarget);
-                }}
-                className="textarea w-full"
-                rows={3}
-                disabled={submitting}
-                placeholder="enter handover procedure"
-              />
-            </Field>
-
-            <Field label="Terms & conditions" className="mt-4">
-              <textarea
-                autoCapitalize="sentences"
-                autoComplete="off"
-                value={formData.termsAndConditions || ""}
-                onChange={(e) => {
-                  onText("termsAndConditions", e.target.value);
-                  autosize(e.currentTarget);
-                }}
-                className="textarea w-full"
-                rows={4}
-                disabled={submitting}
-                placeholder="enter terms and conditions"
-              />
-            </Field>
-          </SectionCard>
-        )}
-
-        {/* ---------- NEW: FAQ STEP ---------- */}
-        {step.key === "faq" && (
-          <SectionCard
-            title="FAQs"
-            subtitle="Common questions customers ask."
-            icon={<Star className="size-5 text-blue-600" />}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold text-gray-800">Questions & Answers</p>
-              <button
-                type="button"
-                onClick={addFAQ}
-                disabled={submitting}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100 active:bg-blue-200"
-                title="Add FAQ"
-              >
-                <Plus className="size-3.5" />
-                Add FAQ
-              </button>
-            </div>
-
-            {(!formData.faqs || formData.faqs.length === 0) ? (
-              <p className="text-xs text-gray-600">No FAQs added yet.</p>
-            ) : (
-              <div className="space-y-3">
-                {formData.faqs!.map((f, idx) => (
-                  <div
-                    key={f.id}
-                    className="rounded-xl border border-gray-200 bg-white p-3 sm:p-4"
-                  >
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-gray-900">FAQ #{idx + 1}</p>
-                      <button
-                        type="button"
-                        onClick={() => removeFAQ(f.id)}
-                        disabled={submitting}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
-                        title="Remove FAQ"
-                      >
-                        <Trash2 className="size-3.5" />
-                        Remove
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3 mt-3">
-                      <Field label="Question">
-                        <input
-                          type="text"
-                          className="input w-full"
-                          value={f.question}
-                          placeholder="e.g., What documents are required?"
-                          onChange={(e) => updateFAQ(f.id, "question", e.target.value)}
-                          disabled={submitting}
-                        />
-                      </Field>
-                      <Field label="Answer">
-                        <textarea
-                          className="textarea w-full"
-                          rows={3}
-                          value={f.answer}
-                          placeholder="e.g., Valid driving license and government-issued ID proof."
-                          onChange={(e) => updateFAQ(f.id, "answer", e.target.value)}
-                          disabled={submitting}
-                        />
-                      </Field>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </SectionCard>
         )}
 
@@ -1503,11 +1316,7 @@ export default function AddRentalFormMobile() {
           <div className="rounded-2xl border border-gray-200 bg-white shadow-xl shadow-gray-900/5">
             <div className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
               <span className="inline-flex items-center gap-2 text-xs text-gray-600 bg-gray-100 rounded-full px-3 py-1.5 font-semibold self-start sm:self-auto">
-                <span
-                  className={`size-2 rounded-full ${
-                    isStepValid(step.key) ? "bg-green-500" : "bg-amber-500"
-                  }`}
-                />
+                <span className={`size-2 rounded-full ${isStepValid(step.key) ? "bg-green-500" : "bg-amber-500"}`} />
                 {isStepValid(step.key) ? "Looks good" : "Complete required fields"}
               </span>
 
@@ -1556,19 +1365,20 @@ export default function AddRentalFormMobile() {
       <style jsx>{`
         /* Mobile-first input primitives (16px font prevents iOS zoom) */
         .input {
-          @apply w-full h-12 px-4 py-3 rounded-xl border border-gray-300 bg-white
-          shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-          text-[16px] leading-none placeholder:text-gray-400 transition-all;
+          @apply w-full h-12 px-4 py-3 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-[16px] leading-none placeholder:text-gray-400 transition-all;
           -webkit-tap-highlight-color: transparent;
         }
         .textarea {
-          @apply w-full min-h-[112px] px-4 py-3 rounded-xl border border-gray-300 bg-white
-          shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-          text-[16px] placeholder:text-gray-400 transition-all resize-y;
+          @apply w-full min-h-[112px] px-4 py-3 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-[16px] placeholder:text-gray-400 transition-all resize-y;
         }
 
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
 
         /* Safe-area padding for iOS home indicator */
         .safe-bottom {
@@ -1605,9 +1415,7 @@ function SectionCard({
             </div>
           </div>
           {requiredHint && (
-            <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">
-              * Required
-            </span>
+            <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">* Required</span>
           )}
         </div>
         <div className="p-4 sm:p-5">{children}</div>

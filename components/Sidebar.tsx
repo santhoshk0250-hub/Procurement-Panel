@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Home, Star, TrendingUp, Tag, Truck, Key, Menu, X, ChevronRight } from "lucide-react";
+import { Home, Star, TrendingUp, Tag, Truck, Key, Menu, X, ChevronRight,Binoculars  } from "lucide-react";
 
 type Item = { label: string; href: string; icon: any };
 const cn = (...cls: Array<string | false | null | undefined>) => cls.filter(Boolean).join(" ");
@@ -20,7 +20,11 @@ export default function Sidebar() {
       { label: "Coupons", href: "/dashboard/coupons", icon: Tag },
       { label: "Pick & Drop", href: "/dashboard/pickupdrop", icon: Truck },
       { label: "Rentals", href: "/dashboard/rentals", icon: Key },
-      // { label: "Sightseeing", href: "/dashboard/Sightseeing", icon: Key },
+      { label: "Sightseeing", href: "/dashboard/Sightseeing", icon: Binoculars  },
+      { label: "Nightlife", href: "/dashboard/Nightlife", icon: Binoculars  },
+      { label: "Activities", href: "/dashboard/Activities", icon: TrendingUp  },
+      { label: "Leisure Activities", href: "/dashboard/Leisure-Activities", icon: Star  },
+      { label: "Food Service", href: "/dashboard/Food-service", icon: Menu  },
     ],
     []
   );

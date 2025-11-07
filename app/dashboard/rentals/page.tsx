@@ -128,7 +128,7 @@ const VehiclesDashboard: React.FC = () => {
     if (!selected) return;
     try {
       await axios.delete(
-        `${process.env.NEXT_PUBLIC_API_BASE}rentals/${unwrapId(selected._id)}`
+        `${process.env.NEXT_PUBLIC_API_BASE}rentals/delete/${unwrapId(selected._id)}`
       );
       setVehicles((prev) => prev.filter((x) => unwrapId(x._id) !== unwrapId(selected._id)));
       setSelected(null);
@@ -180,16 +180,29 @@ const VehiclesDashboard: React.FC = () => {
           sx={{ width: { xs: "100%", sm: 360 } }}
         />
 
-        <Button
-          href="/dashboard/rentals/addrentals"
-          component={Link as any}
-          fullWidth
-          sx={{ width: { xs: "100%", sm: "auto" } }}
-          variant="contained"
-          startIcon={<AddCircleOutline />}
-        >
-          Add Rentals
-        </Button>
+         <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" } }}>
+    <Button
+      href="/dashboard/services?type=rentals"   // <-- adjust path if needed
+      component={Link as any}
+      fullWidth
+      variant="outlined"
+      startIcon={<AddCircleOutline />}
+      sx={{ width: { xs: "100%", sm: "auto" } }}
+    >
+      Add Services
+    </Button>
+
+    <Button
+      href="/dashboard/rentals/addrentals"
+      component={Link as any}
+      fullWidth
+      sx={{ width: { xs: "100%", sm: "auto" } }}
+      variant="contained"
+      startIcon={<AddCircleOutline />}
+    >
+      Add Rentals
+    </Button>
+  </Box>
       </Box>
 
       {/* Loader / Empty */}

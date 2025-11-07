@@ -46,12 +46,7 @@ interface SurgeItem {
   currency?: string;
 }
 
-/* FAQs (UI row) */
-interface FaqItem {
-  id: string;                  // UI-only
-  question: string;
-  answer: string;
-}
+
 
 interface VehicleFormData {
   _id?: string;
@@ -80,17 +75,11 @@ interface VehicleFormData {
   supportInfo?: string | null;
 
   speedLimit?: string;
-  collectingProcedure?: string;
-  handoverProcedure?: string;
-  termsAndConditions: string;
 
   fuel?: Fuel;
   maxKmPerDay?: number | "";
   reviewsLink?: string | null;
-
-  /* NEW: multi-surge & faqs */
   surges: SurgeItem[];
-  faqs: FaqItem[];
 }
 
 interface ImageFile {
@@ -130,16 +119,12 @@ const initialBlankState: VehicleFormData = {
   cancellationPolicy: "",
   supportInfo: "",
   speedLimit: "",
-  collectingProcedure: "",
-  handoverProcedure: "",
-  termsAndConditions: "",
   fuel: { type: "", status: "" },
   maxKmPerDay: "",
   reviewsLink: "",
 
   /* NEW */
   surges: [],
-  faqs: [],
 };
 
 /* ---------- Steps (FAQs added after Locations) ---------- */
@@ -148,7 +133,6 @@ const STEPS = [
   { key: "pricing", label: "Pricing", icon: <IndianRupee className="size-4" /> },
   { key: "specs", label: "Specs", icon: <Gauge className="size-4" /> },
   { key: "locs", label: "Locations", icon: <MapPin className="size-4" /> },
-  { key: "faqs", label: "FAQs", icon: <Star className="size-4" /> }, // NEW step
   { key: "images", label: "Images", icon: <ImageIcon className="size-4" /> },
 ] as const;
 
@@ -277,14 +261,6 @@ export default function EditRentalFormMobile() {
       return true;
     });
 
-    // Hydrate FAQs
-    const faqsFromDoc: FaqItem[] = Array.isArray(vehicle?.faqs)
-      ? vehicle.faqs.map((f: any) => ({
-          id: uid(),
-          question: (f?.question || "").trim(),
-          answer: (f?.answer || "").trim(),
-        }))
-      : [];
 
     const hydrated: VehicleFormData = {
       _id: vehicle._id,
@@ -314,16 +290,12 @@ export default function EditRentalFormMobile() {
       cancellationPolicy: vehicle.cancellationPolicy || "",
       supportInfo: vehicle.supportInfo || "",
       speedLimit: vehicle.speedLimit || "",
-      collectingProcedure: vehicle.collectingProcedure || "",
-      handoverProcedure: vehicle.handoverProcedure || "",
-      termsAndConditions: vehicle.termsAndConditions || "",
       fuel: { type: vehicle.fuel?.type || "", status: vehicle.fuel?.status || "" },
       maxKmPerDay: asStr(vehicle.maxKmPerDay) as any,
       reviewsLink: vehicle.reviewsLink || "",
 
       /* NEW */
       surges,
-      faqs: faqsFromDoc,
     };
 
     setFormData(hydrated);
@@ -397,21 +369,7 @@ export default function EditRentalFormMobile() {
       surges: (p.surges || []).map((s) => (s.id === id ? { ...s, ...patch } : s)),
     }));
 
-  /* ---------- FAQs helpers ---------- */
-  const addFaq = () =>
-    setFormData((p) => ({
-      ...p,
-      faqs: [...(p.faqs || []), { id: uid(), question: "", answer: "" }],
-    }));
 
-  const removeFaq = (id: string) =>
-    setFormData((p) => ({ ...p, faqs: (p.faqs || []).filter((f) => f.id !== id) }));
-
-  const updateFaq = (id: string, patch: Partial<FaqItem>) =>
-    setFormData((p) => ({
-      ...p,
-      faqs: (p.faqs || []).map((f) => (f.id === id ? { ...f, ...patch } : f)),
-    }));
 
   /* ---------- Images: gallery ---------- */
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -479,7 +437,6 @@ export default function EditRentalFormMobile() {
       }
       case "specs":
       case "locs":
-      case "faqs":
       case "images":
       default:
         return true;
@@ -581,13 +538,6 @@ export default function EditRentalFormMobile() {
           currency: s.currency,
         }));
 
-      // faqs -> trim empties
-      const cleanedFaqs = (formData.faqs || [])
-        .map((f) => ({
-          question: (f.question || "").trim(),
-          answer: (f.answer || "").trim(),
-        }))
-        .filter((f) => f.question.length > 0 || f.answer.length > 0);
 
       // join pickup/drop
       const joinedPickup = pickupList.map((s) => s.trim()).filter(Boolean).join("\n");
@@ -610,7 +560,6 @@ export default function EditRentalFormMobile() {
 
         // NEW payloads
         surgeCharges: cleanedSurges,
-        faqs: cleanedFaqs,
       };
 
       // keep price books
@@ -618,11 +567,11 @@ export default function EditRentalFormMobile() {
       if (processedSellerPricing) processedData.sellerPricing = processedSellerPricing;
 
       // Optional: mirror single legacy if exactly one surge row
-      if (cleanedSurges.length === 1) {
-        processedData.surgeCharge = cleanedSurges[0];
-      } else {
-        processedData.surgeCharge = null; // signal clear for legacy if your API handles it
-      }
+      // if (cleanedSurges.length === 1) {
+      //   processedData.surgeCharge = cleanedSurges[0];
+      // } else {
+      //   processedData.surgeCharge = null; // signal clear for legacy if your API handles it
+      // }
 
       const submitFormData = new FormData();
       submitFormData.append("data", JSON.stringify(processedData));
@@ -1331,124 +1280,6 @@ export default function EditRentalFormMobile() {
                   </div>
                 ))}
               </div>
-            </div>
-
-            <Field label="Collecting procedure" className="mt-4">
-              <textarea
-                autoCapitalize="sentences"
-                autoComplete="off"
-                value={formData.collectingProcedure || ""}
-                onChange={(e) => {
-                  onText("collectingProcedure", e.target.value);
-                  autosize(e.currentTarget);
-                }}
-                className="textarea w-full"
-                rows={3}
-                disabled={submitting}
-                placeholder="enter collecting procedure"
-              />
-            </Field>
-
-            <Field label="Handover procedure" className="mt-4">
-              <textarea
-                autoCapitalize="sentences"
-                autoComplete="off"
-                value={formData.handoverProcedure || ""}
-                onChange={(e) => {
-                  onText("handoverProcedure", e.target.value);
-                  autosize(e.currentTarget);
-                }}
-                className="textarea w-full"
-                rows={3}
-                disabled={submitting}
-                placeholder="enter handover procedure"
-              />
-            </Field>
-
-            <Field label="Terms & conditions" className="mt-4">
-              <textarea
-                autoCapitalize="sentences"
-                autoComplete="off"
-                value={formData.termsAndConditions || ""}
-                onChange={(e) => {
-                  onText("termsAndConditions", e.target.value);
-                  autosize(e.currentTarget);
-                }}
-                className="textarea w-full"
-                rows={4}
-                disabled={submitting}
-                placeholder="enter terms and conditions"
-              />
-            </Field>
-          </SectionCard>
-        )}
-
-        {/* NEW: Dedicated FAQs step (moved out of Locations) */}
-        {step.key === "faqs" && (
-          <SectionCard
-            title="FAQs"
-            subtitle="Add common questions and answers customers ask."
-            icon={<Star className="size-5 text-blue-600" />}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-gray-800">Frequently Asked Questions</p>
-              <button
-                type="button"
-                onClick={addFaq}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
-                disabled={submitting}
-                title="Add FAQ"
-              >
-                <Plus className="size-3.5" />
-                Add
-              </button>
-            </div>
-
-            {(formData.faqs || []).length === 0 && (
-              <p className="text-xs text-gray-500">No FAQ rows yet. Click <b>Add</b> to create one.</p>
-            )}
-
-            <div className="space-y-3">
-              {(formData.faqs || []).map((f) => (
-                <div key={f.id} className="rounded-lg border border-gray-200 bg-white p-3 sm:p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-gray-800">FAQ</p>
-                    <button
-                      type="button"
-                      onClick={() => removeFaq(f.id)}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
-                      disabled={submitting}
-                      title="Remove FAQ"
-                    >
-                      <Trash2 className="size-3.5" />
-                      Remove
-                    </button>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-1 gap-3">
-                    <Field label="Question">
-                      <input
-                        type="text"
-                        className="input w-full"
-                        value={f.question}
-                        onChange={(e) => updateFaq(f.id, { question: e.target.value })}
-                        placeholder="e.g., What documents are required?"
-                        disabled={submitting}
-                      />
-                    </Field>
-                    <Field label="Answer">
-                      <textarea
-                        className="textarea w-full"
-                        rows={3}
-                        value={f.answer}
-                        onChange={(e) => updateFaq(f.id, { answer: e.target.value })}
-                        placeholder="e.g., Valid driving license and government ID."
-                        disabled={submitting}
-                      />
-                    </Field>
-                  </div>
-                </div>
-              ))}
             </div>
           </SectionCard>
         )}

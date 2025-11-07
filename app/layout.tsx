@@ -6,9 +6,9 @@ import ClientLayout from "../app/auth-layout";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: { default: "TYT CRM", template: "%s | TYT CRM" },
-  description: "TYT CRM - Customer Relationship Management System",
-  keywords: ["CRM", "Customer Relationship Management", "TYT"],
+  title: { default: "TYT Admin", template: "%s | TYT CRM" },
+  description: "TYT Admin - Procurement panel",
+  keywords: ["Admin", "Procurement panel", "TYT"],
   authors: [{ name: "TYT Team" }],
   creator: "TYT",
   publisher: "TYT",
@@ -18,14 +18,14 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-    title: "TYT CRM",
-    description: "TYT CRM - Customer Relationship Management System",
-    siteName: "TYT CRM",
+    title: "TYT Admin",
+    description: "TYT Admin - Procurement panel",
+    siteName: "TYT Admin",
   },
   twitter: {
     card: "summary_large_image",
-    title: "TYT CRM",
-    description: "TYT CRM - Customer Relationship Management System",
+    title: "TYT Admin",
+    description: "TYT Admin - Procurement panel",
   },
   robots: {
     index: true,
