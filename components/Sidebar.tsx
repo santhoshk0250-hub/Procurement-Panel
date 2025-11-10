@@ -3,7 +3,22 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Home, Star, TrendingUp, Tag, Truck, Key, Menu, X, ChevronRight,Binoculars  } from "lucide-react";
+import {
+  Hotel,
+  MessageSquareShare,
+  LineChart,
+  TicketPercent,
+  Route,
+  CarFront,
+  Binoculars,
+  Martini,
+  Dumbbell,
+  Palmtree,
+  UtensilsCrossed,
+  Menu,
+  X,
+  ChevronRight,
+} from "lucide-react";
 
 type Item = { label: string; href: string; icon: any };
 const cn = (...cls: Array<string | false | null | undefined>) => cls.filter(Boolean).join(" ");
@@ -14,17 +29,17 @@ export default function Sidebar() {
 
   const items: Item[] = useMemo(
     () => [
-      { label: "Hotels", href: "/", icon: Home },
-      { label: "Review", href: "/dashboard/review", icon: Star },
-      { label: "Profitability", href: "/dashboard/profitability", icon: TrendingUp },
-      { label: "Coupons", href: "/dashboard/coupons", icon: Tag },
-      { label: "Pick & Drop", href: "/dashboard/pickupdrop", icon: Truck },
-      { label: "Rentals", href: "/dashboard/rentals", icon: Key },
-      { label: "Sightseeing", href: "/dashboard/Sightseeing", icon: Binoculars  },
-      { label: "Nightlife", href: "/dashboard/Nightlife", icon: Binoculars  },
-      { label: "Activities", href: "/dashboard/Activities", icon: TrendingUp  },
-      { label: "Leisure Activities", href: "/dashboard/Leisure-Activities", icon: Star  },
-      { label: "Food Service", href: "/dashboard/Food-service", icon: Menu  },
+      { label: "Hotels",            href: "/",                           icon: Hotel },
+      { label: "Review",            href: "/dashboard/review",           icon: MessageSquareShare },
+      { label: "Profitability",     href: "/dashboard/profitability",    icon: LineChart },
+      { label: "Coupons",           href: "/dashboard/coupons",          icon: TicketPercent },
+      { label: "Pick & Drop",       href: "/dashboard/pickupdrop",       icon: Route },
+      { label: "Rentals",           href: "/dashboard/rentals",          icon: CarFront },
+      { label: "Sightseeing",       href: "/dashboard/Sightseeing",      icon: Binoculars },
+      { label: "Nightlife",         href: "/dashboard/Nightlife",        icon: Martini },
+      { label: "Activities",        href: "/dashboard/Activities",       icon: Dumbbell },
+      { label: "Leisure-activity",  href: "/dashboard/leisure-activity", icon: Palmtree },
+      { label: "Food Service",      href: "/dashboard/Food-service",     icon: UtensilsCrossed },
     ],
     []
   );
@@ -48,7 +63,7 @@ export default function Sidebar() {
       {items.map((item) => {
         const active = item.href === "/" ? pathname === "/" : pathname?.startsWith(item.href);
         const Icon = item.icon;
-        
+
         return (
           <Link
             key={item.href}
@@ -62,12 +77,8 @@ export default function Sidebar() {
           >
             <Icon className={cn("h-5 w-5 transition-transform", active ? "scale-110" : "group-hover:scale-105")} />
             <span className="flex-1 text-left">{item.label}</span>
-            {active && (
-              <ChevronRight className="h-4 w-4 opacity-70" />
-            )}
-            {active && (
-              <div className="absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-r-full bg-white" />
-            )}
+            {active && <ChevronRight className="h-4 w-4 opacity-70" />}
+            {active && <div className="absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-r-full bg-white" />}
           </Link>
         );
       })}
@@ -106,19 +117,8 @@ export default function Sidebar() {
       </aside>
 
       {/* Mobile: off-canvas drawer */}
-      <div
-        className={cn("fixed inset-0 z-50 md:hidden", open ? "pointer-events-auto" : "pointer-events-none")}
-        aria-hidden={!open}
-      >
-        {/* Overlay */}
-        <div
-          onClick={() => setOpen(false)}
-          className={cn(
-            "absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300",
-            open ? "opacity-100" : "opacity-0"
-          )}
-        />
-        
+      <div className={cn("fixed inset-0 z-50 md:hidden", open ? "pointer-events-auto" : "pointer-events-none")} aria-hidden={!open}>
+        <div onClick={() => setOpen(false)} className={cn("absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300", open ? "opacity-100" : "opacity-0")} />
         <div
           role="dialog"
           aria-modal="true"
@@ -139,11 +139,7 @@ export default function Sidebar() {
                 <div className="text-xs text-gray-500">Management System</div>
               </div>
             </div>
-            <button
-              onClick={() => setOpen(false)}
-              aria-label="Close navigation"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
-            >
+            <button onClick={() => setOpen(false)} aria-label="Close navigation" className="inline-flex h-10 w-10 items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
               <X className="h-5 w-5 text-gray-600" />
             </button>
           </div>

@@ -21,6 +21,8 @@ import {
   DialogActions,
   CircularProgress,
   Pagination,
+  CardActions,
+  Stack
 } from "@mui/material";
 import { PlaylistAddRounded, Search, MoreVert, Flight } from "@mui/icons-material";
 import Link from "next/link";
@@ -210,21 +212,6 @@ const CalendarDetails: React.FC = () => {
                         borderRadius: 1,
                       }}
                     />
-                    <IconButton
-                      aria-label="more"
-                      onClick={(e) => handleMoreClick(e, hotel)}
-                      sx={{
-                        position: "absolute",
-                        top: 8,
-                        right: 8,
-                        backgroundColor: "rgba(255, 255, 255, 0.7)",
-                        "&:hover": {
-                          backgroundColor: "rgba(255, 255, 255, 0.9)",
-                        },
-                      }}
-                    >
-                      <MoreVert />
-                    </IconButton>
                   </Box>
 
                   <CardContent>
@@ -241,6 +228,22 @@ const CalendarDetails: React.FC = () => {
                       {hotel.rooms[0]?.pricing?.currency}{" "}
                       {hotel.rooms[0]?.pricing?.hotel_bf_price}
                     </Typography>
+                    <CardActions sx={{ justifyContent: "space-between", px: 2, pb: 2, pt: 0.5 }}>
+                      <Stack direction="row" spacing={1}>
+                        <Button
+                          key="edit"
+                          component={Link as any}
+                          href={`/dashboard/calendar/Edithotel`}
+                          onClick={() => handleEdit(hotel)}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                        <Button color="error" size="small" onClick={handleDelete}>
+                          Delete
+                        </Button>
+                      </Stack>
+                    </CardActions>
                   </CardContent>
                 </Card>
               );
@@ -258,22 +261,6 @@ const CalendarDetails: React.FC = () => {
           </Box>
         </>
       )}
-
-      {/* Menu */}
-      <Menu
-        anchorEl={anchorEl}
-        open={open}
-        onClose={handleCloseMenu}
-        anchorOrigin={{ vertical: "top", horizontal: "right" }}
-        transformOrigin={{ vertical: "top", horizontal: "right" }}
-      >
-        {selectedHotel && (
-          <Link href="/dashboard/calendar/Edithotel" passHref legacyBehavior>
-            <MenuItem onClick={() => handleEdit(selectedHotel)}>Edit</MenuItem>
-          </Link>
-        )}
-        <MenuItem onClick={handleDelete}>Delete</MenuItem>
-      </Menu>
 
       {/* Delete Confirmation */}
       <Dialog

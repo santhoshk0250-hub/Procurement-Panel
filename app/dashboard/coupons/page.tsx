@@ -391,17 +391,10 @@ const CouponsDashboard: React.FC = () => {
                     <Stack direction="row" spacing={1}>
                       {/* View Button */}
                       <Button
-                        component={Link as any}
-                        href={`/dashboard/coupons/${unwrapId(c._id)}`}
-                        size="small"
-                        variant="outlined"
-                      >
-                        View
-                      </Button>
-                      <Button
-                        component={Link as any}
-                        href={`/dashboard/coupons/edit/${unwrapId(c._id)}`}
-                        size="small"
+                           key="edit"
+                            component={Link as any}
+                            href={`/dashboard/coupons/editcoupons`}
+                            onClick={() => handleEdit(c)}
                       >
                         Edit
                       </Button>
