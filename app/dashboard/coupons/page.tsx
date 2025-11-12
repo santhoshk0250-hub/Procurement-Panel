@@ -355,12 +355,12 @@ const CouponsDashboard: React.FC = () => {
                   </Box>
 
                   <CardContent sx={{ pb: 1 }}> {/* Reduced padding bottom */}
-                    <Stack direction="row" alignItems="center" justifyContent="space-between">
+                    {/* <Stack direction="row" alignItems="center" justifyContent="space-between">
                       <Typography variant="h6" noWrap title={c.name}>
                         {c.name}
                       </Typography>
                       {statusChip}
-                    </Stack>
+                    </Stack> */}
 
                     <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
                       <Tooltip title="Copy code">

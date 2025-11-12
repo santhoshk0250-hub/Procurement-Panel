@@ -450,7 +450,7 @@ export default function EditNightlifeMobile() {
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-gray-200">
         <div className="px-4 py-3 sm:px-6 max-w-3xl mx-auto">
           <div className="flex items-center gap-3">
-            <div className="size-9 rounded-lg bg-emerald-600 text-white grid place-items-center text-sm font-bold shadow">
+            <div className="size-9 rounded-lg bg-blue-600 text-white grid place-items-center text-sm font-bold shadow">
               {(title || "N")[0]?.toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
@@ -544,7 +544,7 @@ export default function EditNightlifeMobile() {
                   }}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs whitespace-nowrap ${
                     active
-                      ? "bg-emerald-50 border-emerald-500 text-emerald-700"
+                      ? "bg-blue-50 border-blue-500 text-blue-700"
                       : done
                       ? "bg-green-50 border-green-500 text-green-700"
                       : "bg-white border-gray-200 text-gray-700"
@@ -564,7 +564,7 @@ export default function EditNightlifeMobile() {
           <div className="mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
             <div
               className={`h-full transition-all ${
-                submitting ? "bg-emerald-400" : "bg-emerald-600"
+                submitting ? "bg-blue-400" : "bg-blue-600"
               }`}
               style={{ width: `${progress}%` }}
             />
@@ -578,7 +578,7 @@ export default function EditNightlifeMobile() {
           <SectionCard
             title="Basic Details"
             subtitle="Core identity of the venue."
-            icon={<FileText className="size-5 text-emerald-600" />}
+            icon={<FileText className="size-5 text-blue-600" />}
             requiredHint
           >
             <div className="rounded-xl border border-gray-200 p-4">
@@ -643,7 +643,7 @@ export default function EditNightlifeMobile() {
                           <button
                             type="button"
                             onClick={addType}
-                            className="px-4 py-3 text-sm font-semibold rounded-xl text-white bg-emerald-600 hover:bg-emerald-700"
+                            className="px-4 py-3 text-sm font-semibold rounded-xl text-white bg-blue-600 hover:bg-blue-700"
                             disabled={submitting}
                           >
                             Add
@@ -664,7 +664,7 @@ export default function EditNightlifeMobile() {
                         <button
                           type="button"
                           onClick={() => setShowTypeInput(true)}
-                          className="text-emerald-700 text-sm inline-flex items-center gap-1"
+                          className="text-blue-700 text-sm inline-flex items-center gap-1"
                           disabled={submitting}
                         >
                           <Plus className="size-4" /> Add custom type
@@ -682,7 +682,7 @@ export default function EditNightlifeMobile() {
           <SectionCard
             title="Meta & Logistics"
             subtitle="Plan-friendly details."
-            icon={<ListChecks className="size-5 text-emerald-600" />}
+            icon={<ListChecks className="size-5 text-blue-600" />}
           >
             <div className="rounded-xl border border-gray-200 p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -734,7 +734,7 @@ export default function EditNightlifeMobile() {
           <SectionCard
             title="Content & Pricing"
             subtitle="Describe the vibe and pricing."
-            icon={<MapPin className="size-5 text-emerald-600" />}
+            icon={<MapPin className="size-5 text-blue-600" />}
           >
             <div className="rounded-xl border border-gray-200 p-4">
               <div className="grid grid-cols-1 gap-4">
@@ -903,17 +903,17 @@ export default function EditNightlifeMobile() {
           <SectionCard
             title="Media"
             subtitle="Replace or add a thumbnail and gallery images."
-            icon={<ImageIcon className="size-5 text-emerald-600" />}
+            icon={<ImageIcon className="size-5 text-blue-600" />}
           >
             <div className="space-y-6">
               {/* Thumbnail */}
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 sm:p-4">
-                <h4 className="text-xs font-semibold text-emerald-900 mb-2">
+              <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3 sm:p-4">
+                <h4 className="text-xs font-semibold text-blue-900 mb-2">
                   Thumbnail
                 </h4>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 items-start">
                   {displayThumb ? (
-                    <div className="relative aspect-square rounded-xl overflow-hidden border-2 border-emerald-300 bg-white">
+                    <div className="relative aspect-square rounded-xl overflow-hidden border-2 border-blue-300 bg-white">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={displayThumb}
@@ -933,12 +933,12 @@ export default function EditNightlifeMobile() {
                     </div>
                   ) : (
                     <label className="block aspect-square">
-                      <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-emerald-300 rounded-xl cursor-pointer hover:border-emerald-500 transition-colors bg-white hover:bg-emerald-50">
-                        <Plus className="size-6 text-emerald-500" />
-                        <p className="mt-1 text-sm font-medium text-emerald-900">
+                      <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-blue-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-blue-50">
+                        <Plus className="size-6 text-blue-500" />
+                        <p className="mt-1 text-sm font-medium text-blue-900">
                           Upload Thumbnail
                         </p>
-                        <p className="text-[11px] text-emerald-800/70">
+                        <p className="text-[11px] text-blue-800/70">
                           JPG/PNG/WebP
                         </p>
                       </div>
@@ -956,17 +956,17 @@ export default function EditNightlifeMobile() {
               </div>
 
               {/* Gallery */}
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 sm:p-4">
+              <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3 sm:p-4">
                 {(gallery.length || 0) > 0 && (
                   <>
-                    <h4 className="text-xs font-semibold text-emerald-900 mb-2">
+                    <h4 className="text-xs font-semibold text-blue-900 mb-2">
                       Existing Gallery
                     </h4>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-4">
                       {gallery.map((url, i) => (
                         <div
                           key={`ex-${i}`}
-                          className="relative aspect-square rounded-xl overflow-hidden border-2 border-emerald-300 bg-white"
+                          className="relative aspect-square rounded-xl overflow-hidden border-2 border-blue-300 bg-white"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
@@ -990,14 +990,14 @@ export default function EditNightlifeMobile() {
                   </>
                 )}
 
-                <h4 className="text-xs font-semibold text-emerald-900 mb-2">
+                <h4 className="text-xs font-semibold text-blue-900 mb-2">
                   Add New Images
                 </h4>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                   {data.newImages.map((img, i) => (
                     <div
                       key={i}
-                      className="relative aspect-square rounded-xl overflow-hidden border-2 border-emerald-400 bg-white"
+                      className="relative aspect-square rounded-xl overflow-hidden border-2 border-blue-400 bg-white"
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -1020,12 +1020,12 @@ export default function EditNightlifeMobile() {
 
                   {/* Add tile */}
                   <label className="block aspect-square">
-                    <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-emerald-300 rounded-xl cursor-pointer hover:border-emerald-500 transition-colors bg-white hover:bg-emerald-50">
-                      <Plus className="size-6 text-emerald-500" />
-                      <p className="mt-1 text-sm font-medium text-emerald-900">
+                    <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-blue-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-blue-50">
+                      <Plus className="size-6 text-blue-500" />
+                      <p className="mt-1 text-sm font-medium text-blue-900">
                         Add Images
                       </p>
-                      <p className="text-[11px] text-emerald-800/70">
+                      <p className="text-[11px] text-blue-800/70">
                         JPG/PNG/WebP
                       </p>
                     </div>
@@ -1080,8 +1080,8 @@ export default function EditNightlifeMobile() {
                   disabled={!canGoNext || submitting || !resolvedId}
                   className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
                     !canGoNext || submitting || !resolvedId
-                      ? "bg-emerald-300 cursor-not-allowed"
-                      : "bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800"
+                      ? "bg-blue-300 cursor-not-allowed"
+                      : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
                   }`}
                   aria-busy={submitting ? "true" : "false"}
                 >
@@ -1105,7 +1105,7 @@ export default function EditNightlifeMobile() {
       {/* Styles */}
       <style jsx>{`
         .input {
-          @apply w-full h-12 px-4 py-3 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-[16px] leading-none placeholder:text-gray-400 transition-all;
+          @apply w-full h-12 px-4 py-3 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-[16px] leading-none placeholder:text-gray-400 transition-all;
           -webkit-tap-highlight-color: transparent;
         }
         .no-scrollbar::-webkit-scrollbar {
@@ -1142,7 +1142,7 @@ function SectionCard({
       <div className="bg-white rounded-xl border border-gray-200 shadow-md overflow-visible">
         <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="size-8 grid place-items-center bg-emerald-50 rounded-lg">
+            <div className="size-8 grid place-items-center bg-blue-50 rounded-lg">
               {icon}
             </div>
             <div>

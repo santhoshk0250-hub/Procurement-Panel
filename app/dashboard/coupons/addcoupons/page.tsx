@@ -1,6 +1,11 @@
 "use client";
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
+import { EditorState, ContentState, convertFromHTML } from "draft-js";
+import { stateToHTML } from "draft-js-export-html";
+import { Editor } from "react-draft-wysiwyg";
 
 interface Eligibility {
   user_type: string;
@@ -11,11 +16,11 @@ interface Eligibility {
   stay_days?: string[];
   same_day_booking?: boolean;
   payment_type?: string;
-  booking_time_cutoff?: string; // HH:MM (24h)
+  booking_time_cutoff?: string;
   id_check_required?: boolean;
   select_hotels_only?: boolean;
   participating_hotels_only?: boolean;
-  booking_date?: string; // yyyy-mm-dd
+  booking_date?: string;
   pickup_airport?: string;
   max_pickup_distance_km?: number;
   property_tags_required?: string[];
@@ -23,7 +28,7 @@ interface Eligibility {
 }
 
 interface Validity {
-  start: string; // ISO string or yyyy-mm-ddThh:mm
+  start: string;
   end: string;
 }
 
@@ -35,7 +40,7 @@ interface CouponFormData {
   price: string;
   eligibility: Eligibility;
   validity: Validity;
-  terms_conditions: string; // newline-separated in the form; converted to array on submit
+  terms_conditions: string; // HTML
 }
 
 interface ImageFile {
@@ -46,7 +51,7 @@ interface ImageFile {
 export default function CouponFormMobile() {
   // ------- STATE -------
   const [formData, setFormData] = useState<CouponFormData>({
-    seq: "" as unknown as number,
+    seq: ("" as unknown) as number,
     name: "",
     coupon_code: "",
     details: "",
@@ -58,10 +63,7 @@ export default function CouponFormMobile() {
       segments: [],
       booking_time_cutoff: "",
     },
-    validity: {
-      start: "",
-      end: "",
-    },
+    validity: { start: "", end: "" },
     terms_conditions: "",
   });
 
@@ -71,20 +73,56 @@ export default function CouponFormMobile() {
   const [segments, setSegments] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Editors
+  const [detailsEditor, setDetailsEditor] = useState<EditorState>(EditorState.createEmpty());
+  const [termsEditor, setTermsEditor] = useState<EditorState>(EditorState.createEmpty());
+
+  // Tabs
+  const tabs = ["Basics", "Eligibility", "Images"] as const;
+  type Tab = typeof tabs[number];
+  const [activeTab, setActiveTab] = useState<Tab>("Basics");
+
+  // Submit state
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const router = useRouter();
+
+  // Initialize editors from existing HTML (if any)
+  useEffect(() => {
+    if (formData.details) {
+      try {
+        const blocks = convertFromHTML(formData.details);
+        const content = ContentState.createFromBlockArray(blocks.contentBlocks, blocks.entityMap);
+        setDetailsEditor(EditorState.createWithContent(content));
+      } catch {
+        setDetailsEditor(EditorState.createEmpty());
+      }
+    } else {
+      setDetailsEditor(EditorState.createEmpty());
+    }
+  }, [formData.details]);
+
+  useEffect(() => {
+    if (formData.terms_conditions) {
+      try {
+        const blocks = convertFromHTML(formData.terms_conditions);
+        const content = ContentState.createFromBlockArray(blocks.contentBlocks, blocks.entityMap);
+        setTermsEditor(EditorState.createWithContent(content));
+      } catch {
+        setTermsEditor(EditorState.createEmpty());
+      }
+    } else {
+      setTermsEditor(EditorState.createEmpty());
+    }
+  }, [formData.terms_conditions]);
+
   // ------- DERIVED -------
   const requiredOk = useMemo(() => {
-    const { seq, name, coupon_code, details, price, validity, eligibility } = formData;
-    return (
-      !!seq &&
-      name.trim().length > 0 &&
-      coupon_code.trim().length > 0 &&
-      details.trim().length > 0 &&
-      price.trim().length > 0 &&
-      validity.start &&
-      validity.end &&
-      eligibility.user_type.trim().length > 0
-    );
-  }, [formData]);
+    const nameOk = formData.name.trim().length > 0;
+    const codeOk = formData.coupon_code.trim().length > 0;
+    const imagesOk = images.length > 0; // images are required and only added in last tab
+    return nameOk && codeOk && imagesOk;
+  }, [formData.name, formData.coupon_code, images.length]);
 
   // ------- HANDLERS -------
   const handleInputChange = (
@@ -106,10 +144,7 @@ export default function CouponFormMobile() {
       const field = name.split(".")[1];
       setFormData((prev) => ({
         ...prev,
-        validity: {
-          ...prev.validity,
-          [field]: value,
-        },
+        validity: { ...prev.validity, [field]: value },
       }));
     } else {
       setFormData((prev) => ({
@@ -125,7 +160,7 @@ export default function CouponFormMobile() {
 
     const mapped = files.map((file) => ({ file, preview: URL.createObjectURL(file) }));
     setImages((prev) => [...prev, ...mapped]);
-    if (fileInputRef.current) fileInputRef.current.value = ""; // reset so same file can be re-picked
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const removeImage = (index: number) => {
@@ -141,6 +176,9 @@ export default function CouponFormMobile() {
     setStayDays("");
     setPropertyTags("");
     setSegments("");
+    setDetailsEditor(EditorState.createEmpty());
+    setTermsEditor(EditorState.createEmpty());
+    setActiveTab("Basics");
     setFormData({
       seq: 0,
       name: "",
@@ -159,68 +197,103 @@ export default function CouponFormMobile() {
     });
   };
 
+  const goNextTab = () => {
+    setActiveTab((t) => (t === "Basics" ? "Eligibility" : t === "Eligibility" ? "Images" : "Images"));
+  };
+
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!requiredOk) {
-      alert("Please fill all required fields marked with *");
+
+    // Only allow submit on the last tab
+    if (activeTab !== "Images") return;
+
+    if (!requiredOk || isSubmitting) {
+      if (!requiredOk)
+        alert("Please fill all required fields: Name, Coupon Code, and at least one Image.");
       return;
     }
+
+    setIsSubmitting(true);
     try {
+      const detailsHTML = stateToHTML(detailsEditor.getCurrentContent());
+      const termsHTML = stateToHTML(termsEditor.getCurrentContent());
+
       const processedData = {
         ...formData,
+        details: detailsHTML,
+        terms_conditions: termsHTML,
         eligibility: {
           ...formData.eligibility,
-          stay_days: stayDays
-            ? stayDays.split(",").map((s) => s.trim()).filter(Boolean)
-            : [],
+          stay_days: stayDays ? stayDays.split(",").map((s) => s.trim()).filter(Boolean) : [],
           property_tags_required: propertyTags
             ? propertyTags.split(",").map((s) => s.trim()).filter(Boolean)
             : [],
           segments: segments ? segments.split(",").map((s) => s.trim()).filter(Boolean) : [],
         },
-        terms_conditions: formData.terms_conditions
-          ? formData.terms_conditions.split("\n").map((s) => s.trim()).filter(Boolean)
-          : [],
       };
 
       const submitFormData = new FormData();
       submitFormData.append("data", JSON.stringify(processedData));
-
       images.forEach((img) => submitFormData.append("images", img.file));
-console.log(submitFormData);
 
-      const response = await fetch(process.env.NEXT_PUBLIC_API_BASE +"coupons/add", { method: "POST", body: submitFormData });
+      const response = await fetch(
+        (process.env.NEXT_PUBLIC_API_BASE as string) + "coupons/add",
+        { method: "POST", body: submitFormData }
+      );
 
       if (response.ok) {
-        alert("Coupon created successfully!");
-        images.forEach((img) => URL.revokeObjectURL(img.preview));
-        // soft reset rather than reloading the whole page (better for mobile)
-        resetForm();
+        router.push("/dashboard/coupons");
+        return;
       } else {
-        alert("Failed to create coupon");
+        const msg = await safeErrorText(response);
+        alert(msg || "Failed to create coupon");
       }
     } catch (error) {
       console.error("Error:", error);
       alert("An error occurred");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   // ------- UI -------
   return (
-    <form className="min-h-screen bg-gray-50">
+    <form
+      className="min-h-screen bg-gray-50"
+      onSubmit={handleSubmit}
+      aria-busy={isSubmitting}
+      onKeyDown={(e) => {
+        // Prevent Enter from submitting until Images tab
+        if (e.key === "Enter" && activeTab !== "Images") e.preventDefault();
+      }}
+    >
+      {/* Loading overlay */}
+      {isSubmitting && (
+        <div className="fixed inset-0 z-[60] bg-white/70 backdrop-blur-sm grid place-items-center">
+          <div className="flex items-center gap-3 px-4 py-2 rounded-xl border bg-white shadow">
+            <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <circle cx="12" cy="12" r="10" strokeWidth="2" opacity="0.25" />
+              <path d="M22 12a10 10 0 0 1-10 10" strokeWidth="2" />
+            </svg>
+            <span className="text-sm text-gray-700 font-medium">Creating coupon…</span>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-gray-200 px-4 py-3 sm:px-6">
         <div className="max-w-3xl mx-auto flex items-center gap-3">
           <div className="size-9 rounded-xl bg-blue-600 text-white grid place-items-center text-sm font-semibold shadow-sm">CF</div>
           <div className="flex-1">
             <h1 className="text-base font-semibold text-gray-900 leading-tight">Add New Coupon</h1>
-            <p className="text-xs text-gray-500">Mobile‑first, accessible, and responsive</p>
+            <p className="text-xs text-gray-500">Mobile-first, accessible, and responsive</p>
           </div>
           <button
             type="button"
             onClick={resetForm}
             className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 active:scale-[.99]"
             aria-label="Reset form"
+            disabled={isSubmitting}
           >
             Reset
           </button>
@@ -228,326 +301,372 @@ console.log(submitFormData);
       </header>
 
       <main className="max-w-3xl mx-auto px-4 sm:px-6 pb-28">
-        {/* Basic Information */}
-        <SectionCard title="Basic Information" subtitle="Tell us the essentials about this coupon." requiredHint>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Sequence Number" required>
-              <input
-                type="number"
-                name="seq"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={formData.seq}
-                onChange={handleInputChange}
-                className="input"
-                placeholder="e.g., 1"
-              />
-            </Field>
-            <Field label="Coupon Name" required>
-              <input
-                type="text"
-                name="name"
-                value={formData.name}
-                onChange={handleInputChange}
-                className="input"
-                placeholder="Summer Saver"
-                autoComplete="off"
-              />
-            </Field>
-            <Field label="Coupon Code" required>
-              <input
-                type="text"
-                name="coupon_code"
-                value={formData.coupon_code}
-                onChange={handleInputChange}
-                className="input uppercase tracking-wider"
-                placeholder="SUMMER25"
-                autoCapitalize="characters"
-              />
-            </Field>
-            <Field label="Price" required hint="Accepts currency text or %">
-              <input
-                type="text"
-                name="price"
-                value={formData.price}
-                onChange={handleInputChange}
-                className="input"
-                placeholder="₹500 or 10%"
-                inputMode="decimal"
-              />
-            </Field>
-          </div>
+        {/* Tabs */}
+        <div role="tablist" aria-label="Coupon form sections" className="mt-4 grid grid-cols-3 gap-2">
+          {tabs.map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === t}
+              onClick={() => setActiveTab(t)}
+              className={`px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                activeTab === t
+                  ? "bg-blue-600 text-white border-blue-600 shadow"
+                  : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+              }`}
+              disabled={isSubmitting}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
 
-          <Field label="Details" required>
-            <textarea
-              name="details"
-              value={formData.details}
-              onChange={handleInputChange}
-              rows={3}
-              className="textarea"
-              placeholder="Short description that will be shown to users"
-            />
-          </Field>
-        </SectionCard>
+        {/* Disable inputs while submitting */}
+        <fieldset disabled={isSubmitting} className="contents">
+          {/* Panels */}
+          {activeTab === "Basics" && (
+            <>
+              <SectionCard title="Basic Information" subtitle="Tell us the essentials about this coupon." requiredHint>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Sequence Number">
+                    <input
+                      type="number"
+                      name="seq"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={formData.seq}
+                      onChange={handleInputChange}
+                      className="input"
+                      placeholder="e.g., 1"
+                    />
+                  </Field>
+                  <Field label="Coupon Name" required>
+                    <input
+                      type="text"
+                      name="name"
+                      value={formData.name}
+                      onChange={handleInputChange}
+                      className="input"
+                      placeholder="Summer Saver"
+                      autoComplete="off"
+                    />
+                  </Field>
+                  <Field label="Coupon Code" required>
+                    <input
+                      type="text"
+                      name="coupon_code"
+                      value={formData.coupon_code}
+                      onChange={handleInputChange}
+                      className="input uppercase tracking-wider"
+                      placeholder="SUMMER25"
+                      autoCapitalize="characters"
+                    />
+                  </Field>
+                  <Field label="Price" hint="Accepts currency text or %">
+                    <input
+                      type="text"
+                      name="price"
+                      value={formData.price}
+                      onChange={handleInputChange}
+                      className="input"
+                      placeholder="₹500 or 10%"
+                      inputMode="decimal"
+                    />
+                  </Field>
+                </div>
 
-        {/* Validity */}
-        <SectionCard title="Validity Period" subtitle="When can this coupon be used?">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Start Date" required>
-              <input
-                type="datetime-local"
-                name="validity.start"
-                value={formData.validity.start}
-                onChange={handleInputChange}
-                className="input"
-              />
-            </Field>
-            <Field label="End Date" required>
-              <input
-                type="datetime-local"
-                name="validity.end"
-                value={formData.validity.end}
-                onChange={handleInputChange}
-                className="input"
-              />
-            </Field>
-          </div>
-        </SectionCard>
+                <Field label="Description">
+                  <div className="border rounded-xl bg-white">
+                    <Editor
+                      editorState={detailsEditor}
+                      onEditorStateChange={setDetailsEditor}
+                      toolbar={{
+                        options: ["inline", "list","history"],
+                        inline: { options: ["bold", "italic", "underline", "monospace"] },
+                        list: { options: ["unordered", "ordered"] },
+                      }}
+                      editorClassName="px-3 py-2 min-h-[120px] text-[15px]"
+                      toolbarClassName="border-b"
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">Saved as HTML.</p>
+                </Field>
 
-        {/* Eligibility */}
-        <SectionCard title="Eligibility" subtitle="Who qualifies and under what conditions?">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="User Type" required>
-              <input
-                type="text"
-                name="eligibility.user_type"
-                value={formData.eligibility.user_type}
-                onChange={handleInputChange}
-                className="input"
-                placeholder="e.g., new_user, loyalty_gold"
-              />
-            </Field>
+               
+              </SectionCard>
 
-            <Field label="Min Cart Value">
-              <input
-                type="number"
-                name="eligibility.min_cart_value"
-                value={formData.eligibility.min_cart_value ?? ""}
-                onChange={handleInputChange}
-                className="input"
-                inputMode="decimal"
-                placeholder="e.g., 2500"
-              />
-            </Field>
+              <SectionCard title="Validity Period" subtitle="When can this coupon be used?">
+  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <Field label="Start Date">
+      <input
+        type="datetime-local"
+        name="validity.start"
+        value={formData.validity.start}
+        onChange={handleInputChange}
+        className="input"
+      />
+    </Field>
 
-            <Field label="Min Group Size">
-              <input
-                type="number"
-                name="eligibility.min_group_size"
-                value={formData.eligibility.min_group_size ?? ""}
-                onChange={handleInputChange}
-                className="input"
-                inputMode="numeric"
-                placeholder="e.g., 2"
-              />
-            </Field>
+    <Field label="End Date">
+      <input
+        type="datetime-local"
+        name="validity.end"
+        value={formData.validity.end}
+        onChange={handleInputChange}
+        className="input"
+      />
+    </Field>
 
-            <Field label="Min Stay Nights">
-              <input
-                type="number"
-                name="eligibility.min_stay_nights"
-                value={formData.eligibility.min_stay_nights ?? ""}
-                onChange={handleInputChange}
-                className="input"
-                inputMode="numeric"
-                placeholder="e.g., 3"
-              />
-            </Field>
-
-            <Field label="Payment Type" hint="e.g., prepaid, pay_at_property">
-              <input
-                type="text"
-                name="eligibility.payment_type"
-                value={formData.eligibility.payment_type ?? ""}
-                onChange={handleInputChange}
-                className="input"
-              />
-            </Field>
-
-            <Field label="Booking Time Cutoff" hint="24h time">
-              <input
-                type="time"
-                name="eligibility.booking_time_cutoff"
-                value={formData.eligibility.booking_time_cutoff ?? ""}
-                onChange={handleInputChange}
-                className="input"
-              />
-            </Field>
-
-            <Field label="Booking Date">
-              <input
-                type="date"
-                name="eligibility.booking_date"
-                value={formData.eligibility.booking_date ?? ""}
-                onChange={handleInputChange}
-                className="input"
-              />
-            </Field>
-
-            <Field label="Pickup Airport" hint="IATA code e.g., JFK">
-              <input
-                type="text"
-                name="eligibility.pickup_airport"
-                value={formData.eligibility.pickup_airport ?? ""}
-                onChange={handleInputChange}
-                className="input"
-                placeholder="e.g., BLR"
-                maxLength={4}
-              />
-            </Field>
-
-            <Field label="Max Pickup Distance (km)">
-              <input
-                type="number"
-                name="eligibility.max_pickup_distance_km"
-                value={formData.eligibility.max_pickup_distance_km ?? ""}
-                onChange={handleInputChange}
-                className="input"
-                inputMode="decimal"
-                placeholder="e.g., 15"
-              />
-            </Field>
-
-            <Field label="Stay Days (comma-separated)">
-              <input
-                type="text"
-                value={stayDays}
-                onChange={(e) => setStayDays(e.target.value)}
-                className="input"
-                placeholder="Monday, Tuesday"
-              />
-            </Field>
-
-            <Field label="Property Tags Required (comma-separated)">
-              <input
-                type="text"
-                value={propertyTags}
-                onChange={(e) => setPropertyTags(e.target.value)}
-                className="input"
-                placeholder="luxury, pool, beach"
-              />
-            </Field>
-
-            <Field label="Segments (comma-separated)">
-              <input
-                type="text"
-                value={segments}
-                onChange={(e) => setSegments(e.target.value)}
-                className="input"
-                placeholder="premium, business, leisure"
-              />
-            </Field>
-          </div>
-
-          {/* Toggles */}
-          <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
-            <ToggleCheck
-              label="First Booking"
-              name="eligibility.first_booking"
-              checked={formData.eligibility.first_booking ?? false}
-              onChange={handleInputChange}
-            />
-            <ToggleCheck
-              label="Same Day Booking"
-              name="eligibility.same_day_booking"
-              checked={formData.eligibility.same_day_booking ?? false}
-              onChange={handleInputChange}
-            />
-            <ToggleCheck
-              label="ID Check Required"
-              name="eligibility.id_check_required"
-              checked={formData.eligibility.id_check_required ?? false}
-              onChange={handleInputChange}
-            />
-            <ToggleCheck
-              label="Select Hotels Only"
-              name="eligibility.select_hotels_only"
-              checked={formData.eligibility.select_hotels_only ?? false}
-              onChange={handleInputChange}
-            />
-            <ToggleCheck
-              label="Participating Hotels Only"
-              name="eligibility.participating_hotels_only"
-              checked={formData.eligibility.participating_hotels_only ?? false}
-              onChange={handleInputChange}
-            />
-          </div>
-        </SectionCard>
-
-        {/* Terms & Conditions */}
-      <SectionCard title="Terms & Conditions" subtitle="One rule per line.">
-  <textarea
-    name="terms_conditions"
-    value={formData.terms_conditions}
-    onChange={handleInputChange}
-    placeholder={`Enter each term on a new line\nExample: Not valid on blackout dates`}
-    rows={5}
-    className="block w-full max-w-full px-3 py-2 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-grey-500 focus:border-grey-500 text-[15px] min-h-[120px] resize-y"
-  />
-  <p className="mt-1 text-xs text-gray-500">We’ll convert these to a list on submit.</p>
+    {/* Make Terms & Conditions full width on sm+ */}
+    <div className="sm:col-span-2">
+      <Field label="Terms & Conditions">
+        <div className="border rounded-xl bg-white">
+          <Editor
+            editorState={termsEditor}
+            onEditorStateChange={setTermsEditor}
+            toolbar={{
+              options: ["inline", "list", "history"],
+              inline: { options: ["bold", "italic", "underline", "monospace"] },
+              list: { options: ["unordered", "ordered"] },
+            }}
+            editorClassName="px-3 py-2 min-h-[120px] text-[15px]"
+            toolbarClassName="border-b"
+          />
+        </div>
+        <p className="mt-1 text-xs text-gray-500">Add rules as bullets; saved as HTML.</p>
+      </Field>
+    </div>
+  </div>
 </SectionCard>
 
-
-        {/* Images */}
-        <SectionCard title="Images" subtitle="Add marketing creatives or banners.">
-          {images.length === 0 ? (
-            <div>
-              <label className="block">
-                <div className="flex items-center justify-center w-full px-4 py-10 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white">
-                  <div className="text-center">
-                    <svg className="mx-auto h-10 w-10 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                      <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    <p className="mt-2 text-sm text-gray-700">Tap to upload images</p>
-                    <p className="text-xs text-gray-500">PNG, JPG, GIF up to 10MB • You can choose multiple</p>
-                  </div>
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleImageUpload}
-                  className="hidden"
-                />
-              </label>
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {images.map((image, index) => (
-                  <div key={index} className="relative rounded-xl overflow-hidden border border-gray-200 bg-white">
-                    <img src={image.preview} alt={`Image ${index + 1}`} className="w-full h-28 object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => removeImage(index)}
-                      className="absolute top-1.5 right-1.5 w-7 h-7 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-lg text-lg font-bold"
-                      title="Remove image"
-                      aria-label="Remove image"
-                    >
-                      ×
-                    </button>
-                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
-                      <p className="text-white text-[11px] truncate" title={image.file.name}>
-                        {image.file.name}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </>
           )}
-        </SectionCard>
+
+          {activeTab === "Eligibility" && (
+            <>
+              <SectionCard title="Eligibility" subtitle="Who qualifies and under what conditions?">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="User Type">
+                    <input
+                      type="text"
+                      name="eligibility.user_type"
+                      value={formData.eligibility.user_type}
+                      onChange={handleInputChange}
+                      className="input"
+                      placeholder="e.g., new_user, loyalty_gold"
+                    />
+                  </Field>
+
+                  <Field label="Min Cart Value">
+                    <input
+                      type="number"
+                      name="eligibility.min_cart_value"
+                      value={formData.eligibility.min_cart_value ?? ""}
+                      onChange={handleInputChange}
+                      className="input"
+                      inputMode="decimal"
+                      placeholder="e.g., 2500"
+                    />
+                  </Field>
+
+                  <Field label="Min Group Size">
+                    <input
+                      type="number"
+                      name="eligibility.min_group_size"
+                      value={formData.eligibility.min_group_size ?? ""}
+                      onChange={handleInputChange}
+                      className="input"
+                      inputMode="numeric"
+                      placeholder="e.g., 2"
+                    />
+                  </Field>
+
+                  <Field label="Min Stay Nights">
+                    <input
+                      type="number"
+                      name="eligibility.min_stay_nights"
+                      value={formData.eligibility.min_stay_nights ?? ""}
+                      onChange={handleInputChange}
+                      className="input"
+                      inputMode="numeric"
+                      placeholder="e.g., 3"
+                    />
+                  </Field>
+
+                  <Field label="Payment Type" hint="e.g., prepaid, pay_at_property">
+                    <input
+                      type="text"
+                      name="eligibility.payment_type"
+                      value={formData.eligibility.payment_type ?? ""}
+                      onChange={handleInputChange}
+                      className="input"
+                    />
+                  </Field>
+
+                  <Field label="Booking Time Cutoff" hint="24h time">
+                    <input
+                      type="time"
+                      name="eligibility.booking_time_cutoff"
+                      value={formData.eligibility.booking_time_cutoff ?? ""}
+                      onChange={handleInputChange}
+                      className="input"
+                    />
+                  </Field>
+
+                  <Field label="Booking Date">
+                    <input
+                      type="date"
+                      name="eligibility.booking_date"
+                      value={formData.eligibility.booking_date ?? ""}
+                      onChange={handleInputChange}
+                      className="input"
+                    />
+                  </Field>
+
+                  <Field label="Pickup Airport" hint="IATA code e.g., JFK">
+                    <input
+                      type="text"
+                      name="eligibility.pickup_airport"
+                      value={formData.eligibility.pickup_airport ?? ""}
+                      onChange={handleInputChange}
+                      className="input"
+                      placeholder="e.g., BLR"
+                      maxLength={4}
+                    />
+                  </Field>
+
+                  <Field label="Max Pickup Distance (km)">
+                    <input
+                      type="number"
+                      name="eligibility.max_pickup_distance_km"
+                      value={formData.eligibility.max_pickup_distance_km ?? ""}
+                      onChange={handleInputChange}
+                      className="input"
+                      inputMode="decimal"
+                      placeholder="e.g., 15"
+                    />
+                  </Field>
+
+                  <Field label="Stay Days (comma-separated)">
+                    <input
+                      type="text"
+                      value={stayDays}
+                      onChange={(e) => setStayDays(e.target.value)}
+                      className="input"
+                      placeholder="Monday, Tuesday"
+                    />
+                  </Field>
+
+                  <Field label="Property Tags Required (comma-separated)">
+                    <input
+                      type="text"
+                      value={propertyTags}
+                      onChange={(e) => setPropertyTags(e.target.value)}
+                      className="input"
+                      placeholder="luxury, pool, beach"
+                    />
+                  </Field>
+
+                  <Field label="Segments (comma-separated)">
+                    <input
+                      type="text"
+                      value={segments}
+                      onChange={(e) => setSegments(e.target.value)}
+                      className="input"
+                      placeholder="premium, business, leisure"
+                    />
+                  </Field>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <ToggleCheck
+                    label="First Booking"
+                    name="eligibility.first_booking"
+                    checked={formData.eligibility.first_booking ?? false}
+                    onChange={handleInputChange}
+                  />
+                  <ToggleCheck
+                    label="Same Day Booking"
+                    name="eligibility.same_day_booking"
+                    checked={formData.eligibility.same_day_booking ?? false}
+                    onChange={handleInputChange}
+                  />
+                  <ToggleCheck
+                    label="ID Check Required"
+                    name="eligibility.id_check_required"
+                    checked={formData.eligibility.id_check_required ?? false}
+                    onChange={handleInputChange}
+                  />
+                  <ToggleCheck
+                    label="Select Hotels Only"
+                    name="eligibility.select_hotels_only"
+                    checked={formData.eligibility.select_hotels_only ?? false}
+                    onChange={handleInputChange}
+                  />
+                  <ToggleCheck
+                    label="Participating Hotels Only"
+                    name="eligibility.participating_hotels_only"
+                    checked={formData.eligibility.participating_hotels_only ?? false}
+                    onChange={handleInputChange}
+                  />
+                </div>
+              </SectionCard>
+            </>
+          )}
+
+          {activeTab === "Images" && (
+            <>
+              <SectionCard title="Images (required)" subtitle="Add marketing creatives or banners.">
+                {images.length === 0 ? (
+                  <div>
+                    <label className="block">
+                      <div className="flex items-center justify-center w-full px-4 py-10 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white">
+                        <div className="text-center">
+                          <svg className="mx-auto h-10 w-10 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                            <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          <p className="mt-2 text-sm text-gray-700">Tap to upload images</p>
+                          <p className="text-xs text-gray-500">PNG, JPG, GIF up to 10MB • You can choose multiple</p>
+                        </div>
+                      </div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {images.map((image, index) => (
+                      <div key={index} className="relative rounded-xl overflow-hidden border border-gray-200 bg-white">
+                        <img src={image.preview} alt={`Image ${index + 1}`} className="w-full h-28 object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => removeImage(index)}
+                          className="absolute top-1.5 right-1.5 w-7 h-7 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-lg text-lg font-bold"
+                          title="Remove image"
+                          aria-label="Remove image"
+                        >
+                          ×
+                        </button>
+                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
+                          <p className="text-white text-[11px] truncate" title={image.file.name}>
+                            {image.file.name}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </SectionCard>
+            </>
+          )}
+        </fieldset>
       </main>
 
       {/* Sticky action bar */}
@@ -558,28 +677,61 @@ console.log(submitFormData);
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 text-xs text-gray-600 bg-gray-100 rounded-full px-2.5 py-1">
                   <span className={`size-1.5 rounded-full ${requiredOk ? "bg-green-500" : "bg-amber-500"}`} />
-                  {requiredOk ? "Ready to submit" : "Fill required fields"}
+                  {activeTab === "Images" ? (requiredOk ? "Ready to submit" : "Fill required fields") : "Continue to next"}
                 </span>
               </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  className="px-4 py-2 text-sm font-medium rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-50 w-full sm:w-auto"
-                >
-                  Reset
-                </button>
-                <button
-                  type="submit"
-                  onClick={() => handleSubmit()}
-                  disabled={!requiredOk}
-                  className={`px-5 py-2 text-sm font-semibold rounded-xl text-white w-full sm:w-auto transition-colors ${
-                    requiredOk ? "bg-blue-600 hover:bg-blue-700" : "bg-blue-300 cursor-not-allowed"
-                  }`}
-                >
-                  Create Coupon
-                </button>
-              </div>
+
+              {/* Footer buttons: Cancel + Continue until last tab; Create only on last */}
+              {activeTab !== "Images" ? (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => router.push("/dashboard/coupons")}
+                    disabled={isSubmitting}
+                    className="px-4 py-2 text-sm font-medium rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-50 w-full sm:w-auto disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goNextTab}
+                    disabled={isSubmitting}
+                    className="px-5 py-2 text-sm font-semibold rounded-xl text-white w-full sm:w-auto bg-blue-600 hover:bg-blue-700 disabled:opacity-60"
+                  >
+                    Continue
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => router.push("/dashboard/coupons")}
+                    disabled={isSubmitting}
+                    className="px-4 py-2 text-sm font-medium rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-50 w-full sm:w-auto disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!requiredOk || isSubmitting}
+                    className={`px-5 py-2 text-sm font-semibold rounded-xl text-white w-full sm:w-auto transition-colors inline-flex items-center justify-center gap-2 ${
+                      !requiredOk || isSubmitting ? "bg-blue-300 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
+                    }`}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                          <circle cx="12" cy="12" r="10" strokeWidth="2" opacity="0.25" />
+                          <path d="M22 12a10 10 0 0 1-10 10" strokeWidth="2" />
+                        </svg>
+                        Creating…
+                      </>
+                    ) : (
+                      "Create Coupon"
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -596,6 +748,16 @@ console.log(submitFormData);
       `}</style>
     </form>
   );
+}
+
+// Utility: try to read server error body safely
+async function safeErrorText(res: Response) {
+  try {
+    const txt = await res.text();
+    return txt;
+  } catch {
+    return "";
+  }
 }
 
 // ------- REUSABLES -------

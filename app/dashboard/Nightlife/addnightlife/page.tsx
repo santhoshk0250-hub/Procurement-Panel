@@ -374,7 +374,7 @@ export default function AddNightlifeMobile() {
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-gray-200">
         <div className="px-4 py-3 sm:px-6 max-w-3xl mx-auto">
           <div className="flex items-center gap-3">
-            <div className="size-9 rounded-lg bg-emerald-600 text-white grid place-items-center text-sm font-bold shadow">
+            <div className="size-9 rounded-lg bg-blue-600 text-white grid place-items-center text-sm font-bold shadow">
               {title[0]?.toUpperCase() || "N"}
             </div>
             <div className="flex-1 min-w-0">
@@ -410,9 +410,9 @@ export default function AddNightlifeMobile() {
                   }}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs whitespace-nowrap ${
                     active
-                      ? "bg-emerald-50 border-emerald-500 text-emerald-700"
+                      ? "bg-blue-50 border-blue-500 text-blue-700"
                       : done
-                      ? "bg-green-50 border-green-500 text-green-700"
+                      ? "bg-blue-50 border-blue-500 text-blue-700"
                       : "bg-white border-gray-200 text-gray-700"
                   }`}
                   disabled={submitting}
@@ -427,7 +427,7 @@ export default function AddNightlifeMobile() {
           {/* Progress */}
           <div className="mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
             <div
-              className={`h-full transition-all ${submitting ? "bg-emerald-400" : "bg-emerald-600"}`}
+              className={`h-full transition-all ${submitting ? "bg-blue-400" : "bg-blue-600"}`}
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -440,7 +440,7 @@ export default function AddNightlifeMobile() {
           <SectionCard
             title="Basic Details"
             subtitle="Required fields for a nightlife venue."
-            icon={<FileText className="size-5 text-emerald-600" />}
+            icon={<FileText className="size-5 text-blue-600" />}
             requiredHint
           >
             <div className="rounded-xl border border-gray-200 p-4">
@@ -494,7 +494,7 @@ export default function AddNightlifeMobile() {
                         <button
                           type="button"
                           onClick={addType}
-                          className="px-4 py-3 text-sm font-semibold rounded-xl text-white bg-emerald-600 hover:bg-emerald-700"
+                          className="px-4 py-3 text-sm font-semibold rounded-xl text-white bg-blue-600 hover:bg-blue-700"
                           disabled={submitting}
                         >
                           Add
@@ -515,7 +515,7 @@ export default function AddNightlifeMobile() {
                       <button
                         type="button"
                         onClick={() => setShowTypeInput(true)}
-                        className="text-emerald-700 text-sm inline-flex items-center gap-1"
+                        className="text-blue-700 text-sm inline-flex items-center gap-1"
                         disabled={submitting}
                       >
                         <Plus className="size-4" /> Add custom type
@@ -529,7 +529,7 @@ export default function AddNightlifeMobile() {
         )}
 
         {step.key === "meta" && (
-          <SectionCard title="Meta & Logistics" subtitle="Plan-friendly details." icon={<ListChecks className="size-5 text-emerald-600" />}>
+          <SectionCard title="Meta & Logistics" subtitle="Plan-friendly details." icon={<ListChecks className="size-5 text-blue-600" />}>
             <div className="rounded-xl border border-gray-200 p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Hours">
@@ -578,7 +578,7 @@ export default function AddNightlifeMobile() {
           <SectionCard
             title="Content & Pricing"
             subtitle="Describe the vibe and add pricing notes."
-            icon={<MapPin className="size-5 text-emerald-600" />}
+            icon={<MapPin className="size-5 text-blue-600" />}
           >
             <div className="rounded-xl border border-gray-200 p-4">
               <div className="grid grid-cols-1 gap-4">
@@ -739,14 +739,14 @@ export default function AddNightlifeMobile() {
         )}
 
         {step.key === "media" && (
-          <SectionCard title="Media" subtitle="Upload a thumbnail and gallery images." icon={<ImageIcon className="size-5 text-emerald-600" />}>
+          <SectionCard title="Media" subtitle="Upload a thumbnail and gallery images." icon={<ImageIcon className="size-5 text-blue-600" />}>
             <div className="space-y-6">
               {/* Thumbnail */}
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 sm:p-4">
-                <h4 className="text-xs font-semibold text-emerald-900 mb-2">Thumbnail</h4>
+              <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3 sm:p-4">
+                <h4 className="text-xs font-semibold text-blue-900 mb-2">Thumbnail</h4>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 items-start">
                   {data.existingThumbnail ? (
-                    <div className="relative aspect-square rounded-xl overflow-hidden border-2 border-emerald-300 bg-white">
+                    <div className="relative aspect-square rounded-xl overflow-hidden border-2 border-blue-300 bg-white">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={data.existingThumbnail} alt="Existing thumbnail" className="w-full h-full object-cover" />
                       <button
@@ -761,7 +761,7 @@ export default function AddNightlifeMobile() {
                       </button>
                     </div>
                   ) : data.newThumbnail ? (
-                    <div className="relative aspect-square rounded-xl overflow-hidden border-2 border-emerald-400 bg-white">
+                    <div className="relative aspect-square rounded-xl overflow-hidden border-2 border-blue-400 bg-white">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={data.newThumbnail.preview} alt="New thumbnail" className="w-full h-full object-cover" />
                       <button
@@ -777,10 +777,10 @@ export default function AddNightlifeMobile() {
                     </div>
                   ) : (
                     <label className="block aspect-square">
-                      <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-emerald-300 rounded-xl cursor-pointer hover:border-emerald-500 transition-colors bg-white hover:bg-emerald-50">
-                        <Plus className="size-6 text-emerald-500" />
-                        <p className="mt-1 text-sm font-medium text-emerald-900">Add Thumbnail</p>
-                        <p className="text-[11px] text-emerald-800/70">JPG/PNG/WebP</p>
+                      <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-blue-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-blue-50">
+                        <Plus className="size-6 text-blue-500" />
+                        <p className="mt-1 text-sm font-medium text-blue-900">Add Thumbnail</p>
+                        <p className="text-[11px] text-blue-800/70">JPG/PNG/WebP</p>
                       </div>
                       <input
                         ref={thumbInputRef}
@@ -796,13 +796,13 @@ export default function AddNightlifeMobile() {
               </div>
 
               {/* Gallery */}
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 sm:p-4">
+              <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3 sm:p-4">
                 {(data.existingImages?.length || 0) > 0 && (
                   <>
-                    <h4 className="text-xs font-semibold text-emerald-900 mb-2">Existing Gallery</h4>
+                    <h4 className="text-xs font-semibold text-blue-900 mb-2">Existing Gallery</h4>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-4">
                       {data.existingImages!.map((url, i) => (
-                        <div key={`ex-${i}`} className="relative aspect-square rounded-xl overflow-hidden border-2 border-emerald-300 bg-white">
+                        <div key={`ex-${i}`} className="relative aspect-square rounded-xl overflow-hidden border-2 border-blue-300 bg-white">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={url} alt={`Image ${i + 1}`} className="w-full h-full object-cover" />
                           <button
@@ -821,10 +821,10 @@ export default function AddNightlifeMobile() {
                   </>
                 )}
 
-                <h4 className="text-xs font-semibold text-emerald-900 mb-2">New Uploads</h4>
+                <h4 className="text-xs font-semibold text-blue-900 mb-2">New Uploads</h4>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                   {data.newImages.map((img, i) => (
-                    <div key={i} className="relative aspect-square rounded-xl overflow-hidden border-2 border-emerald-400 bg-white">
+                    <div key={i} className="relative aspect-square rounded-xl overflow-hidden border-2 border-blue-400 bg-white">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={img.preview} alt={`New ${i + 1}`} className="w-full h-full object-cover" />
                       <button
@@ -842,10 +842,10 @@ export default function AddNightlifeMobile() {
 
                   {/* Add tile */}
                   <label className="block aspect-square">
-                    <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-emerald-300 rounded-xl cursor-pointer hover:border-emerald-500 transition-colors bg-white hover:bg-emerald-50">
-                      <Plus className="size-6 text-emerald-500" />
-                      <p className="mt-1 text-sm font-medium text-emerald-900">Add Images</p>
-                      <p className="text-[11px] text-emerald-800/70">JPG/PNG/WebP</p>
+                    <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-blue-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-blue-50">
+                      <Plus className="size-6 text-blue-500" />
+                      <p className="mt-1 text-sm font-medium text-blue-900">Add Images</p>
+                      <p className="text-[11px] text-blue-800/70">JPG/PNG/WebP</p>
                     </div>
                     <input
                       ref={imagesInputRef}
@@ -865,12 +865,12 @@ export default function AddNightlifeMobile() {
       </main>
 
       {/* Sticky step navigation */}
-      <div className="fixed inset-x-0 bottom-0 z-40 bg-gray-50/95 backdrop-blur safe-bottom pt-2">
+     <div className="fixed bottom-0 right-0 left-0 lg:left-64 z-40 bg-gray-50/95 backdrop-blur safe-bottom pt-2">
         <div className="mx-auto max-w-3xl px-4 sm:px-6 pb-2">
           <div className="rounded-2xl border border-gray-200 bg-white shadow-xl shadow-gray-900/5">
             <div className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
               <span className="inline-flex items-center gap-2 text-xs text-gray-600 bg-gray-100 rounded-full px-3 py-1.5 font-semibold self-start sm:self-auto">
-                <span className={`size-2 rounded-full ${isStepValid(step.key) ? "bg-green-500" : "bg-amber-500"}`} />
+                <span className={`size-2 rounded-full ${isStepValid(step.key) ? "bg-blue-500" : "bg-amber-500"}`} />
                 {isStepValid(step.key) ? "Looks good" : "Complete required fields"}
               </span>
 
@@ -891,7 +891,7 @@ export default function AddNightlifeMobile() {
                   onClick={goNext}
                   disabled={!canGoNext || submitting}
                   className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
-                    !canGoNext || submitting ? "bg-emerald-300 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800"
+                    !canGoNext || submitting ? "bg-blue-300 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
                   }`}
                   aria-busy={submitting ? "true" : "false"}
                 >
@@ -913,7 +913,7 @@ export default function AddNightlifeMobile() {
       {/* Local styles */}
       <style jsx>{`
         .input {
-          @apply w-full h-12 px-4 py-3 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-[16px] leading-none placeholder:text-gray-400 transition-all;
+          @apply w-full h-12 px-4 py-3 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-[16px] leading-none placeholder:text-gray-400 transition-all;
           -webkit-tap-highlight-color: transparent;
         }
         .no-scrollbar::-webkit-scrollbar {
@@ -950,7 +950,7 @@ function SectionCard({
       <div className="bg-white rounded-xl border border-gray-200 shadow-md overflow-visible">
         <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="size-8 grid place-items-center bg-emerald-50 rounded-lg">{icon}</div>
+            <div className="size-8 grid place-items-center bg-blue-50 rounded-lg">{icon}</div>
             <div>
               <h2 className="text-base font-bold text-gray-900">{title}</h2>
               {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}

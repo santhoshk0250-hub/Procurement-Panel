@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Box, Tabs, Tab } from "@mui/material";
+import { Box, Tabs, Tab, Paper, useTheme, useMediaQuery } from "@mui/material";
+import { Place, CardGiftcard } from "@mui/icons-material";
 import SightseeingDashboard from "./places/page";
 import SightseeingPackagesDashboard from "./packages/page";
 
@@ -15,15 +16,17 @@ export default function SightseeingTabsPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   // Read ?tab from query; default to "places"
   const currentTab = (searchParams.get("tab") || TAB_PLACES) as TabKey;
 
-  // Navigate by replacing only the tab param (keeps page mount stable, avoids scroll jump)
+  // Navigate by replacing only the tab param
   const navigate = (tab: TabKey) => {
     const params = new URLSearchParams(searchParams.toString());
     if (tab === TAB_PLACES) {
-      params.delete("tab"); // keep URL clean for default
+      params.delete("tab");
     } else {
       params.set("tab", tab);
     }
@@ -34,20 +37,78 @@ export default function SightseeingTabsPage() {
   const handleChange = (_: React.SyntheticEvent, value: TabKey) => navigate(value);
 
   return (
-    <Box sx={{ p: 2 }}>
-      <Tabs
-        value={currentTab}
-        onChange={handleChange}
-        variant="scrollable"
-        scrollButtons="auto"
-        aria-label="Sightseeing tabs"
-        sx={{ mb: 2 }}
+    <Box sx={{ width: "100%", bgcolor: "background.default" }}>
+      {/* Tab Navigation */}
+      <Paper
+        elevation={0}
+        sx={{
+          borderBottom: 1,
+          borderColor: "divider",
+          position: "sticky",
+          top: 0,
+          zIndex: 10,
+          bgcolor: "background.paper",
+        }}
       >
-        <Tab value={TAB_PLACES} label="Places" />
-        <Tab value={TAB_PACKAGES} label="Packages" />
-      </Tabs>
+        <Box sx={{ px: { xs: 1, sm: 2, md: 3 } }}>
+          <Tabs
+            value={currentTab}
+            onChange={handleChange}
+            variant={isMobile ? "fullWidth" : "standard"}
+            aria-label="Sightseeing tabs"
+            sx={{
+              minHeight: { xs: 56, sm: 64 },
+              "& .MuiTabs-indicator": {
+                height: 3,
+                borderRadius: "3px 3px 0 0",
+              },
+              "& .MuiTab-root": {
+                minHeight: { xs: 56, sm: 64 },
+                fontSize: { xs: "0.875rem", sm: "0.9375rem" },
+                fontWeight: 600,
+                textTransform: "none",
+                transition: "all 0.2s ease",
+                "&:hover": {
+                  color: "primary.main",
+                  bgcolor: "action.hover",
+                },
+                "&.Mui-selected": {
+                  color: "primary.main",
+                },
+              },
+            }}
+          >
+            <Tab
+              value={TAB_PLACES}
+              icon={<Place sx={{ fontSize: { xs: 20, sm: 22 } }} />}
+              iconPosition={isMobile ? "top" : "start"}
+              label="Places"
+              sx={{
+                gap: { xs: 0.5, sm: 1 },
+                flexDirection: isMobile ? "column" : "row",
+              }}
+            />
+            <Tab
+              value={TAB_PACKAGES}
+              icon={<CardGiftcard sx={{ fontSize: { xs: 20, sm: 22 } }} />}
+              iconPosition={isMobile ? "top" : "start"}
+              label="Packages"
+              sx={{
+                gap: { xs: 0.5, sm: 1 },
+                flexDirection: isMobile ? "column" : "row",
+              }}
+            />
+          </Tabs>
+        </Box>
+      </Paper>
 
-      <Box sx={{ mt: 1 }}>
+      {/* Tab Content */}
+      <Box
+        sx={{
+          p: { xs: 2, sm: 2.5, md: 3 },
+          minHeight: "calc(100vh - 200px)",
+        }}
+      >
         {currentTab === TAB_PLACES ? (
           <SightseeingDashboard />
         ) : (
