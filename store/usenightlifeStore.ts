@@ -16,7 +16,10 @@ export type NightVenueType =
 
 export type NightAmenity = { name: string; details?: string };
 export type Music = { name: string; details?: string };
-
+export interface FAQ {
+  q: string;
+  a: string; // HTML (rich text) answer
+}
 /** UI shape kept in Zustand (form state) */
 export interface NightlifeUI {
   // Core
@@ -40,7 +43,7 @@ export interface NightlifeUI {
 
   existingThumbnail?: string; // server thumbnail URL
   newThumbnail?: { file: File; preview: string } | null;
-
+ llm_chips?: FAQ[];
   // Optional server metadata (kept for convenience)
   createdAt?: string;
   updatedAt?: string;
@@ -61,6 +64,7 @@ export type NightlifeDoc = {
   music_type?: string[];
   amenities?: string[]; // on server, amenities are plain strings
   images?: string[]; // server images
+    llm_chips?: FAQ[];
   thumbnail?: string; // server thumbnail
   createdAt?: string;
   updatedAt?: string;
@@ -84,6 +88,12 @@ export function toFormData(doc: NightlifeDoc): NightlifeUI {
   const amenitiesStrings = normalizeStringArray(doc.amenities);
   const images = normalizeStringArray(doc.images);
 
+  const llmChips: FAQ[] = Array.isArray(doc.llm_chips)
+    ? doc.llm_chips.map((c) => ({
+        q: (c.q ?? "").toString(),
+        a: (c.a ?? "").toString(),
+      }))
+    : [];
   return {
     _id: doc._id,
     name: doc.name ?? "",
@@ -100,7 +110,7 @@ export function toFormData(doc: NightlifeDoc): NightlifeUI {
 
     existingImages: images,
     newImages: [],
-
+llm_chips: llmChips,
     existingThumbnail: doc.thumbnail ?? "",
     newThumbnail: null,
 
@@ -141,6 +151,10 @@ export function toServerPayload(
     thumbnail: newThumbnailUrl
       ? newThumbnailUrl
       : (data.existingThumbnail ?? ""),
+    llm_chips: (data.llm_chips ?? []).map((c) => ({
+      q: (c.q ?? "").toString(),
+      a: (c.a ?? "").toString(),
+    })),
   };
 }
 
@@ -163,6 +177,7 @@ const BLANK: NightlifeUI = {
   newImages: [],
   existingThumbnail: "",
   newThumbnail: null,
+  llm_chips: [],
 };
 
 /* =========================
@@ -189,6 +204,11 @@ type NightlifeStore = {
   removeAmenity: (index: number) => void;
   addMusic: (name: string) => void;
   removeMusic: (index: number) => void;
+
+    setLlmChips: (chips: FAQ[]) => void;
+  addLlmChip: (chip: FAQ) => void;
+  updateLlmChipAt: (index: number, patch: Partial<FAQ>) => void;
+  removeLlmChipAt: (index: number) => void;
 };
 
 export const useNightlifeStore = create<NightlifeStore>()(
@@ -290,6 +310,60 @@ export const useNightlifeStore = create<NightlifeStore>()(
           next.splice(index, 1);
           return { data: { ...s.data, music_type: next } };
         }),
+         /* ---------- LLM chips ---------- */
+      setLlmChips: (chips) =>
+        set((s) => ({
+          data: {
+            ...s.data,
+            llm_chips: chips.map((c) => ({
+              q: (c.q ?? "").toString(),
+              a: (c.a ?? "").toString(),
+            })),
+          },
+        })),
+
+      addLlmChip: (chip) =>
+        set((s) => ({
+          data: {
+            ...s.data,
+            llm_chips: [
+              ...(s.data.llm_chips || []),
+              {
+                q: (chip.q ?? "").toString(),
+                a: (chip.a ?? "").toString(),
+              },
+            ],
+          },
+        })),
+
+      updateLlmChipAt: (index, patch) =>
+        set((s) => ({
+          data: {
+            ...s.data,
+            llm_chips: (s.data.llm_chips || []).map((c, i) =>
+              i === index
+                ? {
+                    q:
+                      patch.q !== undefined
+                        ? patch.q.toString()
+                        : c.q,
+                    a:
+                      patch.a !== undefined
+                        ? patch.a.toString()
+                        : c.a,
+                  }
+                : c
+            ),
+          },
+        })),
+
+      removeLlmChipAt: (index) =>
+        set((s) => ({
+          data: {
+            ...s.data,
+            llm_chips: (s.data.llm_chips || []).filter((_, i) => i !== index),
+          },
+        })),
     }),
     {
       name: "nightlife-draft", // keeps draft across navigation/refresh

@@ -13,6 +13,8 @@ import {
   IndianRupee,
   Plus,
   X,
+  HelpCircle,
+  Trash2,
 } from "lucide-react";
 import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
 import { EditorState, ContentState, convertFromHTML } from "draft-js";
@@ -34,6 +36,7 @@ type NightVenueType =
 
 type NightAmenity = { name: string; details?: string };
 type Music = { name: string; details?: string };
+type FAQ = { q: string; a: string };
 
 interface NightlifeUI {
   name: string;
@@ -47,6 +50,7 @@ interface NightlifeUI {
   music_type: string[];
   amenities: NightAmenity[];
   existingImages?: string[];
+  llm_chips?: FAQ[];
   newImages: Array<{ file: File; preview: string }>;
   existingThumbnail?: string;
   newThumbnail?: { file: File; preview: string } | null;
@@ -96,6 +100,11 @@ function coalesceImages(local: NightlifeUI, storeData: any) {
   if (Array.isArray(storeData?.existingImages)) return storeData.existingImages;
   return [];
 }
+
+const sanitizeHtml = (html: string) =>
+  html
+    .replace(/[\n\r]/g, "") // drop newline and carriage return characters
+    .replace(/>\s+</g, "><"); 
 
 /* =========================
    Component
@@ -253,6 +262,7 @@ export default function EditNightlifeMobile() {
     !!data.name?.trim() && !!String(data.type || "").trim();
   const STEPS = [
     { key: "details", label: "Details", icon: <FileText className="size-4" /> },
+     { key: "llmChips", label: "LLM Chips", icon: <HelpCircle className="size-4" /> },
     { key: "meta", label: "Meta", icon: <ListChecks className="size-4" /> },
     { key: "content", label: "Content", icon: <MapPin className="size-4" /> },
     { key: "media", label: "Media", icon: <ImageIcon className="size-4" /> },
@@ -284,6 +294,42 @@ export default function EditNightlifeMobile() {
     setNewType("");
     setShowTypeInput(false);
   };
+
+      const htmlToEditorState = (html?: string) => {
+        const safe = (html ?? "").trim();
+        if (!safe) return EditorState.createEmpty();
+        const blocks = convertFromHTML(safe);
+        const content = ContentState.createFromBlockArray(blocks.contentBlocks, blocks.entityMap);
+        return EditorState.createWithContent(content);
+      };
+
+     // NEW: LLM chips state + editors
+          const [llmChips, setLlmChips] = useState<FAQ[]>(
+            storeData?.llm_chips && storeData.llm_chips.length ? storeData.llm_chips : [{ q: "", a: "" }]
+          );
+    
+    
+          const [llmChipEditors, setLlmChipEditors] = useState<EditorState[]>(() =>
+            (storeData?.llm_chips && storeData.llm_chips.length ? storeData.llm_chips : [{ q: "", a: "" }]).map((c) =>
+              htmlToEditorState(c.a)
+            )
+          );
+      
+          const addLlmChip = () => {
+            setLlmChips((p) => [...p, { q: "", a: "" }]);
+            setLlmChipEditors((p) => [...p, EditorState.createEmpty()]);
+          };
+        
+          const remLlmChip = (idx: number) => {
+            setLlmChips((p) => (p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)));
+            setLlmChipEditors((p) =>
+              p.length <= 1 ? [EditorState.createEmpty()] : p.filter((_, i) => i !== idx)
+            );
+          };
+        
+          const setLlmChip = (idx: number, next: Partial<FAQ>) =>
+            setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
+  
 
   const addAmenity = () => {
     if (!newAmenity.trim()) return;
@@ -396,6 +442,20 @@ export default function EditNightlifeMobile() {
         // If a new thumbnail file is uploaded, send empty string so backend uses the file
         thumbnail: data.newThumbnail?.file ? "" : coalescedThumb,
         images: gallery,
+             llm_chips: llmChips
+                                  .map((c, idx) => {
+                                    const editor = llmChipEditors[idx] || EditorState.createEmpty();
+                                    const content = editor.getCurrentContent();
+                                    const hasText = content.hasText();
+                                    const rawHtml = stateToHTML(content);
+                                    const html = hasText ? sanitizeHtml(rawHtml) : "";
+                        
+                                    return {
+                                      q: (c.q || "").trim(),
+                                      a: html.trim(),
+                                    };
+                                  })
+                                  .filter((c) => c.q || c.a),
       };
 
       const fd = new FormData();
@@ -677,6 +737,78 @@ export default function EditNightlifeMobile() {
             </div>
           </SectionCard>
         )}
+
+         {step.key === "llmChips" && (
+                                  <SectionCard
+                                    title="LLM Chips"
+                                    subtitle="Predefined Q&A snippets for the assistant."
+                                    icon={<HelpCircle className="size-5 text-blue-600" />}
+                                  >
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="text-sm font-semibold text-gray-800">Chips</span>
+                                      <button
+                                        type="button"
+                                        onClick={addLlmChip}
+                                        disabled={submitting}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                                      >
+                                        <Plus className="size-3.5" />
+                                        Add Chip
+                                      </button>
+                                    </div>
+                        
+                                    <div className="space-y-3">
+                                      {llmChips.map((c, i) => (
+                                        <div key={`llm-chip-${i}`} className="rounded-xl border border-gray-200 p-3">
+                                          <div className="flex items-center justify-between mb-2">
+                                            <p className="text-xs font-semibold text-gray-600">Chip #{i + 1}</p>
+                                            <button
+                                              type="button"
+                                              onClick={() => remLlmChip(i)}
+                                              disabled={submitting}
+                                              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                                            >
+                                              <Trash2 className="size-3.5" />
+                                              Remove
+                                            </button>
+                                          </div>
+                                          <div className="space-y-3">
+                                            <Field label="Question / Prompt">
+                                              <input
+                                                type="text"
+                                                className="input w-full"
+                                                value={c.q}
+                                                onChange={(e) => setLlmChip(i, { q: e.target.value })}
+                                                placeholder="e.g., Do you offer Jain or vegan meals?"
+                                                disabled={submitting}
+                                              />
+                                            </Field>
+                                            <Field label="Answer / Response">
+                                              <div className="rounded-xl border border-gray-300 bg-white p-2">
+                                                <Editor
+                                                  editorState={llmChipEditors[i] || EditorState.createEmpty()}
+                                                  onEditorStateChange={(next) =>
+                                                    setLlmChipEditors((eds) =>
+                                                      eds.map((ed, idx) => (idx === i ? next : ed))
+                                                    )
+                                                  }
+                                                  toolbar={{
+                                                    options: ["inline", "list"],
+                                                    inline: { options: ["bold", "italic", "underline", "strikethrough"] },
+                                                    list: { options: ["unordered", "ordered"] },
+                                                  }}
+                                                  toolbarClassName="border-b"
+                                                  wrapperClassName="rounded-xl overflow-hidden"
+                                                  editorClassName="min-h-[100px] px-3"
+                                                />
+                                              </div>
+                                            </Field>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </SectionCard>
+                                )}
 
         {step.key === "meta" && (
           <SectionCard

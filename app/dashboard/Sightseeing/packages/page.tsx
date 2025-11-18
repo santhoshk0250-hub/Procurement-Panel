@@ -49,6 +49,7 @@ import { useSightseeingPackageStore } from "@/store/usesightpackages";
 
 /* ================== Types ================== */
 export type IDType = string | { $oid: string } | undefined;
+export type FAQ = { q: string; a: string };
 
 export interface SightseeingPackage {
   _id?: IDType;
@@ -63,6 +64,7 @@ export interface SightseeingPackage {
   place_ids?: (string | { $oid: string })[];
   inclusions?: string[];
   exclusions?: string[];
+  llm_chips?: FAQ[];
   price_regular?: number;
   price_block_out?: number;
   price_block_out_special?: number;
@@ -301,15 +303,9 @@ const SightseeingPackagesDashboard: React.FC = () => {
                       {typeof p.duration_hours === "number" && (
                         <Chip size="small" icon={<AccessTimeIcon fontSize="small" />} label={`${p.duration_hours} hrs`} />
                       )}
-                      {active ? (
-                        <Chip size="small" color="success" icon={<ActiveIcon />} label="Active" />
-                      ) : (
-                        <Chip size="small" color="default" icon={<InactiveIcon />} label="Inactive" />
-                      )}
                     </Stack>
 
                     <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-                      <Chip size="small" icon={<RupeeIcon fontSize="small" />} label={`Regular: ₹${money(p.price_regular)}`} />
                       {typeof p.price_block_out === "number" && p.price_block_out > 0 && (
                         <Chip size="small" icon={<OfferIcon fontSize="small" />} label={`Block-out: ₹${money(p.price_block_out)}`} />
                       )}

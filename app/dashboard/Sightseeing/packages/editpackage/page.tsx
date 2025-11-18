@@ -12,12 +12,18 @@ import {
   Plus,
   X,
   ChevronDown,
+  Trash2,
   Search,
+  HelpCircle,
 } from "lucide-react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
 import { useSightseeingPackageStore } from "@/store/usesightpackages";
-
+// 🔤 Rich text editor
+import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
+import { Editor } from "react-draft-wysiwyg";
+import { EditorState, ContentState, convertFromHTML } from "draft-js";
+import { stateToHTML } from "draft-js-export-html";
 /* =========================
    Types (aligned with Add form + legacy bridge)
    ========================= */
@@ -39,6 +45,7 @@ interface BlockoutSurcharge {
   end_date?: string;          // yyyy-mm-dd (required when mode === "range")
   currency?: "INR";           // locked INR
 }
+type FAQ = { q: string; a: string };
 
 interface SightseeingPackageUI {
   // Core
@@ -69,7 +76,7 @@ interface SightseeingPackageUI {
   // Notes
   special_mentions: string;
   notes: string;
-
+  llm_chips?: FAQ[];
   _id?: string;
 }
 
@@ -143,6 +150,7 @@ const BLANK: SightseeingPackageUI = {
 
 const STEPS = [
   { key: "details", label: "Details", icon: <FileText className="size-4" /> },
+  { key: "llmChips", label: "LLM Chips", icon: <HelpCircle className="size-4" /> },
   { key: "schedule", label: "Timings & Places", icon: <Clock className="size-4" /> },
   { key: "commerce", label: "Inclusions & Pricing", icon: <ListChecks className="size-4" /> },
 ] as const;
@@ -150,6 +158,10 @@ type StepKey = (typeof STEPS)[number]["key"];
 const LAST_INDEX = STEPS.length - 1;
 
 /* ---------- ID & Date utils ---------- */
+const sanitizeHtml = (html: string) =>
+  html
+    .replace(/[\n\r]/g, "") // drop newline and carriage return characters
+    .replace(/>\s+</g, "><"); 
 
 function uid() {
   return Math.random().toString(36).slice(2, 9);
@@ -338,6 +350,14 @@ export default function EditSightseeingPackageMobile() {
     };
   }, []);
 
+    const htmlToEditorState = (html?: string) => {
+      const safe = (html ?? "").trim();
+      if (!safe) return EditorState.createEmpty();
+      const blocks = convertFromHTML(safe);
+      const content = ContentState.createFromBlockArray(blocks.contentBlocks, blocks.entityMap);
+      return EditorState.createWithContent(content);
+    };
+
   /* ---------- Fill names if only IDs present ---------- */
   useEffect(() => {
     if (!loadingPlaces && form.place_ids.length > 0 && form.places_to_visit_names.length === 0) {
@@ -393,6 +413,33 @@ export default function EditSightseeingPackageMobile() {
     setStepIndex((i) => Math.max(i - 1, 0));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+      // NEW: LLM chips state + editors
+        const [llmChips, setLlmChips] = useState<FAQ[]>(
+          storepkg?.llm_chips && storepkg.llm_chips.length ? storepkg.llm_chips : [{ q: "", a: "" }]
+        );
+  
+  
+        const [llmChipEditors, setLlmChipEditors] = useState<EditorState[]>(() =>
+          (storepkg?.llm_chips && storepkg.llm_chips.length ? storepkg.llm_chips : [{ q: "", a: "" }]).map((c) =>
+            htmlToEditorState(c.a)
+          )
+        );
+    
+        const addLlmChip = () => {
+          setLlmChips((p) => [...p, { q: "", a: "" }]);
+          setLlmChipEditors((p) => [...p, EditorState.createEmpty()]);
+        };
+      
+        const remLlmChip = (idx: number) => {
+          setLlmChips((p) => (p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)));
+          setLlmChipEditors((p) =>
+            p.length <= 1 ? [EditorState.createEmpty()] : p.filter((_, i) => i !== idx)
+          );
+        };
+      
+        const setLlmChip = (idx: number, next: Partial<FAQ>) =>
+          setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
 
   /* ---------- Mutators ---------- */
   const set = (patch: Partial<SightseeingPackageUI>) =>
@@ -462,7 +509,20 @@ export default function EditSightseeingPackageMobile() {
         places_to_visit_names: form.places_to_visit_names,
         inclusions: form.inclusions,
         exclusions: form.exclusions,
-
+        llm_chips: llmChips
+                          .map((c, idx) => {
+                            const editor = llmChipEditors[idx] || EditorState.createEmpty();
+                            const content = editor.getCurrentContent();
+                            const hasText = content.hasText();
+                            const rawHtml = stateToHTML(content);
+                            const html = hasText ? sanitizeHtml(rawHtml) : "";
+                
+                            return {
+                              q: (c.q || "").trim(),
+                              a: html.trim(),
+                            };
+                          })
+                          .filter((c) => c.q || c.a),
         vendor_charge: numOrNull(form.vendor_charge),
         seller_charge: numOrNull(form.seller_charge),
         blockout_surcharges: (form.blockout_surcharges || [])
@@ -652,6 +712,79 @@ export default function EditSightseeingPackageMobile() {
             </div>
           </SectionCard>
         )}
+
+        {/* NEW: LLM Chips */}
+                        {step.key === "llmChips" && (
+                          <SectionCard
+                            title="LLM Chips"
+                            subtitle="Predefined Q&A snippets for the assistant."
+                            icon={<HelpCircle className="size-5 text-blue-600" />}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-semibold text-gray-800">Chips</span>
+                              <button
+                                type="button"
+                                onClick={addLlmChip}
+                                disabled={submitting}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                              >
+                                <Plus className="size-3.5" />
+                                Add Chip
+                              </button>
+                            </div>
+                
+                            <div className="space-y-3">
+                              {llmChips.map((c, i) => (
+                                <div key={`llm-chip-${i}`} className="rounded-xl border border-gray-200 p-3">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <p className="text-xs font-semibold text-gray-600">Chip #{i + 1}</p>
+                                    <button
+                                      type="button"
+                                      onClick={() => remLlmChip(i)}
+                                      disabled={submitting}
+                                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                      Remove
+                                    </button>
+                                  </div>
+                                  <div className="space-y-3">
+                                    <Field label="Question / Prompt">
+                                      <input
+                                        type="text"
+                                        className="input w-full"
+                                        value={c.q}
+                                        onChange={(e) => setLlmChip(i, { q: e.target.value })}
+                                        placeholder="e.g., Do you offer Jain or vegan meals?"
+                                        disabled={submitting}
+                                      />
+                                    </Field>
+                                    <Field label="Answer / Response">
+                                      <div className="rounded-xl border border-gray-300 bg-white p-2">
+                                        <Editor
+                                          editorState={llmChipEditors[i] || EditorState.createEmpty()}
+                                          onEditorStateChange={(next) =>
+                                            setLlmChipEditors((eds) =>
+                                              eds.map((ed, idx) => (idx === i ? next : ed))
+                                            )
+                                          }
+                                          toolbar={{
+                                            options: ["inline", "list"],
+                                            inline: { options: ["bold", "italic", "underline", "strikethrough"] },
+                                            list: { options: ["unordered", "ordered"] },
+                                          }}
+                                          toolbarClassName="border-b"
+                                          wrapperClassName="rounded-xl overflow-hidden"
+                                          editorClassName="min-h-[100px] px-3"
+                                        />
+                                      </div>
+                                    </Field>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </SectionCard>
+                        )}
 
         {/* Timings & Places */}
         {step.key === "schedule" && (

@@ -35,6 +35,10 @@ export interface FoodAddon {
   updatedAt?: MongoDate;
   __v?: number;
 }
+export interface FAQ {
+  q: string;
+  a: string;
+}
 
 /**
  * Store entity (what edit pages read/write).
@@ -66,7 +70,7 @@ export interface FoodService {
   // Media
   banner?: string | null;  // persisted URL (null if not set)
   images: string[];        // persisted URLs
-
+llm_chips?: FAQ[];
   // Relations
   addons: string[];          // ObjectId strings (for submit)
   addonsFull?: FoodAddon[];  // Full addon objects (for edit UI)
@@ -138,7 +142,7 @@ export const fromFormUI = (ui: FoodFormUIValues): FoodService => {
     images: Array.isArray(ui.images) ? ui.images.slice() : [],
 
     addons: (ui.addonIds || []).filter(Boolean),
-
+llm_chips: [],
     isComplete: false, // you can toggle this from the UI
   };
 };
@@ -162,7 +166,8 @@ export interface FoodAPIItem {
   preparationTime?: number;
   spiceLevel?: SpiceLevel | string;
   dietaryInfo?: Partial<DietaryInfo>;
-  addons?: FoodAddon[];     // full objects from API
+  addons?: FoodAddon[];  
+  llm_chips?: FAQ[];    // full objects from API
   createdAt?: MongoDate;
   updatedAt?: MongoDate;
   __v?: number;
@@ -204,7 +209,12 @@ export const fromAPI = (x: FoodAPIItem): FoodService => ({
 
   banner: x.banner ?? null,
   images: Array.isArray(x.images) ? x.images.filter(Boolean) : [],
-
+  llm_chips: Array.isArray(x.llm_chips)
+    ? x.llm_chips.map((f) => ({
+        q: (f.q ?? "").toString(),
+        a: (f.a ?? "").toString(),
+      }))
+    : [],
   // keep both ids and full objects
   addons: Array.isArray(x.addons) ? x.addons.map(a => a._id).filter(Boolean) : [],
   addonsFull: Array.isArray(x.addons) ? x.addons.slice() : [],

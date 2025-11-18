@@ -18,10 +18,15 @@ import {
   X,
   Info as InfoIcon,
 } from "lucide-react";
-import {Button,} from "@mui/material";
-import {AddCircleOutline,} from "@mui/icons-material";
+import { Button } from "@mui/material";
+import { AddCircleOutline } from "@mui/icons-material";
 import Link from "next/link";
 
+// ---- WYSIWYG imports ----
+import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
+import { Editor } from "react-draft-wysiwyg";
+import { EditorState, ContentState, convertFromHTML } from "draft-js";
+import { stateToHTML } from "draft-js-export-html";
 
 /* =========================
    Types (UI shape)
@@ -61,6 +66,12 @@ interface ServiceCharge {
 
 type NewImage = { file: File; preview: string };
 
+interface RatingsUI {
+  average?: number | "";
+  totalReviews?: number | "";
+}
+
+
 interface VehicleOptionUI {
   vehiclename?: string;
   vehicleType: VehicleType;
@@ -70,19 +81,34 @@ interface VehicleOptionUI {
   chargePerKm?: number | "";
   currency?: Currency;
   nightCharge?: NightChargeUI;
-  surgeCharges: SurgeItem[]; // UI-only; serialized on submit if needed
+  surgeCharges: SurgeItem[];
   availabilityStatus?: Availability;
   specialConditions?: string;
   serviceCharge?: ServiceCharge;
 
+  // extra fields from API
+  vehicleId?: string;
+  description?: string;
+  minimumDistanceKm?: number | "";
+  minimumCharge?: number | "";
+  year?: number | "";
+  fuelType?: string;
+  transmission?: string;
+  ratings?: RatingsUI;
+  amenities?: string[];
+  safetyFeatures?: string[];
+
   // images per vehicle option
-  imagesExisting: string[];            // URLs currently on server
-  imagesRemovedExisting: string[];     // URLs the user removed
-  imagesNew: NewImage[];               // files added in this session
+  imagesExisting: string[];
+  imagesRemovedExisting: string[];
+  imagesNew: NewImage[];
+
+  // UI-only state for rich text editor
+  editorState?: EditorState;
 }
 
 interface TransferRouteFormData {
-  pickups: string[]; // independent arrays
+  pickups: string[];
   drops: string[];
   vehicleOptions: VehicleOptionUI[];
 }
@@ -112,6 +138,7 @@ const VEHICLE_TYPE_TO_MAX_PAX: Record<VehicleType, number[]> = {
 const BLANK_SURGE: SurgeItem = { mode: "single", date: "", startDate: "", endDate: "", price: "" };
 const BLANK_SERVICE: ServiceCharge = { amount: "", currency: "INR", notes: "" };
 const BLANK_NIGHT: NightChargeUI = { enabled: false, amount: "", appliesFromHour: 22, appliesToHour: 6 };
+const BLANK_RATINGS: RatingsUI = { average: "", totalReviews: "" };
 
 const n = (v: any) => (v === "" || v == null ? NaN : Number(v));
 const isFiniteNum = (v: any) => typeof v === "number" && Number.isFinite(v);
@@ -153,8 +180,7 @@ function overrideToSurgeItem(ov: any): SurgeItem | null {
   if (!ov || typeof ov !== "object") return null;
 
   const label = (ov.label || "").toLowerCase();
-  const priceVal =
-    ov.price === "" || ov.price == null ? NaN : Number(ov.price);
+  const priceVal = ov.price === "" || ov.price == null ? NaN : Number(ov.price);
 
   if (!Number.isFinite(priceVal)) return null;
 
@@ -192,6 +218,19 @@ function cookSurgeToOverride(b: SurgeItem, currency: string) {
   const end = (b.endDate || "").trim();
   if (!start || !end) return null;
   return { label: "range", price: Number(price), currency: cur, startDate: start, endDate: end };
+}
+
+/* ---------- DraftJS helpers ---------- */
+function createEditorStateFromHTML(html?: string): EditorState {
+  if (!html) {
+    return EditorState.createEmpty();
+  }
+  const blocksFromHTML = convertFromHTML(html);
+  const contentState = ContentState.createFromBlockArray(
+    blocksFromHTML.contentBlocks,
+    blocksFromHTML.entityMap
+  );
+  return EditorState.createWithContent(contentState);
 }
 
 /* =========================
@@ -241,6 +280,7 @@ export default function EditTransferRouteMobile() {
   const initialForm: TransferRouteFormData = useMemo(() => {
     const d = doc;
     if (!d) {
+      const emptyEditor = createEditorStateFromHTML("");
       return {
         pickups: [""],
         drops: [""],
@@ -258,9 +298,23 @@ export default function EditTransferRouteMobile() {
             availabilityStatus: "available",
             specialConditions: "",
             serviceCharge: { ...BLANK_SERVICE },
+
+            vehicleId: "",
+            description: "",
+            minimumDistanceKm: "",
+            minimumCharge: "",
+            year: "",
+            fuelType: "",
+            transmission: "",
+            ratings: { ...BLANK_RATINGS },
+            amenities: [],
+            safetyFeatures: [],
+
             imagesExisting: [],
             imagesRemovedExisting: [],
             imagesNew: [],
+
+            editorState: emptyEditor,
           },
         ],
       };
@@ -272,76 +326,135 @@ export default function EditTransferRouteMobile() {
     const drops: string[] =
       Array.isArray(d.drops) && d.drops.length ? d.drops.map(String) : [""];
 
-    const vopts: VehicleOptionUI[] = (d.vehicleOptions || []).map((o: any) => ({
-      vehiclename: o?.vehiclename || "",
-      vehicleType: (o?.vehicleType || "4 SEATER") as VehicleType,
-      maxPax: typeof o?.maxPax === "number" ? o.maxPax : "",
-      vendorPrice: typeof o?.vendorBasePrice === "number" ? o.vendorBasePrice : "",
-      sellerPrice:
-        typeof o?.sellerBasePrice === "number"
-          ? o.sellerBasePrice
-          : typeof o?.basePrice === "number"
-          ? o.basePrice
-          : "",
-      chargePerKm:typeof o?.chargePerKm === "number" ? o.chargePerKm : "",
-      currency: (o?.currency || "INR") as Currency,
-      nightCharge: o?.nightCharge
-        ? {
-            enabled: true,
-            amount: typeof o.nightCharge.amount === "number" ? o.nightCharge.amount : "",
-            appliesFromHour:
-              typeof o.nightCharge.appliesFromHour === "number" ? o.nightCharge.appliesFromHour : 22,
-            appliesToHour:
-              typeof o.nightCharge.appliesToHour === "number" ? o.nightCharge.appliesToHour : 6,
-          }
-        : { ...BLANK_NIGHT },
+ 
 
-      // ▼▼ FIXED: map existing specialOverrides into UI surgeCharges
-      surgeCharges: Array.isArray(o?.specialOverrides)
-        ? (o.specialOverrides.map(overrideToSurgeItem).filter(Boolean) as SurgeItem[])
-        : [],
+    const vopts: VehicleOptionUI[] = (d.vehicleOptions || []).map((o: any) => {
+      const desc = o?.description || "";
+      return {
+        vehicleId: o?.vehicleId || "",
+        vehiclename: o?.vehiclename || "",
+        vehicleType: (o?.vehicleType || "4 SEATER") as VehicleType,
+        maxPax: typeof o?.maxPax === "number" ? o.maxPax : "",
+        vendorPrice: typeof o?.vendorBasePrice === "number" ? o.vendorBasePrice : "",
+        sellerPrice:
+          typeof o?.sellerBasePrice === "number"
+            ? o.sellerBasePrice
+            : typeof o?.basePrice === "number"
+            ? o.basePrice
+            : "",
+        chargePerKm: typeof o?.chargePerKm === "number" ? o.chargePerKm : "",
+        currency: (o?.currency || "INR") as Currency,
 
-      availabilityStatus: (o?.availabilityStatus || "available") as Availability,
-      specialConditions: (o as any)?.specialConditions || "",
-      serviceCharge: (o as any)?.serviceCharge
-        ? {
-            amount:
-              typeof (o as any).serviceCharge.amount === "number"
-                ? (o as any).serviceCharge.amount
-                : "",
-            currency: (o as any).serviceCharge.currency || "INR",
-            notes: (o as any).serviceCharge.notes || "",
-          }
-        : { ...BLANK_SERVICE },
+        minimumDistanceKm:
+          typeof o?.minimumDistanceKm === "number" ? o.minimumDistanceKm : "",
+        minimumCharge: typeof o?.minimumCharge === "number" ? o.minimumCharge : "",
+        description: desc,
+        year: typeof o?.year === "number" ? o.year : "",
+        fuelType: o?.fuelType || "",
+        transmission: o?.transmission || "",
 
-      imagesExisting: Array.isArray(o?.images) ? o.images : [],
-      imagesRemovedExisting: [],
-      imagesNew: [],
-    }));
+        nightCharge: o?.nightCharge
+          ? {
+              enabled: true,
+              amount:
+                typeof o.nightCharge.amount === "number" ? o.nightCharge.amount : "",
+              appliesFromHour:
+                typeof o.nightCharge.appliesFromHour === "number"
+                  ? o.nightCharge.appliesFromHour
+                  : 22,
+              appliesToHour:
+                typeof o.nightCharge.appliesToHour === "number"
+                  ? o.nightCharge.appliesToHour
+                  : 6,
+            }
+          : { ...BLANK_NIGHT },
+
+        surgeCharges: Array.isArray(o?.specialOverrides)
+          ? (o.specialOverrides.map(overrideToSurgeItem).filter(Boolean) as SurgeItem[])
+          : [],
+
+        availabilityStatus: (o?.availabilityStatus || "available") as Availability,
+        specialConditions: (o as any)?.specialConditions || "",
+        serviceCharge: (o as any)?.serviceCharge
+          ? {
+              amount:
+                typeof (o as any).serviceCharge.amount === "number"
+                  ? (o as any).serviceCharge.amount
+                  : "",
+              currency: (o as any).serviceCharge.currency || "INR",
+              notes: (o as any).serviceCharge.notes || "",
+            }
+          : { ...BLANK_SERVICE },
+
+        ratings: o?.ratings
+          ? {
+              average:
+                typeof o.ratings.average === "number" ? o.ratings.average : "",
+              totalReviews:
+                typeof o.ratings.totalReviews === "number"
+                  ? o.ratings.totalReviews
+                  : "",
+            }
+          : { ...BLANK_RATINGS },
+
+        amenities: Array.isArray(o?.amenities) ? o.amenities.map(String) : [],
+        safetyFeatures: Array.isArray(o?.safetyFeatures)
+          ? o.safetyFeatures.map(String)
+          : [],
+
+        imagesExisting: Array.isArray(o?.images) ? o.images : [],
+        imagesRemovedExisting: [],
+        imagesNew: [],
+
+        editorState: createEditorStateFromHTML(desc),
+      };
+    });
+
+    if (!vopts.length) {
+      const emptyEditor = createEditorStateFromHTML("");
+      return {
+        pickups,
+        drops,
+        vehicleOptions: [
+          {
+            vehiclename: "",
+            vehicleType: "4 SEATER",
+            maxPax: 4,
+            vendorPrice: "",
+            sellerPrice: "",
+            chargePerKm: "",
+            currency: "INR",
+            nightCharge: { ...BLANK_NIGHT },
+            surgeCharges: [],
+            availabilityStatus: "available",
+            specialConditions: "",
+            serviceCharge: { ...BLANK_SERVICE },
+
+            vehicleId: "",
+            description: "",
+            minimumDistanceKm: "",
+            minimumCharge: "",
+            year: "",
+            fuelType: "",
+            transmission: "",
+            ratings: { ...BLANK_RATINGS },
+            amenities: [],
+            safetyFeatures: [],
+
+            imagesExisting: [],
+            imagesRemovedExisting: [],
+            imagesNew: [],
+
+            editorState: emptyEditor,
+          },
+        ],
+      };
+    }
 
     return {
       pickups,
       drops,
-      vehicleOptions: vopts.length
-        ? vopts
-        : [
-            {
-              vehiclename: "",
-              vehicleType: "4 SEATER",
-              maxPax: 4,
-              vendorPrice: "",
-              sellerPrice: "",
-              currency: "INR",
-              nightCharge: { ...BLANK_NIGHT },
-              surgeCharges: [],
-              availabilityStatus: "available",
-              specialConditions: "",
-              serviceCharge: { ...BLANK_SERVICE },
-              imagesExisting: [],
-              imagesRemovedExisting: [],
-              imagesNew: [],
-            },
-          ],
+      vehicleOptions: vopts,
     };
   }, [doc]);
 
@@ -400,6 +513,7 @@ export default function EditTransferRouteMobile() {
     setField("drops", next);
   };
 
+
   // Vehicles
   const updateOption = (idx: number, next: Partial<VehicleOptionUI>) =>
     setData((p) => {
@@ -419,16 +533,30 @@ export default function EditTransferRouteMobile() {
           maxPax: 4,
           vendorPrice: "",
           sellerPrice: "",
-          chargePerKm:"",
+          chargePerKm: "",
           currency: "INR",
           nightCharge: { ...BLANK_NIGHT },
           surgeCharges: [],
           availabilityStatus: "available",
           specialConditions: "",
           serviceCharge: { ...BLANK_SERVICE },
+
+          vehicleId: "",
+          description: "",
+          minimumDistanceKm: "",
+          minimumCharge: "",
+          year: "",
+          fuelType: "",
+          transmission: "",
+          ratings: { ...BLANK_RATINGS },
+          amenities: [],
+          safetyFeatures: [],
+
           imagesExisting: [],
           imagesRemovedExisting: [],
           imagesNew: [],
+
+          editorState: createEditorStateFromHTML(""),
         },
       ],
     }));
@@ -444,16 +572,30 @@ export default function EditTransferRouteMobile() {
           maxPax: 4,
           vendorPrice: "",
           sellerPrice: "",
-          chargePerKm:"",
+          chargePerKm: "",
           currency: "INR",
           nightCharge: { ...BLANK_NIGHT },
           surgeCharges: [],
           availabilityStatus: "available",
           specialConditions: "",
           serviceCharge: { ...BLANK_SERVICE },
+
+          vehicleId: "",
+          description: "",
+          minimumDistanceKm: "",
+          minimumCharge: "",
+          year: "",
+          fuelType: "",
+          transmission: "",
+          ratings: { ...BLANK_RATINGS },
+          amenities: [],
+          safetyFeatures: [],
+
           imagesExisting: [],
           imagesRemovedExisting: [],
           imagesNew: [],
+
+          editorState: createEditorStateFromHTML(""),
         };
         return { ...p, vehicleOptions: arr };
       }
@@ -509,7 +651,6 @@ export default function EditTransferRouteMobile() {
           const max = n(v.maxPax);
           const vendor = n(v.vendorPrice);
           const seller = n(v.sellerPrice);
-          const chargePerKm = n(v.chargePerKm);
           return (
             v.vehicleType &&
             isFiniteNum(max) &&
@@ -574,6 +715,7 @@ export default function EditTransferRouteMobile() {
           .filter(Boolean) as any[];
 
         return {
+          vehicleId: v.vehicleId || undefined,
           vehiclename: v.vehiclename || "",
           vehicleType: v.vehicleType,
           maxPax: toNumOrZero(v.maxPax),
@@ -582,6 +724,12 @@ export default function EditTransferRouteMobile() {
           vendorBasePrice: toNumOrZero(v.vendorPrice),
           sellerBasePrice: toNumOrZero(v.sellerPrice),
           chargePerKm: toNumOrZero(v.chargePerKm),
+          minimumDistanceKm: toNumOrZero(v.minimumDistanceKm),
+          minimumCharge: toNumOrZero(v.minimumCharge),
+          description: v.description || "",
+          year: toNumOrZero(v.year),
+          fuelType: v.fuelType || undefined,
+          transmission: v.transmission || undefined,
           nightCharge:
             v.nightCharge?.enabled
               ? {
@@ -599,6 +747,22 @@ export default function EditTransferRouteMobile() {
               : undefined,
           specialOverrides: overrides,
           availabilityStatus: (v.availabilityStatus as any) || "available",
+
+          ratings: v.ratings
+            ? {
+                average: toNumOrZero(v.ratings.average),
+                totalReviews: toNumOrZero(v.ratings.totalReviews),
+              }
+            : undefined,
+
+          amenities:
+            v.amenities && v.amenities.length
+              ? v.amenities
+              : undefined,
+          safetyFeatures:
+            v.safetyFeatures && v.safetyFeatures.length
+              ? v.safetyFeatures
+              : undefined,
           // images handled separately
         };
       });
@@ -664,239 +828,250 @@ export default function EditTransferRouteMobile() {
   return (
     <form className="min-h-screen bg-gray-50" onSubmit={handleSubmit}>
       {/* Header */}
-   <header className="sticky top-0 z-30 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-gray-200">
-  <div className="px-4 py-3 sm:px-6 max-w-3xl mx-auto">
-    {/* Top row: avatar/title/stepper actions */}
-    <div className="flex items-center gap-3">
+      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-gray-200">
+        <div className="px-4 py-3 sm:px-6 max-w-3xl mx-auto">
+          {/* Top row: avatar/title/stepper actions */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-base font-semibold text-gray-900 truncate">
+                Edit Transfer Route — {titlePickup} → {titleDrop}
+              </h1>
+              <p className="text-[11px] text-gray-500 truncate">
+                Update pickup/drop, vehicles, images, surge,
+              </p>
 
-      <div className="flex-1 min-w-0">
-        <h1 className="text-base font-semibold text-gray-900 truncate">
-          Edit Transfer Route — {titlePickup} → {titleDrop}
-        </h1>
-        <p className="text-[11px] text-gray-500 truncate">
-          Update pickup/drop, vehicles, images, surge,
-        </p>
+              {/* Mobile button (full-width) */}
+              <Button
+                href="/dashboard/services?type=pick-and-drop"
+                component={Link as any}
+                variant="outlined"
+                startIcon={<AddCircleOutline />}
+                fullWidth
+                aria-label="Add services"
+                sx={{
+                  display: { xs: "flex", sm: "none" },
+                  mt: 1.5,
+                  borderRadius: 2,
+                  textTransform: "none",
+                  py: 1.25,
+                }}
+              >
+                Add Services
+              </Button>
+            </div>
 
-        {/* Mobile button (full-width) */}
-        <Button
-          href="/dashboard/services?type=pick-and-drop"
-          component={Link as any}
-          variant="outlined"
-          startIcon={<AddCircleOutline />}
-          fullWidth
-          aria-label="Add services"
-          sx={{
-            display: { xs: "flex", sm: "none" },
-            mt: 1.5,
-            borderRadius: 2,
-            textTransform: "none",
-            py: 1.25,
-          }}
-        >
-          Add Services
-        </Button>
-      </div>
+            {/* Desktop button (pill at right) */}
+            <Button
+              href="/dashboard/services?type=pick-and-drop"
+              component={Link as any}
+              variant="contained"
+              color="primary"
+              size="medium"
+              startIcon={<AddCircleOutline />}
+              aria-label="Add services"
+              sx={{
+                display: { xs: "none", sm: "inline-flex" },
+                borderRadius: 999,
+                textTransform: "none",
+                px: 2.5,
+                height: 40,
+                boxShadow: "none",
+                ":hover": { boxShadow: "none" },
+              }}
+            >
+              Add Services
+            </Button>
+          </div>
 
-      {/* Desktop button (pill at right) */}
-      <Button
-        href="/dashboard/services?type=pick-and-drop"
-        component={Link as any}
-        variant="contained"
-        color="primary"
-        size="medium"
-        startIcon={<AddCircleOutline />}
-        aria-label="Add services"
-        sx={{
-          display: { xs: "none", sm: "inline-flex" },
-          borderRadius: 999,
-          textTransform: "none",
-          px: 2.5,
-          height: 40,
-          boxShadow: "none",
-          ":hover": { boxShadow: "none" },
-        }}
-      >
-        Add Services
-      </Button>
-    </div>
+          {/* Stepper */}
+          <div className="mt-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
+            {STEPS.map((r, i) => {
+              const active = i === stepIndex;
+              const done = i < stepIndex;
+              const canJump =
+                i <= stepIndex || STEPS.slice(0, i).every((st) => isStepValid(st.key));
+              return (
+                <button
+                  key={r.key}
+                  type="button"
+                  onClick={() => canJump && setStepIndex(i)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs whitespace-nowrap ${
+                    active
+                      ? "bg-blue-50 border-blue-500 text-blue-700"
+                      : done
+                      ? "bg-green-50 border-green-500 text-green-700"
+                      : "bg-white border-gray-200 text-gray-700"
+                  }`}
+                  disabled={submitting || !canJump}
+                >
+                  <span className="grid place-items-center">
+                    {done ? <CheckCircle2 className="size-4" /> : r.icon}
+                  </span>
+                  {r.label}
+                </button>
+              );
+            })}
+          </div>
 
-    {/* Stepper */}
-    <div className="mt-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
-      {STEPS.map((r, i) => {
-        const active = i === stepIndex;
-        const done = i < stepIndex;
-        const canJump = i <= stepIndex || STEPS.slice(0, i).every((st) => isStepValid(st.key));
-        return (
-          <button
-            key={r.key}
-            type="button"
-            onClick={() => canJump && setStepIndex(i)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs whitespace-nowrap ${
-              active
-                ? "bg-blue-50 border-blue-500 text-blue-700"
-                : done
-                ? "bg-green-50 border-green-500 text-green-700"
-                : "bg-white border-gray-200 text-gray-700"
-            }`}
-            disabled={submitting || !canJump}
-          >
-            <span className="grid place-items-center">
-              {done ? <CheckCircle2 className="size-4" /> : r.icon}
-            </span>
-            {r.label}
-          </button>
-        );
-      })}
-    </div>
-
-    {/* Progress */}
-    <div className="mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
-      <div
-        className={`h-full transition-all ${submitting ? "bg-blue-400" : "bg-blue-600"}`}
-        style={{ width: `${progress}%` }}
-      />
-    </div>
-  </div>
-</header>
-
+          {/* Progress */}
+          <div className="mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className={`h-full transition-all ${
+                submitting ? "bg-blue-400" : "bg-blue-600"
+              }`}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      </header>
 
       {/* Content */}
-      <main className="max-w-3xl mx-auto p-4 sm:p-6 pb-36">
-        {/* ROUTE */}
+    <main className="max-w-3xl mx-auto p-4 sm:p-6 pb-36 lg:pb-64">
+        {/* ROUTE + STEPS */}
         {step.key === "route" && (
-          <SectionCard
-            title="Route"
-            subtitle="Manage pickup and drop lists independently. They’ll be flattened to arrays when saved."
-            icon={<MapPin className="size-5 text-blue-600" />}
-            requiredHint
-          >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {/* PICKUPS */}
-              <div className="rounded-xl border border-gray-200">
-                <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-                  <p className="text-sm font-semibold text-gray-800 inline-flex items-center gap-2">
-                    <MapPin className="size-4 text-blue-600" /> Pickups
-                  </p>
-                  
-                  <button
-                    type="button"
-                    onClick={addPickup}
-                    disabled={submitting}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
-                  >
-                    <Plus className="size-3.5" />
-                    Add pickup
-                  </button>
+          <>
+            <SectionCard
+              title="Route"
+              subtitle="Manage pickup and drop lists independently. They’ll be flattened to arrays when saved."
+              icon={<MapPin className="size-5 text-blue-600" />}
+              requiredHint
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* PICKUPS */}
+                <div className="rounded-xl border border-gray-200">
+                  <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
+                    <p className="text-sm font-semibold text-gray-800 inline-flex items-center gap-2">
+                      <MapPin className="size-4 text-blue-600" /> Pickups
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={addPickup}
+                      disabled={submitting}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                    >
+                      <Plus className="size-3.5" />
+                      Add pickup
+                    </button>
+                  </div>
+
+                  <div className="p-3 space-y-2">
+                    {data.pickups.map((val, i) => (
+                      <div key={`pickup-${i}`} className="grid grid-cols-12 gap-2 items-end">
+                        <div className="col-span-9">
+                          <Field
+                            label={i === 0 ? "Pickup Location *" : "Pickup Location"}
+                            required={i === 0}
+                          >
+                            <input
+                              type="text"
+                              className="input"
+                              value={val}
+                              onChange={(e) => updatePickupAt(i, e.target.value)}
+                              placeholder={i === 0 ? "DABOLIM AIRPORT" : "Another pickup"}
+                              disabled={submitting}
+                            />
+                          </Field>
+                        </div>
+                        <div className="col-span-3 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => clearPickupAt(i)}
+                            disabled={submitting}
+                            className="w-full h-12 grid place-items-center rounded-xl border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
+                            title="Clear pickup value"
+                            aria-label="Clear pickup value"
+                          >
+                            <X className="size-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removePickupAt(i)}
+                            disabled={submitting || data.pickups.length <= 1}
+                            className="w-full h-12 grid place-items-center rounded-xl border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                            title="Remove pickup row"
+                            aria-label="Remove pickup row"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="p-3 space-y-2">
-                  {data.pickups.map((val, i) => (
-                    <div key={`pickup-${i}`} className="grid grid-cols-12 gap-2 items-end">
-                      <div className="col-span-9">
-                        <Field label={i === 0 ? "Pickup Location *" : "Pickup Location"} required={i === 0}>
-                          <input
-                            type="text"
-                            className="input"
-                            value={val}
-                            onChange={(e) => updatePickupAt(i, e.target.value)}
-                            placeholder={i === 0 ? "DABOLIM AIRPORT" : "Another pickup"}
+                {/* DROPS */}
+                <div className="rounded-xl border border-gray-200">
+                  <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
+                    <p className="text-sm font-semibold text-gray-800 inline-flex items-center gap-2">
+                      <Route className="size-4 text-emerald-600" /> Drops
+                    </p>
+                    <button
+                      type="button"
+                      onClick={addDrop}
+                      disabled={submitting}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
+                    >
+                      <Plus className="size-3.5" />
+                      Add drop
+                    </button>
+                  </div>
+
+                  <div className="p-3 space-y-2">
+                    {data.drops.map((val, i) => (
+                      <div key={`drop-${i}`} className="grid grid-cols-12 gap-2 items-end">
+                        <div className="col-span-9">
+                          <Field
+                            label={i === 0 ? "Drop Location *" : "Drop Location"}
+                            required={i === 0}
+                          >
+                            <input
+                              type="text"
+                              className="input"
+                              value={val}
+                              onChange={(e) => updateDropAt(i, e.target.value)}
+                              placeholder={i === 0 ? "CALANGUTE BEACH" : "Another drop"}
+                              disabled={submitting}
+                            />
+                          </Field>
+                        </div>
+                        <div className="col-span-3 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => clearDropAt(i)}
                             disabled={submitting}
-                          />
-                        </Field>
+                            className="w-full h-12 grid place-items-center rounded-xl border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
+                            title="Clear drop value"
+                            aria-label="Clear drop value"
+                          >
+                            <X className="size-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeDropAt(i)}
+                            disabled={submitting || data.drops.length <= 1}
+                            className="w-full h-12 grid place-items-center rounded-xl border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                            title="Remove drop row"
+                            aria-label="Remove drop row"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
                       </div>
-                      <div className="col-span-3 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => clearPickupAt(i)}
-                          disabled={submitting}
-                          className="w-full h-12 grid place-items-center rounded-xl border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
-                          title="Clear pickup value"
-                          aria-label="Clear pickup value"
-                        >
-                          <X className="size-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removePickupAt(i)}
-                          disabled={submitting || data.pickups.length <= 1}
-                          className="w-full h-12 grid place-items-center rounded-xl border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
-                          title="Remove pickup row"
-                          aria-label="Remove pickup row"
-                        >
-                          <Trash2 className="size-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              {/* DROPS */}
-              <div className="rounded-xl border border-gray-200">
-                <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-                  <p className="text-sm font-semibold text-gray-800 inline-flex items-center gap-2">
-                    <Route className="size-4 text-emerald-600" /> Drops
-                  </p>
-                  <button
-                    type="button"
-                    onClick={addDrop}
-                    disabled={submitting}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
-                  >
-                    <Plus className="size-3.5" />
-                    Add drop
-                  </button>
-                </div>
-
-                <div className="p-3 space-y-2">
-                  {data.drops.map((val, i) => (
-                    <div key={`drop-${i}`} className="grid grid-cols-12 gap-2 items-end">
-                      <div className="col-span-9">
-                        <Field label={i === 0 ? "Drop Location *" : "Drop Location"} required={i === 0}>
-                          <input
-                            type="text"
-                            className="input"
-                            value={val}
-                            onChange={(e) => updateDropAt(i, e.target.value)}
-                            placeholder={i === 0 ? "CALANGUTE BEACH" : "Another drop"}
-                            disabled={submitting}
-                          />
-                        </Field>
-                      </div>
-                      <div className="col-span-3 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => clearDropAt(i)}
-                          disabled={submitting}
-                          className="w-full h-12 grid place-items-center rounded-xl border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
-                          title="Clear drop value"
-                          aria-label="Clear drop value"
-                        >
-                          <X className="size-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeDropAt(i)}
-                          disabled={submitting || data.drops.length <= 1}
-                          className="w-full h-12 grid place-items-center rounded-xl border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
-                          title="Remove drop row"
-                          aria-label="Remove drop row"
-                        >
-                          <Trash2 className="size-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              <div className="mt-3 text-xs text-gray-500 flex items-center gap-2">
+                <InfoIcon className="size-3.5" />
+                Pickups and drops are edited independently. On save, they’re flattened into{" "}
+                <code>pickups[]</code> and <code>drops[]</code>.
               </div>
-            </div>
+            </SectionCard>
 
-            <div className="mt-3 text-xs text-gray-500 flex items-center gap-2">
-              <InfoIcon className="size-3.5" />
-              Pickups and drops are edited independently. On save, they’re flattened into <code>pickups[]</code> and{" "}
-              <code>drops[]</code>.
-            </div>
-          </SectionCard>
+           
+          </>
         )}
 
         {/* VEHICLES */}
@@ -915,10 +1090,15 @@ export default function EditTransferRouteMobile() {
                   updateOption(idx, { vehicleType, maxPax: autoMax });
                 };
 
+                const currentEditorState =
+                  v.editorState ?? createEditorStateFromHTML(v.description || "");
+
                 return (
                   <div key={idx} className="rounded-xl border border-gray-200 p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <p className="text-sm font-semibold text-gray-800">Option #{idx + 1}</p>
+                      <p className="text-sm font-semibold text-gray-800">
+                        Option #{idx + 1}
+                      </p>
                       <button
                         type="button"
                         onClick={() => removeOption(idx)}
@@ -963,7 +1143,8 @@ export default function EditTransferRouteMobile() {
                           value={v.maxPax === "" ? "" : Number(v.maxPax)}
                           onChange={(e) =>
                             updateOption(idx, {
-                              maxPax: e.target.value === "" ? "" : Number(e.target.value),
+                              maxPax:
+                                e.target.value === "" ? "" : Number(e.target.value),
                             })
                           }
                           disabled={submitting}
@@ -976,6 +1157,7 @@ export default function EditTransferRouteMobile() {
                           ))}
                         </select>
                       </Field>
+
                       <Field label="chargePerKm *" required>
                         <div className="relative">
                           <input
@@ -986,10 +1168,11 @@ export default function EditTransferRouteMobile() {
                             value={v.chargePerKm === "" ? "" : Number(v.chargePerKm)}
                             onChange={(e) =>
                               updateOption(idx, {
-                                chargePerKm: e.target.value === "" ? "" : Number(e.target.value),
+                                chargePerKm:
+                                  e.target.value === "" ? "" : Number(e.target.value),
                               })
                             }
-                            placeholder="vendor amount"
+                            placeholder="charge per km"
                             disabled={submitting}
                           />
                           <span className="suffix">{v.currency || "INR"}</span>
@@ -1006,7 +1189,8 @@ export default function EditTransferRouteMobile() {
                             value={v.vendorPrice === "" ? "" : Number(v.vendorPrice)}
                             onChange={(e) =>
                               updateOption(idx, {
-                                vendorPrice: e.target.value === "" ? "" : Number(e.target.value),
+                                vendorPrice:
+                                  e.target.value === "" ? "" : Number(e.target.value),
                               })
                             }
                             placeholder="vendor amount"
@@ -1026,7 +1210,8 @@ export default function EditTransferRouteMobile() {
                             value={v.sellerPrice === "" ? "" : Number(v.sellerPrice)}
                             onChange={(e) =>
                               updateOption(idx, {
-                                sellerPrice: e.target.value === "" ? "" : Number(e.target.value),
+                                sellerPrice:
+                                  e.target.value === "" ? "" : Number(e.target.value),
                               })
                             }
                             placeholder="seller amount"
@@ -1052,6 +1237,238 @@ export default function EditTransferRouteMobile() {
                           <option value="unavailable">unavailable</option>
                           <option value="on-request">on-request</option>
                         </select>
+                      </Field>
+
+                      {/* MIN DISTANCE & MIN CHARGE */}
+                      <Field label="Minimum Distance (km)">
+                        <input
+                          type="number"
+                          min={0}
+                          className="input"
+                          value={
+                            v.minimumDistanceKm === ""
+                              ? ""
+                              : Number(v.minimumDistanceKm as any)
+                          }
+                          onChange={(e) =>
+                            updateOption(idx, {
+                              minimumDistanceKm:
+                                e.target.value === ""
+                                  ? ""
+                                  : Number(e.target.value),
+                            })
+                          }
+                          placeholder="e.g. 10"
+                          disabled={submitting}
+                        />
+                      </Field>
+
+                      <Field label="Minimum Charge">
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min={0}
+                            className="input"
+                            value={
+                              v.minimumCharge === ""
+                                ? ""
+                                : Number(v.minimumCharge as any)
+                            }
+                            onChange={(e) =>
+                              updateOption(idx, {
+                                minimumCharge:
+                                  e.target.value === ""
+                                    ? ""
+                                    : Number(e.target.value),
+                              })
+                            }
+                            placeholder="e.g. 400"
+                            disabled={submitting}
+                          />
+                          <span className="suffix">{v.currency || "INR"}</span>
+                        </div>
+                      </Field>
+
+                      {/* YEAR / FUEL / TRANSMISSION */}
+                      <Field label="Model Year">
+                        <input
+                          type="number"
+                          min={1990}
+                          max={2100}
+                          className="input"
+                          value={v.year === "" ? "" : Number(v.year as any)}
+                          onChange={(e) =>
+                            updateOption(idx, {
+                              year:
+                                e.target.value === ""
+                                  ? ""
+                                  : Number(e.target.value),
+                            })
+                          }
+                          placeholder="2022"
+                          disabled={submitting}
+                        />
+                      </Field>
+
+                      <Field label="Fuel Type">
+                        <input
+                          type="text"
+                          className="input"
+                          value={v.fuelType || ""}
+                          onChange={(e) =>
+                            updateOption(idx, { fuelType: e.target.value })
+                          }
+                          placeholder="Petrol / Diesel / CNG / EV"
+                          disabled={submitting}
+                        />
+                      </Field>
+
+                      <Field label="Transmission">
+                        <input
+                          type="text"
+                          className="input"
+                          value={v.transmission || ""}
+                          onChange={(e) =>
+                            updateOption(idx, { transmission: e.target.value })
+                          }
+                          placeholder="Manual / Automatic"
+                          disabled={submitting}
+                        />
+                      </Field>
+
+                      {/* DESCRIPTION with WYSIWYG editor */}
+                      <Field
+                        label="Vehicle Description"
+                        className="sm:col-span-2"
+                        hint="Shown in product card details."
+                      >
+                        <div className="rounded-xl border border-gray-300 bg-white">
+                          <Editor
+                            editorState={currentEditorState}
+                            onEditorStateChange={(editorState) => {
+                              const html = stateToHTML(
+                                editorState.getCurrentContent()
+                              );
+                              updateOption(idx, {
+                                editorState,
+                                description: html,
+                              });
+                            }}
+                            readOnly={submitting}
+                            toolbarClassName="border-b border-gray-200"
+                            wrapperClassName="min-h-[140px]"
+                            editorClassName="px-3 py-2 min-h-[120px]"
+                            toolbar={{
+                              options: ["inline", "list", "link", "history"],
+                              inline: {
+                                options: ["bold", "italic", "underline"],
+                              },
+                              list: {
+                                options: ["unordered", "ordered"],
+                              },
+                            }}
+                          />
+                        </div>
+                      </Field>
+
+                      {/* RATINGS */}
+                      <Field label="Average Rating">
+                        <input
+                          type="number"
+                          min={0}
+                          max={5}
+                          step={0.1}
+                          className="input"
+                          value={
+                            v.ratings?.average === "" ||
+                            v.ratings?.average == null
+                              ? ""
+                              : Number(v.ratings.average as any)
+                          }
+                          onChange={(e) =>
+                            updateOption(idx, {
+                              ratings: {
+                                ...(v.ratings || {}),
+                                average:
+                                  e.target.value === ""
+                                    ? ""
+                                    : Number(e.target.value),
+                              },
+                            })
+                          }
+                          placeholder="4.6"
+                          disabled={submitting}
+                        />
+                      </Field>
+
+                      <Field label="Total Reviews">
+                        <input
+                          type="number"
+                          min={0}
+                          className="input"
+                          value={
+                            v.ratings?.totalReviews === "" ||
+                            v.ratings?.totalReviews == null
+                              ? ""
+                              : Number(v.ratings.totalReviews as any)
+                          }
+                          onChange={(e) =>
+                            updateOption(idx, {
+                              ratings: {
+                                ...(v.ratings || {}),
+                                totalReviews:
+                                  e.target.value === ""
+                                    ? ""
+                                    : Number(e.target.value),
+                              },
+                            })
+                          }
+                          placeholder="87"
+                          disabled={submitting}
+                        />
+                      </Field>
+
+                      {/* AMENITIES / SAFETY FEATURES */}
+                      <Field
+                        label="Amenities"
+                        className="sm:col-span-2"
+                        hint="Comma separated, e.g. AC, Bluetooth Music, Phone Charger"
+                      >
+                        <input
+                          type="text"
+                          className="input w-full"
+                          value={(v.amenities || []).join(", ")}
+                          onChange={(e) =>
+                            updateOption(idx, {
+                              amenities: e.target.value
+                                .split(",")
+                                .map((s) => s.trim())
+                                .filter(Boolean),
+                            })
+                          }
+                          disabled={submitting}
+                        />
+                      </Field>
+
+                      <Field
+                        label="Safety Features"
+                        className="sm:col-span-2"
+                        hint="Comma separated, e.g. Airbags, ABS, GPS Tracking"
+                      >
+                        <input
+                          type="text"
+                          className="input w-full"
+                          value={(v.safetyFeatures || []).join(", ")}
+                          onChange={(e) =>
+                            updateOption(idx, {
+                              safetyFeatures: e.target.value
+                                .split(",")
+                                .map((s) => s.trim())
+                                .filter(Boolean),
+                            })
+                          }
+                          disabled={submitting}
+                        />
                       </Field>
                     </div>
 
@@ -1088,12 +1505,17 @@ export default function EditTransferRouteMobile() {
                               min={0}
                               inputMode="decimal"
                               className="input"
-                              value={v.nightCharge?.amount === "" ? "" : Number(v.nightCharge?.amount as any)}
+                              value={
+                                v.nightCharge?.amount === "" ? "" : Number(v.nightCharge?.amount as any)
+                              }
                               onChange={(e) =>
                                 updateOption(idx, {
                                   nightCharge: {
                                     ...(v.nightCharge || {}),
-                                    amount: e.target.value === "" ? "" : Number(e.target.value),
+                                    amount:
+                                      e.target.value === ""
+                                        ? ""
+                                        : Number(e.target.value),
                                   },
                                 })
                               }
@@ -1108,7 +1530,8 @@ export default function EditTransferRouteMobile() {
                               max={23}
                               className="input"
                               value={
-                                v.nightCharge?.appliesFromHour === "" || v.nightCharge?.appliesFromHour == null
+                                v.nightCharge?.appliesFromHour === "" ||
+                                v.nightCharge?.appliesFromHour == null
                                   ? ""
                                   : Number(v.nightCharge?.appliesFromHour)
                               }
@@ -1116,7 +1539,10 @@ export default function EditTransferRouteMobile() {
                                 updateOption(idx, {
                                   nightCharge: {
                                     ...(v.nightCharge || {}),
-                                    appliesFromHour: e.target.value === "" ? "" : Number(e.target.value),
+                                    appliesFromHour:
+                                      e.target.value === ""
+                                        ? ""
+                                        : Number(e.target.value),
                                   },
                                 })
                               }
@@ -1130,7 +1556,8 @@ export default function EditTransferRouteMobile() {
                               max={23}
                               className="input"
                               value={
-                                v.nightCharge?.appliesToHour === "" || v.nightCharge?.appliesToHour == null
+                                v.nightCharge?.appliesToHour === "" ||
+                                v.nightCharge?.appliesToHour == null
                                   ? ""
                                   : Number(v.nightCharge?.appliesToHour)
                               }
@@ -1138,7 +1565,10 @@ export default function EditTransferRouteMobile() {
                                 updateOption(idx, {
                                   nightCharge: {
                                     ...(v.nightCharge || {}),
-                                    appliesToHour: e.target.value === "" ? "" : Number(e.target.value),
+                                    appliesToHour:
+                                      e.target.value === ""
+                                        ? ""
+                                        : Number(e.target.value),
                                   },
                                 })
                               }
@@ -1254,8 +1684,9 @@ export default function EditTransferRouteMobile() {
                   </div>
 
                   <p className="mt-2 text-[11px] text-gray-500">
-                    Images belong to this vehicle option only. Use the “Append images” toggle in the header to control
-                    whether uploads are merged or treated as a full replacement on update.
+                    Images belong to this vehicle option only. Use the “Append images” toggle in the
+                    header to control whether uploads are merged or treated as a full replacement on
+                    update.
                   </p>
                 </div>
               ))}
@@ -1281,7 +1712,9 @@ export default function EditTransferRouteMobile() {
             <div className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
               <span className="inline-flex items-center gap-2 text-xs text-gray-600 bg-gray-100 rounded-full px-3 py-1.5 font-semibold self-start sm:self-auto">
                 <span
-                  className={`size-2 rounded-full ${isStepValid(step.key) ? "bg-green-500" : "bg-amber-500"}`}
+                  className={`size-2 rounded-full ${
+                    isStepValid(step.key) ? "bg-green-500" : "bg-amber-500"
+                  }`}
                 />
                 {isStepValid(step.key) ? "Looks good" : "Complete required fields"}
               </span>
@@ -1315,7 +1748,9 @@ export default function EditTransferRouteMobile() {
                     "Continue"
                   ) : (
                     <span className="inline-flex items-center gap-2">
-                      {submitting && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+                      {submitting && (
+                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                      )}
                       {submitting ? "Updating..." : "Update Route"}
                     </span>
                   )}
@@ -1339,10 +1774,24 @@ export default function EditTransferRouteMobile() {
           shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
           text-[16px] placeholder:text-gray-400 transition-all resize-y;
         }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        .safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem); }
-        .suffix { position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:12px; color:#6b7280; }
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+        .safe-bottom {
+          padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem);
+        }
+        .suffix {
+          position: absolute;
+          right: 12px;
+          top: 50%;
+          transform: translateY(-50%);
+          font-size: 12px;
+          color: #6b7280;
+        }
       `}</style>
     </form>
   );
@@ -1377,14 +1826,20 @@ function SectionCard({
       <div className="bg-white rounded-xl border border-gray-200 shadow-md overflow-visible">
         <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="size-8 grid place-items-center bg-blue-50 rounded-lg">{icon}</div>
+            <div className="size-8 grid place-items-center bg-blue-50 rounded-lg">
+              {icon}
+            </div>
             <div>
               <h2 className="text-base font-bold text-gray-900">{title}</h2>
-              {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+              {subtitle && (
+                <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
+              )}
             </div>
           </div>
           {requiredHint && (
-            <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">* Required</span>
+            <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">
+              * Required
+            </span>
           )}
         </div>
         <div className="p-4 sm:p-5">{children}</div>
@@ -1458,7 +1913,9 @@ function SurgeChargesSection({
         {data.vehicleOptions.map((v, idx) => (
           <div key={idx} className="rounded-xl border border-gray-200 p-4">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-gray-800">Vehicle Option #{idx + 1}</p>
+              <p className="text-sm font-semibold text-gray-800">
+                Vehicle Option #{idx + 1}
+              </p>
               <button
                 type="button"
                 onClick={() => add(idx)}
@@ -1478,7 +1935,9 @@ function SurgeChargesSection({
               {(v.surgeCharges || []).map((b, i) => (
                 <div key={i} className="rounded-lg border border-gray-200 p-3">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-gray-700">Surge #{i + 1}</span>
+                    <span className="text-xs font-semibold text-gray-700">
+                      Surge #{i + 1}
+                    </span>
                     <button
                       type="button"
                       onClick={() => remove(idx, i)}
@@ -1533,7 +1992,9 @@ function SurgeChargesSection({
                             type="date"
                             className="input"
                             value={b.startDate || ""}
-                            onChange={(e) => patch(idx, i, { startDate: e.target.value })}
+                            onChange={(e) =>
+                              patch(idx, i, { startDate: e.target.value })
+                            }
                             disabled={submitting}
                           />
                         </Field>
@@ -1543,7 +2004,9 @@ function SurgeChargesSection({
                             className="input"
                             value={b.endDate || ""}
                             min={b.startDate || undefined}
-                            onChange={(e) => patch(idx, i, { endDate: e.target.value })}
+                            onChange={(e) =>
+                              patch(idx, i, { endDate: e.target.value })
+                            }
                             disabled={submitting}
                           />
                         </Field>
@@ -1558,7 +2021,10 @@ function SurgeChargesSection({
                         className="input"
                         value={b.price === "" ? "" : Number(b.price)}
                         onChange={(e) =>
-                          patch(idx, i, { price: e.target.value === "" ? "" : Number(e.target.value) })
+                          patch(idx, i, {
+                            price:
+                              e.target.value === "" ? "" : Number(e.target.value),
+                          })
                         }
                         placeholder="amount"
                         disabled={submitting}

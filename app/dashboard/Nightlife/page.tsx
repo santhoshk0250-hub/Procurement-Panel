@@ -40,17 +40,17 @@ import {
 } from "@mui/icons-material";
 import { useNightlifeStore } from "@/store/usenightlifeStore";
 
-
-// ===== Types coming from API shape you provided =====
+// ===== Types =====
 type OID = { $oid: string } | string | undefined;
 
+// Shape your UI uses internally (unchanged)
 type NightlifeDoc = {
   _id?: OID;
   name: string;
   type: string;
   hours?: string;
   estimated_duration?: string;
-  desc?: string; // HTML
+  desc?: string; // HTML or plain text
   price?: string;
   price_source?: string;
   thumbnail?: string;
@@ -62,19 +62,86 @@ type NightlifeDoc = {
   updatedAt?: { $date: string } | string;
 };
 
+// Actual shape coming from the API you pasted (NIGHT001–NIGHT004)
+type ApiNightlifeDoc = {
+  _id?: OID;
+  id: string;
+  title: string;
+  destination: string;
+  duration: number;
+  price: number;
+  serviceCharges?: number;
+  location: {
+    address: string;
+    city: string;
+    state: string;
+    country: string;
+  };
+  description: string;
+  extendedDescription?: string;
+  category: string;
+  timeSlots?: string[];
+  thumbnail?: string;
+  images?: string[];
+  videos?: string[];
+  inclusions?: string[];
+  exclusions?: string[];
+  operatingHours?: string;
+  priceBreakdown?: {
+    basePrice: number;
+    serviceCharges: number;
+    taxes: number;
+    totalPrice: number;
+  };
+  createdAt?: { $date: string } | string;
+  updatedAt?: { $date: string } | string;
+  [key: string]: any;
+};
+
 // ===== Helpers =====
 const unwrapId = (id?: OID) =>
   typeof id === "string" ? id : (id as any)?.$oid ?? "";
 
 const mainImage = (v: NightlifeDoc) =>
   v.thumbnail ||
-  (v.images?.[0] ?? "https://images.unsplash.com/photo-1550950614-95d64d0d193e?q=80&w=1600&auto=format&fit=crop");
+  (v.images?.[0] ??
+    "https://images.unsplash.com/photo-1550950614-95d64d0d193e?q=80&w=1600&auto=format&fit=crop");
 
 const stripHtml = (html?: string) =>
   (html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
 const when = (d?: { $date: string } | string) =>
   typeof d === "string" ? d : d?.$date;
+
+// Adapt API shape → internal NightlifeDoc shape
+const adaptFromApi = (raw: ApiNightlifeDoc): NightlifeDoc => {
+  const totalPrice =
+    raw.priceBreakdown?.totalPrice ?? raw.price ?? undefined;
+
+  return {
+    _id: raw._id,
+    name: raw.title, // title → name
+    type: raw.category, // category → type
+    hours: raw.operatingHours, // operatingHours → hours
+    estimated_duration: raw.duration
+      ? `${raw.duration} hrs`
+      : undefined, // duration → estimated_duration
+    desc: raw.extendedDescription || raw.description,
+    price:
+      typeof totalPrice === "number"
+        ? `₹${totalPrice.toLocaleString("en-IN")}`
+        : undefined,
+    price_source: "per person",
+    thumbnail: raw.thumbnail,
+    images: raw.images,
+    // optional extras if you want them later:
+    age_restriction: undefined,
+    music_type: raw.category ? [raw.category] : [],
+    amenities: raw.inclusions || [],
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+  };
+};
 
 // ===== Component =====
 const NightlifeDashboard: React.FC = () => {
@@ -95,10 +162,18 @@ const NightlifeDashboard: React.FC = () => {
       const res = await axios.get(
         `${process.env.NEXT_PUBLIC_API_BASE}nightlife-places/getall?page=${pageNum}`
       );
-      // Accept several shapes safely:
-      const list: NightlifeDoc[] = res.data.items || res.data.data || res.data || [];
+
+      // The API returns the NIGHT001–NIGHT004 shape
+      const list: ApiNightlifeDoc[] =
+        res.data.items || res.data.data || res.data || [];
+
       const totalPages = res.data.totalPages ?? res.data.pagination?.pages ?? 1;
-      setVenues(Array.isArray(list) ? list : []);
+
+      const mapped: NightlifeDoc[] = Array.isArray(list)
+        ? list.map(adaptFromApi)
+        : [];
+
+      setVenues(mapped);
       setPages(Number(totalPages) || 1);
     } catch (e) {
       console.error("Error fetching nightlife:", e);
@@ -289,7 +364,10 @@ const NightlifeDashboard: React.FC = () => {
                               ? `${v.price} — ${v.price_source}`
                               : v.price
                           }
-                          sx={{ bgcolor: "primary.main", color: "primary.contrastText" }}
+                          sx={{
+                            bgcolor: "primary.main",
+                            color: "primary.contrastText",
+                          }}
                         />
                       )}
                     </Box>
@@ -341,7 +419,7 @@ const NightlifeDashboard: React.FC = () => {
                         <Chip
                           size="small"
                           icon={<PlaceIcon fontSize="small" />}
-                          label={`${v.estimated_duration} hrs`}
+                          label={v.estimated_duration}
                           variant="outlined"
                         />
                       )}
@@ -352,7 +430,12 @@ const NightlifeDashboard: React.FC = () => {
                         variant="body2"
                         color="text.secondary"
                         mt={1}
-                        sx={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+                        sx={{
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden",
+                        }}
                         title={stripHtml(v.desc)}
                       >
                         {descText}…
@@ -376,7 +459,12 @@ const NightlifeDashboard: React.FC = () => {
                   </CardContent>
 
                   <CardActions
-                    sx={{ justifyContent: "space-between", px: 2, pb: 2, pt: 0.5 }}
+                    sx={{
+                      justifyContent: "space-between",
+                      px: 2,
+                      pb: 2,
+                      pt: 0.5,
+                    }}
                   >
                     <Stack direction="row" spacing={1} alignItems="center">
                       <Tooltip title="Copy ID">
@@ -409,7 +497,11 @@ const NightlifeDashboard: React.FC = () => {
                     </Stack>
 
                     <Typography variant="caption" color="text.secondary">
-                      {when(v.updatedAt) ? `Updated: ${new Date(when(v.updatedAt)!).toLocaleDateString()}` : ""}
+                      {when(v.updatedAt)
+                        ? `Updated: ${new Date(
+                            when(v.updatedAt)!
+                          ).toLocaleDateString()}`
+                        : ""}
                     </Typography>
                   </CardActions>
                 </Card>
@@ -433,11 +525,8 @@ const NightlifeDashboard: React.FC = () => {
         <DialogTitle>Delete Nightlife Venue</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete{" "}
-            <strong>
-              {selected?.name || "this venue"}
-            </strong>
-            ? This action cannot be undone.
+            Delete <strong>{selected?.name || "this venue"}</strong>? This
+            action cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

@@ -17,6 +17,8 @@ import {
   ChevronDown,
   ChevronUp,
   Plus,
+  HelpCircle,
+
 } from "lucide-react";
 
 // 🔤 Rich text editor
@@ -37,6 +39,7 @@ interface DietaryInfo {
   glutenFree: boolean;
   halal: boolean;
 }
+type FAQ = { q: string; a: string };
 
 interface FoodFormData {
   name: string;
@@ -55,6 +58,8 @@ interface FoodFormData {
   spiceLevel: SpiceLevel;
   dietaryInfo: DietaryInfo;
   addonIds: string[]; // existing add-on IDs only
+  llm_chips?: FAQ[];
+
 }
 
 interface ImageFile {
@@ -121,6 +126,7 @@ const BLANK: FoodFormData = {
 /* --------------------------------- Steps --------------------------------- */
 const STEPS = [
   { key: "basic", label: "Basic", icon: <Utensils className="size-4" /> },
+  { key: "llmChips", label: "LLM Chips", icon: <HelpCircle className="size-4" /> },
   { key: "details", label: "Details", icon: <Salad className="size-4" /> },
   { key: "dietary", label: "Dietary", icon: <Flame className="size-4" /> },
   { key: "media", label: "Media", icon: <ImageIcon className="size-4" /> },
@@ -207,6 +213,12 @@ function TagComposer({
     </div>
   );
 }
+
+
+const sanitizeHtml = (html: string) =>
+  html
+    .replace(/[\n\r]/g, "") // drop newline and carriage return characters
+    .replace(/>\s+</g, "><"); 
 
 /* --------------------------------- Main UI -------------------------------- */
 export default function AddFoodServiceFormMobile() {
@@ -481,6 +493,32 @@ export default function AddFoodServiceFormMobile() {
       return prev.filter((_, idx) => idx !== i);
     });
   };
+    const [doc, setDoc] = useState<FoodFormData | null>();
+    // NEW: LLM chips state + editors
+    const [llmChips, setLlmChips] = useState<FAQ[]>(
+      doc?.llm_chips && doc.llm_chips.length ? doc.llm_chips : [{ q: "", a: "" }]
+    );
+  
+    const [llmChipEditors, setLlmChipEditors] = useState<EditorState[]>(() =>
+      (doc?.llm_chips && doc.llm_chips.length ? doc.llm_chips : [{ q: "", a: "" }]).map((c) =>
+        htmlToEditorState(c.a)
+      )
+    );
+
+    const addLlmChip = () => {
+      setLlmChips((p) => [...p, { q: "", a: "" }]);
+      setLlmChipEditors((p) => [...p, EditorState.createEmpty()]);
+    };
+  
+    const remLlmChip = (idx: number) => {
+      setLlmChips((p) => (p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)));
+      setLlmChipEditors((p) =>
+        p.length <= 1 ? [EditorState.createEmpty()] : p.filter((_, i) => i !== idx)
+      );
+    };
+  
+    const setLlmChip = (idx: number, next: Partial<FAQ>) =>
+      setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
 
   /* --------------------------------- Nav ---------------------------------- */
   const goNext = () => {
@@ -524,6 +562,20 @@ export default function AddFoodServiceFormMobile() {
           glutenFree: !!data.dietaryInfo.glutenFree,
           halal: !!data.dietaryInfo.halal,
         },
+          llm_chips: llmChips
+                  .map((c, idx) => {
+                    const editor = llmChipEditors[idx] || EditorState.createEmpty();
+                    const content = editor.getCurrentContent();
+                    const hasText = content.hasText();
+                    const rawHtml = stateToHTML(content);
+                    const html = hasText ? sanitizeHtml(rawHtml) : "";
+        
+                    return {
+                      q: (c.q || "").trim(),
+                      a: html.trim(),
+                    };
+                  })
+                  .filter((c) => c.q || c.a),
         // IMPORTANT: existing IDs + new local add-ons separately
         addons: data.addonIds.filter(Boolean),
         newaddons: localAddons
@@ -1060,6 +1112,79 @@ export default function AddFoodServiceFormMobile() {
           </SectionCard>
         )}
 
+            {/* NEW: LLM Chips */}
+                {step.key === "llmChips" && (
+                  <SectionCard
+                    title="LLM Chips"
+                    subtitle="Predefined Q&A snippets for the assistant."
+                    icon={<HelpCircle className="size-5 text-blue-600" />}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-gray-800">Chips</span>
+                      <button
+                        type="button"
+                        onClick={addLlmChip}
+                        disabled={submitting}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                      >
+                        <Plus className="size-3.5" />
+                        Add Chip
+                      </button>
+                    </div>
+        
+                    <div className="space-y-3">
+                      {llmChips.map((c, i) => (
+                        <div key={`llm-chip-${i}`} className="rounded-xl border border-gray-200 p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold text-gray-600">Chip #{i + 1}</p>
+                            <button
+                              type="button"
+                              onClick={() => remLlmChip(i)}
+                              disabled={submitting}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                            >
+                              <Trash2 className="size-3.5" />
+                              Remove
+                            </button>
+                          </div>
+                          <div className="space-y-3">
+                            <Field label="Question / Prompt">
+                              <input
+                                type="text"
+                                className="input w-full"
+                                value={c.q}
+                                onChange={(e) => setLlmChip(i, { q: e.target.value })}
+                                placeholder="e.g., Do you offer Jain or vegan meals?"
+                                disabled={submitting}
+                              />
+                            </Field>
+                            <Field label="Answer / Response">
+                              <div className="rounded-xl border border-gray-300 bg-white p-2">
+                                <Editor
+                                  editorState={llmChipEditors[i] || EditorState.createEmpty()}
+                                  onEditorStateChange={(next) =>
+                                    setLlmChipEditors((eds) =>
+                                      eds.map((ed, idx) => (idx === i ? next : ed))
+                                    )
+                                  }
+                                  toolbar={{
+                                    options: ["inline", "list"],
+                                    inline: { options: ["bold", "italic", "underline", "strikethrough"] },
+                                    list: { options: ["unordered", "ordered"] },
+                                  }}
+                                  toolbarClassName="border-b"
+                                  wrapperClassName="rounded-xl overflow-hidden"
+                                  editorClassName="min-h-[100px] px-3"
+                                />
+                              </div>
+                            </Field>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </SectionCard>
+                )}
+
         {/* DIETARY */}
         {step.key === "dietary" && (
           <SectionCard
@@ -1200,7 +1325,7 @@ export default function AddFoodServiceFormMobile() {
       </main>
 
      
-<div className="fixed bottom-0 right-0 left-0 lg:left-64 z-40 bg-gray-50/95 backdrop-blur safe-bottom pt-2">
+       <div className="fixed bottom-0 right-0 left-0 lg:left-64 z-40 bg-gray-50/95 backdrop-blur safe-bottom pt-2">
         <div className="mx-auto max-w-3xl px-4 sm:px-6 pb-2">
           <div className="rounded-2xl border border-gray-200 bg-white shadow-xl shadow-gray-900/5">
             <div className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">

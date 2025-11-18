@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import axios from "axios";
 import Link from "next/link";
 import {
   Box,
@@ -12,9 +13,7 @@ import {
   CardMedia,
   CardContent,
   CardActions,
-  IconButton,
   Chip,
-  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -26,148 +25,90 @@ import {
 } from "@mui/material";
 import {
   Search,
-  ContentCopy,
   LocalOffer,
   AccessTime,
-  Timelapse,
-  Place,
-  AddCircleOutline,
-  Collections,
-  Movie,
-  CheckCircle,
+  Route as RouteIcon,
+  OndemandVideo,
+  Image as ImageIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+  Today as TodayIcon,
+  Place as PlaceIcon,
+  Star as StarIcon,
 } from "@mui/icons-material";
+import { useLeisureActivityStore,LeisureActivitydata } from "@/store/leisureActivityStore";
 
-import { useLeisureActivityStore } from "@/store/leisureActivityStore";
-import type { LeisureActivity, IDType } from "@/store/leisureActivityStore";
 
-/* ================== Config ================== */
-// Prefer NEXT_PUBLIC_API_BASE if you have one; fallback to the full URL you shared.
-const API_BASE =
-  (process.env.NEXT_PUBLIC_API_BASE
-    ? `${process.env.NEXT_PUBLIC_API_BASE}leisure-activities`
-    : "https://tick-your-tour-base-server-103963826136.us-central1.run.app/leisure-activities");
+/* ================== Types (match your API) ================== */
 
-/* ================== Helpers ================== */
-const unwrapId = (id?: IDType) =>
-  typeof id === "string" ? id : id && typeof id === "object" ? (id as any).$oid ?? "" : "";
-
-const firstImage = (a: any) =>
-  a?.thumbnailUrl ||
-  (Array.isArray(a?.images) && a.images[0]) ||
-  "https://via.placeholder.com/600x360?text=No+Image";
-
-const rupee = (n?: number | null) =>
-  typeof n === "number" && !Number.isNaN(n) ? `₹${n}` : "—";
-
-const timeRange = (a: LeisureActivity) =>
-  a.openTime && a.closeTime ? `${a.openTime} – ${a.closeTime}` : a.openTime || a.closeTime || "—";
-
-const durationText = (a: LeisureActivity) => {
-  const d = a.duration ?? "";
-  if (d === "" || d == null) return "—";
-  return `${d} ${a.durationType === "min" ? "min" : "hrs"}`;
+type ApiResponse = {
+  success: boolean;
+  message?: string;
+  data: LeisureActivitydata[];
+  pagination?: { total: number; page: number; pages: number; limit: number };
 };
 
-const daysText = (a: LeisureActivity) =>
-  Array.isArray(a.operatingDays) && a.operatingDays.length
-    ? a.operatingDays.join(", ")
-    : "—";
+/* ================== Helpers ================== */
+const joinUrl = (base: string, path: string) =>
+  `${base.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
 
-/** Normalize API item into our LeisureActivity shape safely */
-const fromApi = (api: any): LeisureActivity => ({
-  _id: api._id ?? api.id ?? api._id?.$oid,
-  name: api.name ?? "",
-  description: api.description ?? "",
-  destination: api.destination ?? "",
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE!;
+if (!API_BASE) throw new Error("Missing NEXT_PUBLIC_API_BASE");
 
-  thumbnailUrl: api.coverImage ?? api.thumbnailUrl ?? null,
-  images: Array.isArray(api.images) ? api.images : [],
-  videos: Array.isArray(api.videos) ? api.videos : [],
+const PLACEHOLDER_IMG =
+  "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?q=80&w=1200&auto=format&fit=crop";
 
-  vendorPrice: api.vendorPrice != null ? Number(api.vendorPrice) : null,
-  sellingPrice: api.sellingPrice != null ? Number(api.sellingPrice) : null,
-  taxRate: api.taxRate != null ? Number(api.taxRate) : null,
-  taxIncluded: Boolean(api.taxIncluded),
+const toText = (html: string, max = 140) => {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html || "", "text/html");
+    const s = doc.body.textContent || "";
+    return s.length > max ? s.slice(0, max).trim() + "…" : s.trim();
+  } catch {
+    const s = html?.replace(/<[^>]+>/g, "") || "";
+    return s.length > 140 ? s.slice(0, 140).trim() + "…" : s.trim();
+  }
+};
 
-  operatingDays: Array.isArray(api.operatingDays) ? api.operatingDays : [],
-  openTime: api.openTime ?? "",
-  closeTime: api.closeTime ?? "",
-  duration: api.duration != null ? Number(api.duration) : "",
-  durationType: api.durationType === "min" ? "min" : "hrs",
+const price = (n?: number) =>
+  typeof n === "number" && !Number.isNaN(n) ? `₹${n}` : "-";
 
-  pickupLocation: api.pickupLocation ?? "",
-  dropLocation: api.dropLocation ?? "",
-
-  rating: api.rating != null ? Number(api.rating) : undefined,
-  isComplete: api.isComplete != null ? Boolean(api.isComplete) : true,
-
-  dateSurcharges: Array.isArray(api.dateSurcharges) ? api.dateSurcharges : [],
-});
+// Normalize Mongo-style _id into a plain string for React key & API calls
+const getIdString = (id: LeisureActivitydata["_id"]): string | undefined => {
+  if (!id) return undefined;
+  return typeof id === "string" ? id : id.$oid;
+};
 
 /* ================== Component ================== */
 const LeisureActivityDashboard: React.FC = () => {
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<LeisureActivity | null>(null);
-  const [activities, setActivities] = useState<LeisureActivity[]>([]);
+  const [activities, setActivities] = useState<LeisureActivitydata[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState<number>(1);
   const [pages, setPages] = useState<number>(1);
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
+  const [selected, setSelected] = useState<LeisureActivitydata | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const { setActivity } = useLeisureActivityStore();
 
   const fetchActivities = async (pageNum: number) => {
     setLoading(true);
     try {
-      const url = `${API_BASE}?page=${pageNum}`;
-      const res = await fetch(url, {
-        // If your API is protected, add:
-        // headers: { Authorization: `Bearer ${token}` }
-        cache: "no-store",
-      });
-
-      // If the API returns non-OK, surface the reason
-      if (!res.ok) {
-        const errTxt = await res.text();
-        throw new Error(errTxt || `HTTP ${res.status}`);
-      }
-
-      // Try to decode to JSON
-      const bodyText = await res.text();
-      let data: any = [];
-      try {
-        data = JSON.parse(bodyText);
-      } catch {
-        // If backend ever returns plain string/HTML by mistake
-        data = [];
-      }
-
-      // Support multiple shapes:
-      // - { items: [...], totalPages: N }
-      // - { data: [...], totalPages: N }
-      // - [ ... ] (bare array)
-      const list =
-        Array.isArray(data) ? data :
-        Array.isArray(data.items) ? data.items :
-        Array.isArray(data.data) ? data.data :
-        [];
-
-      const totalPages =
-        Number(data?.totalPages ?? data?.pagination?.pages ?? 1) || 1;
-
-      setActivities(list.map(fromApi));
-      setPages(totalPages);
+      const res = await axios.get<ApiResponse>(
+        `${joinUrl(API_BASE, "/leisure-activities")}?page=${pageNum}`
+      );
+      const body = res.data;
+      setActivities(Array.isArray(body.data) ? body.data : []);
+      setPages(Number(body.pagination?.pages ?? 1) || 1);
     } catch (e) {
       console.error("Error fetching activities:", e);
-      setActivities([]);
-      setPages(1);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    void fetchActivities(page);
+    fetchActivities(page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
@@ -176,12 +117,14 @@ const LeisureActivityDashboard: React.FC = () => {
     if (!q) return activities;
     return activities.filter((a) => {
       const hay = [
-        a.name,
+        a.title || a.name,
         a.destination,
-        a.description,
-        a.pickupLocation,
-        a.dropLocation,
-        (a.operatingDays || []).join(" "),
+        a.category,
+        a.location?.address,
+        a.location?.city,
+        a.location?.state,
+        a.location?.country,
+        a.pickupAreas?.join(" "),
       ]
         .filter(Boolean)
         .join(" ")
@@ -192,10 +135,18 @@ const LeisureActivityDashboard: React.FC = () => {
 
   const handleDelete = async () => {
     if (!selected) return;
+
+    const selectedId = getIdString(selected._id);
+    if (!selectedId) {
+      console.error("Cannot delete activity without a valid _id");
+      return;
+    }
+
     try {
-      const id = unwrapId(selected._id);
-      await fetch(`${API_BASE}/${encodeURIComponent(id)}`, { method: "DELETE" });
-      setActivities((prev) => prev.filter((x) => unwrapId(x._id) !== id));
+      await axios.delete(joinUrl(API_BASE, `/leisure-activities/delete/${selectedId}`));
+      setActivities((prev) =>
+        prev.filter((x) => getIdString(x._id) !== selectedId)
+      );
       setSelected(null);
     } catch (e) {
       console.error("Delete failed:", e);
@@ -203,12 +154,8 @@ const LeisureActivityDashboard: React.FC = () => {
     }
   };
 
-  const copyId = async (id?: string) => {
-    try { if (id) await navigator.clipboard.writeText(id); } catch {}
-  };
-
-  const handleEdit = (a: LeisureActivity) => {
-    setActivity(a); // so the edit page can prefill instantly
+  const handleEdit = (v: LeisureActivitydata) => {
+    setActivity(v);
   };
 
   return (
@@ -226,7 +173,7 @@ const LeisureActivityDashboard: React.FC = () => {
       >
         <TextField
           size="small"
-          placeholder="Search leisure activities…"
+          placeholder="Search activities…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           InputProps={{
@@ -239,29 +186,26 @@ const LeisureActivityDashboard: React.FC = () => {
           sx={{ width: { xs: "100%", sm: 360 } }}
         />
 
-           <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" } }}>
-    <Button
-      href="/dashboard/services?type=leisure-activities"   // <-- adjust path if needed
-      component={Link as any}
-      fullWidth
-      variant="outlined"
-      startIcon={<AddCircleOutline />}
-      sx={{ width: { xs: "100%", sm: "auto" } }}
-    >
-      Add Services
-    </Button>
-
-     <Button
-          href="/dashboard/leisure-activity/add-leisure-activity"
-          component={Link as any}
-          fullWidth
-          sx={{ width: { xs: "100%", sm: "auto" } }}
-          variant="contained"
-          startIcon={<AddCircleOutline />}
-        >
-          Add Activity
-        </Button>
-  </Box>
+        <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" } }}>
+          <Button
+            href="/dashboard/services?type=activities"
+            component={Link as any}
+            fullWidth
+            variant="outlined"
+            sx={{ width: { xs: "100%", sm: "auto" } }}
+          >
+            Add Services
+          </Button>
+          <Button
+            href="/dashboard/Activities/addactivities"
+            component={Link as any}
+            fullWidth
+            variant="contained"
+            sx={{ width: { xs: "100%", sm: "auto" } }}
+          >
+            Add Activity
+          </Button>
+        </Box>
       </Box>
 
       {/* Loader / Empty */}
@@ -299,139 +243,177 @@ const LeisureActivityDashboard: React.FC = () => {
         <>
           <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
             {filtered.map((a) => {
-              const id = unwrapId(a._id);
-              const image = firstImage(a);
-              const price = a.sellingPrice ?? a.vendorPrice ?? null;
-              const imagesCount = Array.isArray(a.images) ? a.images.length : 0;
-              const videosCount = Array.isArray(a.videos) ? a.videos.length : 0;
+              const idStr = getIdString(a._id) ?? a.name;
+              const cover = a.thumbnail || a.images?.[0] || PLACEHOLDER_IMG;
+              const desc = toText(a.description);
+              const finalPrice =
+                a.priceBreakdown?.totalPrice ??
+                a.price ??
+                a.priceBreakdown?.basePrice;
+              const pickupLabel =
+                a.pickupAreas && a.pickupAreas.length
+                  ? `Pickup: ${a.pickupAreas.join(" • ")}`
+                  : a.pickupType
+                  ? `Pickup: ${a.pickupType}`
+                  : "";
 
               return (
-                <Card key={id || a.name || Math.random()} sx={{ width: 340 }}>
+                <Card key={idStr} sx={{ width: 360 }}>
                   <Box sx={{ position: "relative" }}>
                     <CardMedia
                       component="img"
-                      image={image}
-                      alt={a.name || "Activity"}
+                      image={cover}
+                      alt={a.title || a.name}
                       sx={{
                         objectFit: "cover",
                         width: "100%",
-                        height: 160,
+                        height: 170,
                         borderRadius: 1,
                       }}
                     />
 
+                    {/* Price & rating badge */}
                     <Box
                       sx={{
                         position: "absolute",
                         left: 8,
                         top: 8,
                         display: "flex",
+                        flexDirection: "column",
                         gap: 0.5,
                         flexWrap: "wrap",
                       }}
                     >
-                      {!!price && (
+                      <Chip
+                        size="small"
+                        color="primary"
+                        icon={<LocalOffer />}
+                        label={price(finalPrice)}
+                        sx={{
+                          bgcolor: "primary.main",
+                          color: "primary.contrastText",
+                        }}
+                      />
+                      {typeof a.rating === "number" && (
                         <Chip
                           size="small"
-                          color="primary"
-                          icon={<LocalOffer />}
-                          label={`${rupee(price)}`}
-                          sx={{ bgcolor: "primary.main", color: "primary.contrastText" }}
+                          icon={<StarIcon fontSize="small" />}
+                          label={`${a.rating} (${a.reviewCount ?? 0})`}
                         />
                       )}
-                      {a.taxIncluded && (
-                        <Chip
-                          size="small"
-                          icon={<CheckCircle />}
-                          label="Tax incl."
-                          sx={{ bgcolor: "success.main", color: "success.contrastText" }}
-                        />
-                      )}
+                    </Box>
+
+                    {/* Media count */}
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        right: 8,
+                        bottom: 8,
+                        display: "flex",
+                        gap: 0.5,
+                      }}
+                    >
+                      <Chip
+                        size="small"
+                        icon={<ImageIcon />}
+                        label={a.images?.length ?? 0}
+                      />
+                      {/* No videos in sample data; keep for layout (0) or remove if not needed */}
+                      <Chip size="small" icon={<OndemandVideo />} label={a.videos?.length ?? 0} />
                     </Box>
                   </Box>
 
                   <CardContent sx={{ pb: 1 }}>
-                    <Stack direction="row" alignItems="center" justifyContent="space-between">
-                      <Typography variant="h6" noWrap title={a.name || "Activity"}>
-                        {a.name || "Untitled Activity"}
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      justifyContent="space-between"
+                    >
+                      <Typography
+                        variant="h6"
+                        noWrap
+                        title={a.title || a.name}
+                      >
+                        {a.title || a.name}
                       </Typography>
-                    </Stack>
-
-                    <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
-                      <Tooltip title="Copy ID">
-                        <IconButton size="small" onClick={() => copyId(id)} sx={{ mr: -0.5 }}>
-                          <ContentCopy fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Typography variant="body2" fontWeight={600}>
-                        {id ? String(id).slice(0, 8) + "…" : "—"}
-                      </Typography>
-                    </Stack>
-
-                    <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
                       <Chip
                         size="small"
-                        icon={<Place fontSize="small" />}
+                        icon={<PlaceIcon fontSize="small" />}
                         label={a.destination || "—"}
                       />
+                    </Stack>
+
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ mt: 0.5 }}
+                      title={desc}
+                    >
+                      {desc || "—"}
+                    </Typography>
+
+                    <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
+                      {/* Duration: in hours (your Goa data) */}
                       <Chip
                         size="small"
                         icon={<AccessTime fontSize="small" />}
-                        label={timeRange(a)}
+                        label={`${a.duration} ${
+                          a.durationType === "min" ? "min" : "hrs"
+                        }`}
                       />
+
+                      {/* Operating hours / seasonal availability */}
                       <Chip
                         size="small"
-                        icon={<Timelapse fontSize="small" />}
-                        label={`Duration: ${durationText(a)}`}
+                        icon={<TodayIcon fontSize="small" />}
+                        label={
+                          a.operatingHours
+                            ? a.operatingHours
+                            : a.bestTimeToVisit || "Timing: —"
+                        }
                       />
-                    </Stack>
 
-                    <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-                      {!!a.pickupLocation && (
-                        <Chip size="small" icon={<Place fontSize="small" />} label={`Pickup: ${a.pickupLocation}`} />
+                      {/* Pickup areas / type */}
+                      {pickupLabel && (
+                        <Chip
+                          size="small"
+                          icon={<RouteIcon fontSize="small" />}
+                          label={pickupLabel}
+                        />
                       )}
-                      {!!a.dropLocation && (
-                        <Chip size="small" icon={<Place fontSize="small" />} label={`Drop: ${a.dropLocation}`} />
-                      )}
-                    </Stack>
-
-                    <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-                      <Chip size="small" label={`Days: ${daysText(a)}`} />
                     </Stack>
                   </CardContent>
 
-                  <CardActions sx={{ justifyContent: "space-between", px: 2, pb: 2, pt: 0.5 }}>
+                  <CardActions
+                    sx={{
+                      justifyContent: "space-between",
+                      px: 2,
+                      pb: 2,
+                      pt: 0.5,
+                    }}
+                  >
                     <Stack direction="row" spacing={1}>
-                      <Button
-                        key="view"
-                        component={Link as any}
-                        href={`/dashboard/leisure-activity/edit-leisure-activity/${id}`}
-                        onClick={() => handleEdit(a)}
-                        size="small"
-                      >
-                        View
-                      </Button>
                       <Button
                         key="edit"
                         component={Link as any}
-                        href={`/dashboard/leisure-activity/edit-leisure-activity/${id}`}
+                        href={`/dashboard/Activities/editactivities`}
                         onClick={() => handleEdit(a)}
                         size="small"
+                        startIcon={<EditIcon fontSize="small" />}
                       >
                         Edit
                       </Button>
                       <Button
                         color="error"
                         size="small"
-                        onClick={() => { setSelected(a); setConfirmOpen(true); }}
+                        startIcon={<DeleteIcon fontSize="small" />}
+                        onClick={() => {
+                          setSelected(a);
+                          setConfirmOpen(true);
+                        }}
                       >
                         Delete
                       </Button>
-                    </Stack>
-
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Chip size="small" icon={<Collections />} label={`${imagesCount} images`} />
-                      <Chip size="small" icon={<Movie />} label={`${videosCount} videos`} />
                     </Stack>
                   </CardActions>
                 </Card>
@@ -440,7 +422,12 @@ const LeisureActivityDashboard: React.FC = () => {
           </Box>
 
           <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
-            <Pagination count={pages} page={page} onChange={(e, value) => setPage(value)} color="primary" />
+            <Pagination
+              count={pages}
+              page={page}
+              onChange={(e, value) => setPage(value)}
+              color="primary"
+            />
           </Box>
         </>
       )}
@@ -451,7 +438,8 @@ const LeisureActivityDashboard: React.FC = () => {
         <DialogContent>
           <DialogContentText>
             Delete{" "}
-            <strong>{selected?.name || "this activity"}</strong>? This action cannot be undone.
+            <strong>{selected?.title || selected?.name || "this activity"}</strong>? This
+            action cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -466,7 +454,7 @@ const LeisureActivityDashboard: React.FC = () => {
             color="error"
             variant="contained"
           >
-            Delete 
+            Delete
           </Button>
         </DialogActions>
       </Dialog>

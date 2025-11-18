@@ -579,7 +579,7 @@ export default function AddRentalFormMobile() {
       </header>
 
       {/* Content */}
-      <main className="max-w-3xl mx-auto p-4 sm:p-6 pb-36">
+    <main className="max-w-3xl mx-auto p-4 sm:p-6 pb-36 lg:pb-64">
         {step.key === "basic" && (
           <SectionCard
             title="Basic Information"

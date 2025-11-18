@@ -13,9 +13,7 @@ import {
   CardMedia,
   CardContent,
   CardActions,
-  IconButton,
   Chip,
-  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -36,41 +34,11 @@ import {
   Delete as DeleteIcon,
   Today as TodayIcon,
   Place as PlaceIcon,
+  Star as StarIcon,
 } from "@mui/icons-material";
-import { useActivityStore } from "@/store/useactivityStore";
+import { useActivityStore, Activity } from "@/store/useactivityStore";
 
 /* ================== Types (match your API) ================== */
-type Surcharge = {
-  mode: "single" | "range";
-  startDate: string;
-  endDate: string;
-  surchargeAmount: number;
-  surchargeType: "fixed" | "percentage";
-};
-
-type Activity = {
-  _id: string;
-  name: string;
-  description: string; // HTML string
-  destination: string;
-  images: string[];
-  videos: string[];
-  vendorPrice: number;
-  sellingPrice: number;
-  taxRate: number;
-  taxIncluded: boolean;
-  dateSurcharges: Surcharge[];
-  operatingDays: string[];
-  openTime: string;
-  closeTime: string;
-  duration: number;
-  durationType: "min" | "hrs";
-  pickupLocation: string;
-  dropLocation: string;
-  isComplete: boolean;
-  createdAt: string;
-  updatedAt: string;
-};
 
 type ApiResponse = {
   success: boolean;
@@ -103,6 +71,12 @@ const toText = (html: string, max = 140) => {
 
 const price = (n?: number) =>
   typeof n === "number" && !Number.isNaN(n) ? `₹${n}` : "-";
+
+// Normalize Mongo-style _id into a plain string for React key & API calls
+const getIdString = (id: Activity["_id"]): string | undefined => {
+  if (!id) return undefined;
+  return typeof id === "string" ? id : id.$oid;
+};
 
 /* ================== Component ================== */
 const ActivitiesDashboard: React.FC = () => {
@@ -142,11 +116,14 @@ const ActivitiesDashboard: React.FC = () => {
     if (!q) return activities;
     return activities.filter((a) => {
       const hay = [
-        a.name,
+        a.title || a.name,
         a.destination,
-        a.pickupLocation,
-        a.dropLocation,
-        a.operatingDays?.join(" "),
+        a.category,
+        a.location?.address,
+        a.location?.city,
+        a.location?.state,
+        a.location?.country,
+        a.pickupAreas?.join(" "),
       ]
         .filter(Boolean)
         .join(" ")
@@ -157,20 +134,28 @@ const ActivitiesDashboard: React.FC = () => {
 
   const handleDelete = async () => {
     if (!selected) return;
+
+    const selectedId = getIdString(selected._id);
+    if (!selectedId) {
+      console.error("Cannot delete activity without a valid _id");
+      return;
+    }
+
     try {
-      // ⚠️ Adjust if your delete route differs
-      await axios.delete(joinUrl(API_BASE, `/activity/delete/${selected._id}`));
-      setActivities((prev) => prev.filter((x) => x._id !== selected._id));
+      await axios.delete(joinUrl(API_BASE, `/activity/delete/${selectedId}`));
+      setActivities((prev) =>
+        prev.filter((x) => getIdString(x._id) !== selectedId)
+      );
       setSelected(null);
     } catch (e) {
       console.error("Delete failed:", e);
       alert("Failed to delete activity");
     }
   };
-    const handleEdit = (v: Activity) => {
-      // Persist entire vehicle into store for edit page
-      setActivity(v);
-    };
+
+  const handleEdit = (v: Activity) => {
+    setActivity(v);
+  };
 
   return (
     <Box sx={{ p: 3, backgroundColor: "white", minHeight: "70vh" }}>
@@ -201,7 +186,6 @@ const ActivitiesDashboard: React.FC = () => {
         />
 
         <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" } }}>
-          {/* Adjust 'Add' paths as needed */}
           <Button
             href="/dashboard/services?type=activities"
             component={Link as any}
@@ -258,15 +242,27 @@ const ActivitiesDashboard: React.FC = () => {
         <>
           <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
             {filtered.map((a) => {
-              const cover = a.images?.[0] || PLACEHOLDER_IMG;
+              const idStr = getIdString(a._id) ?? a.name;
+              const cover = a.thumbnail || a.images?.[0] || PLACEHOLDER_IMG;
               const desc = toText(a.description);
+              const finalPrice =
+                a.priceBreakdown?.totalPrice ??
+                a.price ??
+                a.priceBreakdown?.basePrice;
+              const pickupLabel =
+                a.pickupAreas && a.pickupAreas.length
+                  ? `Pickup: ${a.pickupAreas.join(" • ")}`
+                  : a.pickupType
+                  ? `Pickup: ${a.pickupType}`
+                  : "";
+
               return (
-                <Card key={a._id} sx={{ width: 360 }}>
+                <Card key={idStr} sx={{ width: 360 }}>
                   <Box sx={{ position: "relative" }}>
                     <CardMedia
                       component="img"
                       image={cover}
-                      alt={a.name}
+                      alt={a.title || a.name}
                       sx={{
                         objectFit: "cover",
                         width: "100%",
@@ -275,12 +271,14 @@ const ActivitiesDashboard: React.FC = () => {
                       }}
                     />
 
+                    {/* Price & rating badge */}
                     <Box
                       sx={{
                         position: "absolute",
                         left: 8,
                         top: 8,
                         display: "flex",
+                        flexDirection: "column",
                         gap: 0.5,
                         flexWrap: "wrap",
                       }}
@@ -289,11 +287,22 @@ const ActivitiesDashboard: React.FC = () => {
                         size="small"
                         color="primary"
                         icon={<LocalOffer />}
-                        label={`${price(a.sellingPrice)} • ${a.taxIncluded ? "Tax incl." : `+${a.taxRate}%`}`}
-                        sx={{ bgcolor: "primary.main", color: "primary.contrastText" }}
+                        label={price(finalPrice)}
+                        sx={{
+                          bgcolor: "primary.main",
+                          color: "primary.contrastText",
+                        }}
                       />
+                      {typeof a.rating === "number" && (
+                        <Chip
+                          size="small"
+                          icon={<StarIcon fontSize="small" />}
+                          label={`${a.rating} (${a.reviewCount ?? 0})`}
+                        />
+                      )}
                     </Box>
 
+                    {/* Media count */}
                     <Box
                       sx={{
                         position: "absolute",
@@ -303,15 +312,28 @@ const ActivitiesDashboard: React.FC = () => {
                         gap: 0.5,
                       }}
                     >
-                      <Chip size="small" icon={<ImageIcon />} label={a.images?.length ?? 0} />
+                      <Chip
+                        size="small"
+                        icon={<ImageIcon />}
+                        label={a.images?.length ?? 0}
+                      />
+                      {/* No videos in sample data; keep for layout (0) or remove if not needed */}
                       <Chip size="small" icon={<OndemandVideo />} label={a.videos?.length ?? 0} />
                     </Box>
                   </Box>
 
                   <CardContent sx={{ pb: 1 }}>
-                    <Stack direction="row" alignItems="center" justifyContent="space-between">
-                      <Typography variant="h6" noWrap title={a.name}>
-                        {a.name}
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      justifyContent="space-between"
+                    >
+                      <Typography
+                        variant="h6"
+                        noWrap
+                        title={a.title || a.name}
+                      >
+                        {a.title || a.name}
                       </Typography>
                       <Chip
                         size="small"
@@ -330,26 +352,45 @@ const ActivitiesDashboard: React.FC = () => {
                     </Typography>
 
                     <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
+                      {/* Duration: in hours (your Goa data) */}
                       <Chip
                         size="small"
                         icon={<AccessTime fontSize="small" />}
-                        label={`${a.duration} ${a.durationType === "min" ? "min" : "hrs"}`}
+                        label={`${a.duration} ${
+                          a.durationType === "min" ? "min" : "hrs"
+                        }`}
                       />
+
+                      {/* Operating hours / seasonal availability */}
                       <Chip
                         size="small"
                         icon={<TodayIcon fontSize="small" />}
-                        label={a.operatingDays?.length ? a.operatingDays.join(" • ") : "Days: —"}
+                        label={
+                          a.operatingHours
+                            ? a.operatingHours
+                            : a.bestTimeToVisit || "Timing: —"
+                        }
                       />
-                      {(a.pickupLocation || a.dropLocation) && (
+
+                      {/* Pickup areas / type */}
+                      {pickupLabel && (
                         <Chip
                           size="small"
                           icon={<RouteIcon fontSize="small" />}
-                          label={`${a.pickupLocation || "—"} → ${a.dropLocation || "—"}`}
+                          label={pickupLabel}
                         />
                       )}
                     </Stack>
                   </CardContent>
-                  <CardActions sx={{ justifyContent: "space-between", px: 2, pb: 2, pt: 0.5 }}>
+
+                  <CardActions
+                    sx={{
+                      justifyContent: "space-between",
+                      px: 2,
+                      pb: 2,
+                      pt: 0.5,
+                    }}
+                  >
                     <Stack direction="row" spacing={1}>
                       <Button
                         key="edit"
@@ -357,10 +398,19 @@ const ActivitiesDashboard: React.FC = () => {
                         href={`/dashboard/Activities/editactivities`}
                         onClick={() => handleEdit(a)}
                         size="small"
+                        startIcon={<EditIcon fontSize="small" />}
                       >
                         Edit
                       </Button>
-                      <Button color="error" size="small" onClick={() => { setSelected(a); setConfirmOpen(true); }}>
+                      <Button
+                        color="error"
+                        size="small"
+                        startIcon={<DeleteIcon fontSize="small" />}
+                        onClick={() => {
+                          setSelected(a);
+                          setConfirmOpen(true);
+                        }}
+                      >
                         Delete
                       </Button>
                     </Stack>
@@ -386,8 +436,9 @@ const ActivitiesDashboard: React.FC = () => {
         <DialogTitle>Delete Activity</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete <strong>{selected?.name || "this activity"}</strong>? This action cannot be
-            undone.
+            Delete{" "}
+            <strong>{selected?.title || selected?.name || "this activity"}</strong>? This
+            action cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

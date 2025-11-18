@@ -10,6 +10,11 @@ import { persist } from "zustand/middleware";
 type MongoDate = string | { $date: string };
 type IDType = string | { $oid: string };
 
+export interface FAQ {
+  q: string;
+  a: string;
+}
+
 export interface SightseeingPackage {
   // Core
   tour_name: string;
@@ -31,7 +36,7 @@ export interface SightseeingPackage {
   // Commercials
   inclusions: string[];
   exclusions: string[];
-
+  llm_chips?: FAQ[];
   // Pricing (nullable in DB)
   price_regular: number | null;
   price_block_out: number | null;
@@ -65,7 +70,7 @@ export const SIGHTSEEING_INITIAL: SightseeingPackage = {
 
   inclusions: [],
   exclusions: [],
-
+llm_chips: [],
   price_regular: null,
   price_block_out: null,
   price_block_out_special: null,
@@ -124,6 +129,11 @@ interface SightseeingPackageStoreState {
   // Notes
   setNotes: (notes: string) => void;
   setSpecialMentions: (txt: string) => void;
+
+  setLlmChips: (chips: FAQ[]) => void;
+  addLlmChip: (chip: FAQ) => void;
+  updateLlmChipAt: (index: number, patch: Partial<FAQ>) => void;
+  removeLlmChipAt: (index: number) => void;
 
   // Reset
   clearPackage: () => void;
@@ -256,6 +266,63 @@ export const useSightseeingPackageStore = create<SightseeingPackageStoreState>()
       /* ---------- Notes ---------- */
       setNotes: (notes) => set({ pkg: { ...get().pkg, notes } }),
       setSpecialMentions: (txt) => set({ pkg: { ...get().pkg, special_mentions: txt } }),
+
+         /* ---------- LLM chips ---------- */
+      setLlmChips: (chips) =>
+        set({
+          pkg: {
+            ...get().pkg,
+            llm_chips: chips.map((c) => ({
+              q: (c.q ?? "").toString(),
+              a: (c.a ?? "").toString(),
+            })),
+          },
+        }),
+
+      addLlmChip: (chip) =>
+        set({
+          pkg: {
+            ...get().pkg,
+            llm_chips: [
+              ...(get().pkg.llm_chips || []),
+              {
+                q: (chip.q ?? "").toString(),
+                a: (chip.a ?? "").toString(),
+              },
+            ],
+          },
+        }),
+
+      updateLlmChipAt: (index, patch) =>
+        set({
+          pkg: {
+            ...get().pkg,
+            llm_chips: (get().pkg.llm_chips || []).map((c, i) =>
+              i === index
+                ? {
+                    q:
+                      patch.q !== undefined
+                        ? patch.q.toString()
+                        : c.q,
+                    a:
+                      patch.a !== undefined
+                        ? patch.a.toString()
+                        : c.a,
+                  }
+                : c
+            ),
+          },
+        }),
+
+      removeLlmChipAt: (index) =>
+        set({
+          pkg: {
+            ...get().pkg,
+            llm_chips: (get().pkg.llm_chips || []).filter(
+              (_c, i) => i !== index
+            ),
+          },
+        }),
 
       /* ---------- Reset ---------- */
       clearPackage: () => set({ pkg: { ...SIGHTSEEING_INITIAL } }),

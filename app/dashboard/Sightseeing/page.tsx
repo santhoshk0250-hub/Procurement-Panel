@@ -19,10 +19,8 @@ export default function SightseeingTabsPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-  // Read ?tab from query; default to "places"
   const currentTab = (searchParams.get("tab") || TAB_PLACES) as TabKey;
 
-  // Navigate by replacing only the tab param
   const navigate = (tab: TabKey) => {
     const params = new URLSearchParams(searchParams.toString());
     if (tab === TAB_PLACES) {
@@ -38,7 +36,7 @@ export default function SightseeingTabsPage() {
 
   return (
     <Box sx={{ width: "100%", bgcolor: "background.default" }}>
-      {/* Tab Navigation */}
+      {/* Tab Navigation - Sticky on scroll */}
       <Paper
         elevation={0}
         sx={{
@@ -81,21 +79,19 @@ export default function SightseeingTabsPage() {
             <Tab
               value={TAB_PLACES}
               icon={<Place sx={{ fontSize: { xs: 20, sm: 22 } }} />}
-              iconPosition={isMobile ? "top" : "start"}
+              iconPosition="start"
               label="Places"
               sx={{
-                gap: { xs: 0.5, sm: 1 },
-                flexDirection: isMobile ? "column" : "row",
+                gap: { xs: 0.75, sm: 1 },
               }}
             />
             <Tab
               value={TAB_PACKAGES}
               icon={<CardGiftcard sx={{ fontSize: { xs: 20, sm: 22 } }} />}
-              iconPosition={isMobile ? "top" : "start"}
+              iconPosition="start"
               label="Packages"
               sx={{
-                gap: { xs: 0.5, sm: 1 },
-                flexDirection: isMobile ? "column" : "row",
+                gap: { xs: 0.75, sm: 1 },
               }}
             />
           </Tabs>

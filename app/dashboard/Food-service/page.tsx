@@ -181,6 +181,7 @@ const FoodServicesDashboard: React.FC = () => {
         />
 
         <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" } }}>
+          
           <Button
             href="/dashboard/services?type=food-service"
             component={Link as any}
@@ -238,7 +239,17 @@ const FoodServicesDashboard: React.FC = () => {
         </Box>
       ) : (
         <>
-          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: {
+                xs: "1fr",
+                sm: "repeat(auto-fill, minmax(340px, 1fr))",
+                md: "repeat(auto-fill, minmax(360px, 1fr))",
+              },
+              gap: { xs: 2, sm: 2.5, md: 3 },
+            }}
+          >
             {filtered.map((f) => {
               const id = unwrapId(f._id as any);
               const price = money(f.price);
@@ -249,7 +260,7 @@ const FoodServicesDashboard: React.FC = () => {
               const category = asCategory(f.category);
 
               return (
-                <Card key={id || f.name} sx={{ width: 360 }}>
+                <Card key={id || f.name} sx={{ width: "100%", maxWidth: 450, mx: "auto" }}>
                   <Box sx={{ position: "relative" }}>
                     <CardMedia
                       component="img"
@@ -258,7 +269,7 @@ const FoodServicesDashboard: React.FC = () => {
                       sx={{
                         objectFit: "cover",
                         width: "100%",
-                        height: 170,
+                        height: { xs: 200, sm: 180, md: 170 },
                         borderRadius: 1,
                       }}
                     />
@@ -271,6 +282,7 @@ const FoodServicesDashboard: React.FC = () => {
                         display: "flex",
                         gap: 0.5,
                         flexWrap: "wrap",
+                        maxWidth: "calc(100% - 16px)",
                       }}
                     >
                       <Chip
@@ -300,9 +312,24 @@ const FoodServicesDashboard: React.FC = () => {
                     </Box>
                   </Box>
 
-                  <CardContent sx={{ pb: 1 }}>
-                    <Stack direction="row" alignItems="center" justifyContent="space-between">
-                      <Typography variant="h6" noWrap title={f.name}>
+                  <CardContent sx={{ pb: 1, px: { xs: 1.5, sm: 2 } }}>
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      justifyContent="space-between"
+                      spacing={1}
+                    >
+                      <Typography
+                        variant="h6"
+                        sx={{
+                          fontSize: { xs: "1rem", sm: "1.15rem" },
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          flex: 1,
+                        }}
+                        title={f.name}
+                      >
                         {f.name}
                       </Typography>
                       {!!f.rating && (
@@ -330,44 +357,77 @@ const FoodServicesDashboard: React.FC = () => {
                       dangerouslySetInnerHTML={{ __html: f.description ?? "" }}
                     />
 
-                    <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-                      {cuisine && <Chip size="small" icon={<Fastfood fontSize="small" />} label={cuisine} />}
-                      {diet.vegetarian && <Chip size="small" color="success" label="Vegetarian" />}
-                      {diet.vegan && <Chip size="small" color="success" label="Vegan" />}
-                      {diet.glutenFree && <Chip size="small" color="success" label="Gluten-Free" />}
-                      {diet.halal && <Chip size="small" color="success" label="Halal" />}
-                      {allergens && (
-                        <Tooltip title={`Allergens: ${allergens}`}>
-                          <Chip size="small" color="warning" label="Allergens" />
-                        </Tooltip>
-                      )}
-                      {typeof f.preparationTime === "number" && (
-                        <Chip size="small" label={`~${f.preparationTime} min`} />
-                      )}
-                      <Chip
-                        size="small"
-                        color={f.isAvailable ? "success" : "default"}
-                        icon={f.isAvailable ? <CheckCircle fontSize="small" /> : <Cancel fontSize="small" />}
-                        label={f.isAvailable ? "Available" : "Unavailable"}
-                      />
-                      {!!f.addons?.length && <Chip size="small" label={`${f.addons.length} add-ons`} />}
-                    </Stack>
+                   <Stack spacing={1} mt={1}>
+  {/* Highlighted cuisine chip */}
+  {cuisine && (
+    <Chip
+      size="medium"
+      icon={<Fastfood fontSize="small" />}
+      label={cuisine}
+      color="secondary"
+      sx={{
+        alignSelf: "flex-start",
+        fontWeight: 600,
+        px: { xs: 1.2, sm: 1.8 },
+        borderRadius: 999,
+        boxShadow: 1,
+        fontSize: { xs: "0.75rem", sm: "0.8125rem" },
+      }}
+    />
+  )}
+
+  {/* Other tags in a separate row */}
+  <Stack direction="row" spacing={0.75} flexWrap="wrap" sx={{ gap: 0.75 }}>
+    {diet.vegetarian && <Chip size="small" color="success" label="Vegetarian" />}
+    {diet.vegan && <Chip size="small" color="success" label="Vegan" />}
+    {diet.glutenFree && <Chip size="small" color="success" label="Gluten-Free" />}
+    {diet.halal && <Chip size="small" color="success" label="Halal" />}
+    {allergens && (
+      <Tooltip title={`Allergens: ${allergens}`}>
+        <Chip size="small" color="warning" label="Allergens" />
+      </Tooltip>
+    )}
+    {typeof f.preparationTime === "number" && (
+      <Chip size="small" label={`~${f.preparationTime} min`} />
+    )}
+    <Chip
+      size="small"
+      color={f.isAvailable ? "success" : "default"}
+      icon={f.isAvailable ? <CheckCircle fontSize="small" /> : <Cancel fontSize="small" />}
+      label={f.isAvailable ? "Available" : "Unavailable"}
+    />
+    {!!f.addons?.length && <Chip size="small" label={`${f.addons.length} add-ons`} />}
+  </Stack>
+</Stack>
+
                   </CardContent>
 
-                  <CardActions sx={{ justifyContent: "space-between", px: 2, pb: 2, pt: 0.5 }}>
-                    <Stack direction="row" spacing={1}>
+                  <CardActions
+                    sx={{
+                      justifyContent: "space-between",
+                      px: { xs: 1.5, sm: 2 },
+                      pb: { xs: 1.5, sm: 2 },
+                      pt: 0.5,
+                      flexDirection: { xs: "column", sm: "row" },
+                      alignItems: { xs: "stretch", sm: "center" },
+                      gap: { xs: 1, sm: 0 },
+                    }}
+                  >
+                    <Stack direction="row" spacing={1} sx={{ width: { xs: "100%", sm: "auto" } }}>
                       <Button
                         key="edit"
                         component={Link as any}
                         href={`/dashboard/Food-service/editfoodservice`}
                         onClick={() => handleEdit(f)}
                         size="small"
+                        sx={{ flex: { xs: 1, sm: "initial" } }}
                       >
                         Edit
                       </Button>
                       <Button
                         color="error"
                         size="small"
+                        sx={{ flex: { xs: 1, sm: "initial" } }}
                         onClick={() => {
                           setSelected(f);
                           setConfirmOpen(true);
@@ -376,7 +436,11 @@ const FoodServicesDashboard: React.FC = () => {
                         Delete
                       </Button>
                     </Stack>
-                    <Typography variant="caption" color="text.secondary">
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ textAlign: { xs: "center", sm: "right" } }}
+                    >
                       {f.reviewCount ? `${f.reviewCount} reviews` : ""}
                     </Typography>
                   </CardActions>
