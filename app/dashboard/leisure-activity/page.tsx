@@ -396,7 +396,7 @@ const LeisureActivityDashboard: React.FC = () => {
                       <Button
                         key="edit"
                         component={Link as any}
-                        href={`/dashboard/Activities/editactivities`}
+                        href={`/dashboard/leisure-activity/edit_leisure_activity`}
                         onClick={() => handleEdit(a)}
                         size="small"
                         startIcon={<EditIcon fontSize="small" />}

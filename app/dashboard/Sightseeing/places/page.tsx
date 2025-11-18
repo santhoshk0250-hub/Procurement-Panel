@@ -24,6 +24,7 @@ import {
   CircularProgress,
   Pagination,
   Stack,
+  Rating,
 } from "@mui/material";
 import {
   Search,
@@ -38,34 +39,141 @@ import {
   Delete as DeleteIcon,
   Edit as EditIcon,
 } from "@mui/icons-material";
-import { usePlaceStore } from "@/store/usesightseeingplace";
+import { useSightseeingPlaceStore } from "@/store/usesightseeingplace";
 
 /* ================== Types ================== */
 export type IDType = string | { $oid: string } | undefined;
 
 export interface SightPlace {
   _id?: IDType;
+
+  // Core
   name?: string;
-  type?: string; // beach, fort, etc. (dynamic allowed)
+  type?: string;          // beach, fort, etc.
+  category?: string;      // heritage, nature, popular, etc.
   area?: string;
-  hours?: string;
+
+  // Location
+  location?: {
+    city?: string;
+    state?: string;
+    country?: string;
+    latitude?: number;
+    longitude?: number;
+  };
+
+  // Hours (new + legacy support)
+  hours?:
+    | string
+    | {
+        open?: string;
+        close?: string;
+        note?: string;
+        days?: string;
+      };
+
+  // Map URLs (new + old)
+  mapUrl?: string;
   map_url?: string;
+
+  // Duration (new + legacy)
+  duration?:
+    | string
+    | {
+        min?: number;
+        max?: number;
+        text?: string;
+      };
   estimated_duration?: string;
+
+  // Text fields (new + legacy)
+  description?: string;
   desc?: string;
-  price?: string;
+  history?: string;
+
+  // Price (new + legacy)
+  price?:
+    | string
+    | {
+        type?: string;
+        text?: string;
+        source?: string;
+      };
   price_source?: string;
   source_citation?: string;
-  images?: string[]; // array of URLs
-  [key: string]: any; // dynamic
+
+  // Media / extras
+  images?: string[];
+  highlights?: string[];
+  tips?: string[];
+  bestTimeToVisit?: string;
+  facilities?: string[];
+  accessibility?: {
+    wheelchairAccessible?: boolean;
+    difficultyLevel?: string;
+  };
+  rating?: number;
+  reviewCount?: number;
+  itinerary?: Array<{
+    time?: string;
+    title?: string;
+    description?: string;
+  }>;
+  nearbyPlaces?: Array<{
+    name?: string;
+    distance?: string;
+  }>;
+
+  [key: string]: any;
 }
 
 /* ================== Helpers ================== */
-const unwrapId = (id?: IDType) => (typeof id === "string" ? id : (id as any)?.$oid ?? "");
+const unwrapId = (id?: IDType) =>
+  typeof id === "string" ? id : (id as any)?.$oid ?? "";
 
 const fallbackImg =
   "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?q=80&w=1600&auto=format&fit=crop";
 
-const heroImage = (p: SightPlace) => (p.images?.[0] ? p.images[0] : fallbackImg);
+const heroImage = (p: SightPlace) =>
+  p.images?.[0] ? p.images[0] : fallbackImg;
+
+const getMapUrl = (p: SightPlace) => p.mapUrl || p.map_url || "";
+
+const getDescription = (p: SightPlace) =>
+  p.desc || p.description || p.history || "";
+
+const getDurationText = (p: SightPlace) => {
+  if (typeof p.duration === "string") return p.duration;
+  if (p.duration?.text) return p.duration.text;
+  return p.estimated_duration || "";
+};
+
+const getHoursText = (p: SightPlace) => {
+  if (typeof p.hours === "string") return p.hours;
+  if (p.hours) {
+    const parts: string[] = [];
+    if (p.hours.open && p.hours.close) {
+      parts.push(`${p.hours.open} – ${p.hours.close}`);
+    } else if (p.hours.open) {
+      parts.push(p.hours.open);
+    }
+    if (p.hours.days) parts.push(p.hours.days);
+    if (p.hours.note) parts.push(p.hours.note);
+    return parts.join(" • ");
+  }
+  return "";
+};
+
+const getPriceText = (p: SightPlace) => {
+  if (typeof p.price === "string") return p.price;
+  if (p.price?.text) return p.price.text;
+  return "";
+};
+
+const getLocationText = (p: SightPlace) => {
+  const { city, state, country } = p.location || {};
+  return [city, state, country].filter(Boolean).join(", ");
+};
 
 /* ================== Component ================== */
 const SightseeingDashboard: React.FC = () => {
@@ -75,14 +183,23 @@ const SightseeingDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState<number>(1);
   const [pages, setPages] = useState<number>(1);
-  const { setPlace } = usePlaceStore();
+  const { setSightseeingPlace } = useSightseeingPlaceStore ();
 
   const fetchPlaces = async (pageNum: number) => {
     setLoading(true);
     try {
-      const res = await axios.get(`${process.env.NEXT_PUBLIC_API_BASE}sightseeing/fetch?page=${pageNum}`);
-      const fetched: SightPlace[] = res.data.items || res.data.data || [];
-      const totalPages = res.data.totalPages ?? res.data.pagination?.pages ?? 1;
+      const res = await axios.get(
+        `${process.env.NEXT_PUBLIC_API_BASE}sightseeing-places/fetch?page=${pageNum}`
+      );
+
+      const data = res.data;
+      const fetched: SightPlace[] = Array.isArray(data)
+        ? data
+        : data.items || data.data || [];
+
+      const totalPages =
+        data.totalPages ?? data.pagination?.pages ?? 1;
+
       setItems(Array.isArray(fetched) ? fetched : []);
       setPages(Number(totalPages) || 1);
     } catch (e) {
@@ -100,19 +217,27 @@ const SightseeingDashboard: React.FC = () => {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     if (!q) return items;
+
     return items.filter((p) => {
       const hay = [
         p.name,
         p.type,
+        p.category,
         p.area,
-        p.hours,
-        p.estimated_duration,
-        p.desc,
-        p.price,
+        getLocationText(p),
+        getHoursText(p),
+        getDurationText(p),
+        getDescription(p),
+        getPriceText(p),
+        p.bestTimeToVisit,
+        p.accessibility?.difficultyLevel,
+        p.highlights?.join(" "),
+        p.tips?.join(" "),
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
+
       return hay.includes(q);
     });
   }, [search, items]);
@@ -120,8 +245,16 @@ const SightseeingDashboard: React.FC = () => {
   const handleDelete = async () => {
     if (!selected) return;
     try {
-      await axios.delete(`${process.env.NEXT_PUBLIC_API_BASE}sightseeing/${unwrapId(selected._id)}`);
-      setItems((prev) => prev.filter((x) => unwrapId(x._id) !== unwrapId(selected._id)));
+      await axios.delete(
+        `${process.env.NEXT_PUBLIC_API_BASE}sightseeing/${unwrapId(
+          selected._id
+        )}`
+      );
+      setItems((prev) =>
+        prev.filter(
+          (x) => unwrapId(x._id) !== unwrapId(selected._id)
+        )
+      );
       setSelected(null);
     } catch (e) {
       console.error("Delete failed:", e);
@@ -132,16 +265,15 @@ const SightseeingDashboard: React.FC = () => {
   const copyId = async (id?: string) => {
     try {
       if (id) await navigator.clipboard.writeText(id);
-    } catch {}
-
-    /* no-op if clipboard unavailable */
+    } catch {
+      // no-op if clipboard unavailable
+    }
   };
 
-  /* ------- Delete dialog ------- */
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const handleEdit = (p: SightPlace) => {
-    setPlace(p as any);
+    setSightseeingPlace(p as any);
   };
 
   return (
@@ -172,7 +304,7 @@ const SightseeingDashboard: React.FC = () => {
           sx={{ width: { xs: "100%", sm: 360 } }}
         />
 
-        {/* Mobile button (below search) */}
+        {/* Mobile button */}
         <Button
           href="/dashboard/Sightseeing/places/addplaces"
           component={Link as any}
@@ -186,10 +318,12 @@ const SightseeingDashboard: React.FC = () => {
             fontWeight: 600,
             textTransform: "none",
             borderRadius: 2.5,
-            background: "linear-gradient(135deg, #1976D2 0%, #42A5F5 100%)",
+            background:
+              "linear-gradient(135deg, #1976D2 0%, #42A5F5 100%)",
             boxShadow: "0 6px 18px rgba(25,118,210,0.25)",
             ":hover": {
-              background: "linear-gradient(135deg, #1565C0 0%, #1E88E5 100%)",
+              background:
+                "linear-gradient(135deg, #1565C0 0%, #1E88E5 100%)",
               boxShadow: "0 8px 22px rgba(25,118,210,0.35)",
             },
           }}
@@ -197,7 +331,7 @@ const SightseeingDashboard: React.FC = () => {
           Add Place
         </Button>
 
-        {/* Desktop button (right side) */}
+        {/* Desktop button */}
         <Button
           href="/dashboard/Sightseeing/places/addplaces"
           component={Link as any}
@@ -210,10 +344,12 @@ const SightseeingDashboard: React.FC = () => {
             fontWeight: 600,
             textTransform: "none",
             borderRadius: 2.5,
-            background: "linear-gradient(135deg, #1976D2 0%, #42A5F5 100%)",
+            background:
+              "linear-gradient(135deg, #1976D2 0%, #42A5F5 100%)",
             boxShadow: "0 6px 18px rgba(25,118,210,0.25)",
             ":hover": {
-              background: "linear-gradient(135deg, #1565C0 0%, #1E88E5 100%)",
+              background:
+                "linear-gradient(135deg, #1565C0 0%, #1E88E5 100%)",
               boxShadow: "0 8px 22px rgba(25,118,210,0.35)",
             },
           }}
@@ -224,14 +360,34 @@ const SightseeingDashboard: React.FC = () => {
 
       {/* Loader / Empty */}
       {loading ? (
-        <Box sx={{ minHeight: "50vh", display: "grid", placeItems: "center", textAlign: "center", gap: 2 }}>
+        <Box
+          sx={{
+            minHeight: "50vh",
+            display: "grid",
+            placeItems: "center",
+            textAlign: "center",
+            gap: 2,
+          }}
+        >
           <CircularProgress size={50} />
-          <Typography variant="body1" color="text.secondary">Loading places…</Typography>
+          <Typography variant="body1" color="text.secondary">
+            Loading places…
+          </Typography>
         </Box>
       ) : filtered.length === 0 ? (
-        <Box sx={{ minHeight: "40vh", display: "grid", placeItems: "center", textAlign: "center", gap: 1 }}>
+        <Box
+          sx={{
+            minHeight: "40vh",
+            display: "grid",
+            placeItems: "center",
+            textAlign: "center",
+            gap: 1,
+          }}
+        >
           <Typography variant="h6">No places found</Typography>
-          <Typography variant="body2" color="text.secondary">Try a different search or add a new place.</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Try a different search or add a new place.
+          </Typography>
           <Button
             href="/dashboard/Sightseeing/places/addplaces"
             component={Link as any}
@@ -251,74 +407,274 @@ const SightseeingDashboard: React.FC = () => {
         </Box>
       ) : (
         <>
-          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+          {/* Cards grid */}
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: {
+                xs: "1fr",
+                sm: "repeat(2, minmax(0, 1fr))",
+                md: "repeat(3, minmax(0, 1fr))",
+              },
+              gap: 2.5,
+            }}
+          >
             {filtered.map((p) => {
               const id = unwrapId(p._id);
               const img = heroImage(p);
+              const hoursText = getHoursText(p);
+              const durationText = getDurationText(p);
+              const priceText = getPriceText(p);
+              const mapHref = getMapUrl(p);
+              const description = getDescription(p);
+              const locationText = getLocationText(p);
+
               return (
-                <Card key={id || p.name || Math.random()} sx={{ width: 340 }}>
+                <Card
+                  key={id || p.name || Math.random()}
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    borderRadius: 3,
+                    overflow: "hidden",
+                    boxShadow:
+                      "0 8px 24px rgba(15,23,42,0.08)",
+                    transition: "all 0.2s ease",
+                    "&:hover": {
+                      transform: "translateY(-3px)",
+                      boxShadow:
+                        "0 14px 32px rgba(15,23,42,0.16)",
+                    },
+                  }}
+                >
                   <Box sx={{ position: "relative" }}>
                     <CardMedia
                       component="img"
                       image={img}
                       alt={p.name || "Place"}
-                      sx={{ objectFit: "cover", width: "100%", height: 160, borderRadius: 1 }}
+                      sx={{
+                        objectFit: "cover",
+                        width: "100%",
+                        height: 180,
+                      }}
                     />
 
-                    <Box sx={{ position: "absolute", left: 8, top: 8, display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                    {/* top-left chips */}
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        left: 8,
+                        top: 8,
+                        display: "flex",
+                        gap: 0.5,
+                        flexWrap: "wrap",
+                      }}
+                    >
                       {p.type && (
-                        <Chip size="small" color="primary" icon={<CategoryIcon />} label={p.type} />
+                        <Chip
+                          size="small"
+                          color="primary"
+                          icon={<CategoryIcon />}
+                          label={p.type}
+                          sx={{ bgcolor: "primary.main" }}
+                        />
                       )}
-                      {p.area && (
-                        <Chip size="small" color="default" icon={<PlaceIcon />} label={p.area} />
+                      {p.category && (
+                        <Chip
+                          size="small"
+                          color="default"
+                          label={p.category}
+                          sx={{
+                            bgcolor:
+                              "rgba(15,23,42,0.7)",
+                            color: "common.white",
+                          }}
+                        />
                       )}
                     </Box>
-                  </Box>
 
-                  <CardContent sx={{ pb: 1 }}>
-                    <Stack direction="row" alignItems="center" justifyContent="space-between">
-                      <Typography variant="h6" noWrap title={p.name || "Place"}>
-                        {p.name || "—"}
-                      </Typography>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Tooltip title="Copy _id">
-                          <IconButton size="small" onClick={() => copyId(id)} sx={{ mr: -0.5 }}>
-                            <ContentCopy fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Stack>
-                    </Stack>
-
-                    <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-                      {p.hours && (
-                        <Chip size="small" icon={<AccessTimeIcon fontSize="small" />} label={p.hours} />)
-                      }
-                      {p.estimated_duration && (
-                        <Chip size="small" icon={<AccessTimeIcon fontSize="small" />} label={`~ ${p.estimated_duration}`} />
-                      )}
-                      {p.price && (
-                        <Chip size="small" icon={<ImageIcon fontSize="small" />} label={p.price} />
-                      )}
-                    </Stack>
-
-                    {p.desc && (
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        mt={1}
+                    {/* rating badge */}
+                    {typeof p.rating === "number" && (
+                      <Box
                         sx={{
-                          display: "-webkit-box",
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: "vertical",
-                          overflow: "hidden",
+                          position: "absolute",
+                          right: 8,
+                          bottom: 8,
+                          bgcolor: "rgba(0,0,0,0.7)",
+                          borderRadius: 999,
+                          px: 1.2,
+                          py: 0.4,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 0.5,
                         }}
                       >
-                        {p.desc}
-                      </Typography>
+                        <Rating
+                          value={p.rating}
+                          precision={0.1}
+                          readOnly
+                          size="small"
+                        />
+                        <Typography
+                          variant="caption"
+                          color="common.white"
+                          sx={{ fontWeight: 600 }}
+                        >
+                          {p.rating.toFixed(1)}
+                          {p.reviewCount
+                            ? ` · ${p.reviewCount.toLocaleString()}`
+                            : ""}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+
+                  <CardContent sx={{ pb: 1.5, flexGrow: 1 }}>
+                    {/* Title + id copy */}
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      justifyContent="space-between"
+                      spacing={1}
+                    >
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography
+                          variant="h6"
+                          noWrap
+                          title={p.name || "Place"}
+                        >
+                          {p.name || "—"}
+                        </Typography>
+                        {locationText && (
+                          <Stack
+                            direction="row"
+                            spacing={0.5}
+                            alignItems="center"
+                            mt={0.3}
+                          >
+                            <PlaceIcon
+                              sx={{
+                                fontSize: 15,
+                                color: "text.secondary",
+                              }}
+                            />
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              noWrap
+                            >
+                              {locationText}
+                            </Typography>
+                          </Stack>
+                        )}
+                      </Box>
+
+                      <Tooltip title="Copy _id">
+                        <IconButton
+                          size="small"
+                          onClick={() => copyId(id)}
+                          sx={{ ml: 0.5 }}
+                        >
+                          <ContentCopy fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
+
+                    {/* Meta chips */}
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      mt={1}
+                      flexWrap="wrap"
+                      rowGap={0.75}
+                    >
+                      {hoursText && (
+                        <Chip
+                          size="small"
+                          icon={
+                            <AccessTimeIcon
+                              sx={{ fontSize: 16 }}
+                            />
+                          }
+                          label={hoursText}
+                          variant="outlined"
+                        />
+                      )}
+                      {durationText && (
+                        <Chip
+                          size="small"
+                          icon={
+                            <AccessTimeIcon
+                              sx={{ fontSize: 16 }}
+                            />
+                          }
+                          label={`Duration: ${durationText}`}
+                          variant="outlined"
+                        />
+                      )}
+                      {priceText && (
+                        <Chip
+                          size="small"
+                          icon={
+                            <ImageIcon
+                              sx={{ fontSize: 16 }}
+                            />
+                          }
+                          label={priceText}
+                          variant="outlined"
+                        />
+                      )}
+                      {p.bestTimeToVisit && (
+                        <Chip
+                          size="small"
+                          label={p.bestTimeToVisit}
+                          variant="outlined"
+                        />
+                      )}
+                      {p.accessibility?.difficultyLevel && (
+                        <Chip
+                          size="small"
+                          label={`Difficulty: ${p.accessibility.difficultyLevel}`}
+                          variant="outlined"
+                        />
+                      )}
+                    </Stack>
+
+                    {/* Highlights (few only) */}
+                    {p.highlights && p.highlights.length > 0 && (
+                      <Stack
+                        direction="row"
+                        spacing={0.75}
+                        mt={1}
+                        flexWrap="wrap"
+                        rowGap={0.75}
+                      >
+                        {p.highlights
+                          .slice(0, 3)
+                          .map((h, idx) => (
+                            <Chip
+                              key={idx}
+                              size="small"
+                              label={h}
+                              variant="filled"
+                              sx={{
+                                bgcolor:
+                                  "rgba(25,118,210,0.06)",
+                              }}
+                            />
+                          ))}
+                      </Stack>
                     )}
                   </CardContent>
 
-                  <CardActions sx={{ justifyContent: "space-between", px: 2, pb: 2, pt: 0.5 }}>
+                  <CardActions
+                    sx={{
+                      justifyContent: "space-between",
+                      px: 2,
+                      pb: 2,
+                      pt: 0.5,
+                    }}
+                  >
                     <Stack direction="row" spacing={1}>
                       <Button
                         key="edit"
@@ -334,20 +690,32 @@ const SightseeingDashboard: React.FC = () => {
                         color="error"
                         size="small"
                         startIcon={<DeleteIcon />}
-                        onClick={() => { setSelected(p); setConfirmOpen(true); }}
+                        onClick={() => {
+                          setSelected(p);
+                          setConfirmOpen(true);
+                        }}
                       >
                         Delete
                       </Button>
                     </Stack>
 
-                    {p.map_url ? (
-                      <Tooltip title="Open Google Maps">
-                        <IconButton href={p.map_url} target="_blank" rel="noopener noreferrer">
+                    {mapHref ? (
+                      <Tooltip title="Open in Google Maps">
+                        <IconButton
+                          href={mapHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
                           <MapIcon />
                         </IconButton>
                       </Tooltip>
                     ) : (
-                      <Typography variant="caption" color="text.secondary">&nbsp;</Typography>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                      >
+                        &nbsp;
+                      </Typography>
                     )}
                   </CardActions>
                 </Card>
@@ -355,22 +723,39 @@ const SightseeingDashboard: React.FC = () => {
             })}
           </Box>
 
-          <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
-            <Pagination count={pages} page={page} onChange={(e, value) => setPage(value)} color="primary" />
+          <Box
+            sx={{ display: "flex", justifyContent: "center", mt: 4 }}
+          >
+            <Pagination
+              count={pages}
+              page={page}
+              onChange={(e, value) => setPage(value)}
+              color="primary"
+            />
           </Box>
         </>
       )}
 
       {/* Delete Confirmation */}
-      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
+      <Dialog
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+      >
         <DialogTitle>Delete Place</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete <strong>{selected?.name || "this place"}</strong>? This action cannot be undone.
+            Delete{" "}
+            <strong>{selected?.name || "this place"}</strong>? This
+            action cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirmOpen(false)} color="inherit">Cancel</Button>
+          <Button
+            onClick={() => setConfirmOpen(false)}
+            color="inherit"
+          >
+            Cancel
+          </Button>
           <Button
             onClick={async () => {
               await handleDelete();

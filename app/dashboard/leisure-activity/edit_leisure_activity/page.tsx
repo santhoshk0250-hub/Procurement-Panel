@@ -26,8 +26,7 @@ import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
 import { Editor } from "react-draft-wysiwyg";
 import { EditorState, ContentState, convertFromHTML } from "draft-js";
 import { stateToHTML } from "draft-js-export-html";
-
-import { useActivityStore } from "@/store/useactivityStore";
+import { useLeisureActivityStore } from "@/store/leisureActivityStore";
 
 /* ----------------------------- Types & Shapes ----------------------------- */
 
@@ -149,6 +148,24 @@ interface ImageFile {
   preview: string;
 }
 
+const getSelectedCategories = (category: string) =>
+  category
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+const toggleCategory = (
+  currentValue: string,
+  cat: string
+): string => {
+  const selected = getSelectedCategories(currentValue);
+  const exists = selected.includes(cat);
+  const next = exists
+    ? selected.filter((c) => c !== cat)
+    : [...selected, cat];
+  return next.join(", ");
+};
+
 /* --------------------------------- Utils --------------------------------- */
 const nn = (v: string | number | "" | null | undefined) =>
   v === "" || v == null ? NaN : Number(v);
@@ -173,6 +190,12 @@ const OPERATING_DAYS: OperatingDay[] = [
   "Sat",
   "Sun",
 ];
+const CATEGORY_OPTIONS = [
+  "family",
+  "friends",
+  "bachelor's",
+  "couple",
+] as const;
 
 const DEFAULT_SURCHARGE: Surcharge = {
   windowType: "single",
@@ -354,10 +377,12 @@ function TagComposer({
 
 export default function EditActivityFormMobile() {
   const router = useRouter();
-  const { activity } = useActivityStore();
+  const { activity } = useLeisureActivityStore();
 
   const [data, setData] = useState<ActivityFormData>(BLANK);
   const [stepIndex, setStepIndex] = useState(0);
+  console.log(stepIndex,"stepIndexstepIndex");
+  
   const step = STEPS[stepIndex];
   const [submitting, setSubmitting] = useState(false);
 
@@ -433,7 +458,9 @@ export default function EditActivityFormMobile() {
         title: a.title || "",
         description: a.description || "",
         destination: a.destination || "",
-        category: a.category || "",
+        category: Array.isArray(a.category)
+        ? a.category.join(", ")
+        : a.category || "",
         vendorPrice: a.vendorPrice != null ? String(a.vendorPrice) : "",
         price: a.price != null ? String(a.price) : "",
         childPrice: a.childPrice != null ? String(a.childPrice) : "",
@@ -946,7 +973,7 @@ export default function EditActivityFormMobile() {
         title: data.title.trim(),
         description: data.description.trim(),
         destination: data.destination.trim(),
-        category: data.category.trim(),
+        category: getSelectedCategories(data.category),
         vendorPrice,
         price,
         childPrice: data.childPrice ? Number(data.childPrice) : undefined,
@@ -1155,12 +1182,12 @@ export default function EditActivityFormMobile() {
       }
 
       // Adjust this URL/method if your backend update route is different
-      const url = `${process.env.NEXT_PUBLIC_API_BASE}activity/update/${activityId}`;
+      const url = `${process.env.NEXT_PUBLIC_API_BASE}/leisure-activities/update/${activityId}`;
       const res = await fetch(url, { method: "PATCH", body: form });
 
       if (res.ok) {
         alert("Activity updated successfully ✅");
-        router.push("/dashboard/Activities");
+        router.push("/dashboard/leisure-activity");
       } else {
         const text = await res.text();
         console.error("Update failed:", text);
@@ -1203,7 +1230,7 @@ export default function EditActivityFormMobile() {
   }
 
   return (
-    <form className="min-h-screen bg-gray-50" onSubmit={handleSubmit}>
+    <form className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-gray-200">
         <div className="px-4 py-3 sm:px-6 max-w-3xl mx-auto">
@@ -1315,20 +1342,42 @@ export default function EditActivityFormMobile() {
                 />
               </Field>
 
-              <Field label="Category" required>
-                <select
-                  className="input"
-                  value={data.category}
-                  onChange={(e) => onText("category", e.target.value)}
-                  disabled={submitting}
-                >
-                  <option value="">Select category</option>
-                  <option value="adventure">ADVENTURE SPORTS</option>
-                  <option value="water_activity">WATER ACTIVITY</option>
-                  <option value="water_sports">WATER SPORTS</option>
-                  <option value="entertainment">ENTERTAINMENT</option>
-                </select>
-              </Field>
+               <Field label="Category" required>
+                           <div className="flex flex-wrap gap-2">
+                             {CATEGORY_OPTIONS.map((cat) => {
+                               const selected = getSelectedCategories(data.category).includes(cat);
+             
+                               return (
+                                 <label
+                                   key={cat}
+                                   className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs cursor-pointer ${
+                                     selected
+                                       ? "bg-blue-600 border-blue-600 text-white"
+                                       : "bg-white border-gray-300 text-gray-700"
+                                   }`}
+                                 >
+                                   <input
+                                     type="checkbox"
+                                     className="sr-only"
+                                     checked={selected}
+                                     onChange={() =>
+                                       onText("category", toggleCategory(data.category, cat))
+                                     }
+                                     disabled={submitting}
+                                   />
+                                   <span className="inline-flex items-center justify-center">
+                                     {selected ? (
+                                       <Check className="size-3.5" />
+                                     ) : (
+                                       <span className="size-3.5 rounded border border-current" />
+                                     )}
+                                   </span>
+                                   <span className="uppercase">{cat}</span>
+                                 </label>
+                               );
+                             })}
+                           </div>
+                         </Field>
 
               <Field label="Vendor price" required hint="Internal cost">
                 <input
@@ -3076,24 +3125,26 @@ export default function EditActivityFormMobile() {
                   </button>
                 ) : (
                   <button
-                    type="submit"
-                    disabled={!canSubmit || submitting}
-                    className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
-                      !canSubmit || submitting
-                        ? "bg-blue-300"
-                        : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
-                    }`}
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      {submitting && (
-                        <Loader2
-                          className="size-4 animate-spin"
-                          aria-hidden="true"
-                        />
-                      )}
-                      {submitting ? "Saving..." : "Save Changes"}
-                    </span>
-                  </button>
+  type="button"
+  onClick={() => handleSubmit()}
+  disabled={!canSubmit || submitting}
+  className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
+    !canSubmit || submitting
+      ? "bg-blue-300"
+      : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
+  }`}
+>
+  <span className="inline-flex items-center gap-2">
+    {submitting && (
+      <Loader2
+        className="size-4 animate-spin"
+        aria-hidden="true"
+      />
+    )}
+    {submitting ? "Saving..." : "Save Changes"}
+  </span>
+</button>
+
                 )}
               </div>
             </div>

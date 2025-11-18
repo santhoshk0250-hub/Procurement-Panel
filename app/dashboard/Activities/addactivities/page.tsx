@@ -1396,7 +1396,7 @@ export default function AddActivityFormMobile() {
 
         {/* LLM CHIPS + FAQ */}
         {step.key === "llmChips" && (
-          <SectionCard
+         <SectionCard
             title="LLM Chips & FAQs"
             subtitle="Predefined Q&A used by the assistant and on the product page."
             icon={<HelpCircle className="size-5 text-blue-600" />}
@@ -1564,7 +1564,7 @@ export default function AddActivityFormMobile() {
                 ))}
               </div>
             </div>
-          </SectionCard>
+          </SectionCard> 
         )}
 
         {/* DETAILS: logistics, participants, meta */}

@@ -1203,7 +1203,7 @@ export default function EditActivityFormMobile() {
   }
 
   return (
-    <form className="min-h-screen bg-gray-50" onSubmit={handleSubmit}>
+    <form className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-gray-200">
         <div className="px-4 py-3 sm:px-6 max-w-3xl mx-auto">
@@ -3075,25 +3075,27 @@ export default function EditActivityFormMobile() {
                     Continue
                   </button>
                 ) : (
-                  <button
-                    type="submit"
-                    disabled={!canSubmit || submitting}
-                    className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
-                      !canSubmit || submitting
-                        ? "bg-blue-300"
-                        : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
-                    }`}
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      {submitting && (
-                        <Loader2
-                          className="size-4 animate-spin"
-                          aria-hidden="true"
-                        />
-                      )}
-                      {submitting ? "Saving..." : "Save Changes"}
-                    </span>
-                  </button>
+                 <button
+  type="button"
+  onClick={() => handleSubmit()}
+  disabled={!canSubmit || submitting}
+  className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
+    !canSubmit || submitting
+      ? "bg-blue-300"
+      : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
+  }`}
+>
+  <span className="inline-flex items-center gap-2">
+    {submitting && (
+      <Loader2
+        className="size-4 animate-spin"
+        aria-hidden="true"
+      />
+    )}
+    {submitting ? "Saving..." : "Save Changes"}
+  </span>
+</button>
+
                 )}
               </div>
             </div>

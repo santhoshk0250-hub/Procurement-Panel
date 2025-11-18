@@ -1,20 +1,18 @@
-// store/placeStore.ts
+// store/sightseeingPlaceStore.ts
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 /* ==========================================================
-   1) Types (match your Mongoose schema + timestamps)
+   1) Shared helper types
    ========================================================== */
 
-// Helper types for Mongo fields (same as your review store)
 type MongoDate = string | { $date: string };
 type IDType = string | { $oid: string };
 
-// Keep the known backend enum,
-// but allow extra strings on the front end if you decide to permit custom types.
-// NOTE: Your Mongoose schema currently restricts to the enum below.
-export type PlaceType =
+// Reuse PlaceType shape from your basic place store if you like,
+// or duplicate here if this file is standalone:
+export type SightseeingPlaceType =
   | "beach"
   | "fort"
   | "temple"
@@ -26,28 +24,111 @@ export type PlaceType =
   | "market"
   | "park"
   | "other"
-  | (string & {}); // optional: enables custom values on FE without breaking TS
+  | (string & {}); // allow custom values on FE
 
-export interface Place {
+/* ==========================================================
+   2) Sub-types that mirror the document structure
+   ========================================================== */
+
+export interface PlaceLocation {
+  city: string;
+  state: string;
+  country: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+export interface PlaceHours {
+  open?: string;
+  close?: string;
+  days?: string;
+  note?: string;
+}
+
+export interface PlaceDuration {
+  min?: number;
+  max?: number;
+  text?: string;
+}
+
+export interface PlacePrice {
+  type?: string;   // "free", "paid", etc.
+  text?: string;   // human readable
+  source?: string; // e.g. "official website"
+}
+
+export interface PlaceAccessibility {
+  wheelchairAccessible?: boolean;
+  difficultyLevel?: "easy" | "moderate" | "hard" | (string & {});
+}
+
+export interface PlaceItineraryItem {
+  time: string;        // "7AM"
+  title: string;       // "8PM" (in your sample)
+  description: string; // HTML or plain text
+}
+
+export interface PlaceNearby {
+  name: string;
+  distance?: string; // "650m", "2km", etc.
+}
+
+export interface PlaceLLMChip {
+  q: string;
+  a: string; // HTML or plain text
+}
+
+/* ==========================================================
+   3) Main SightseeingPlace interface
+   ========================================================== */
+
+export interface SightseeingPlace {
   _id?: IDType;
 
   // Core
   name: string;
-  type: PlaceType | "";
+  type: SightseeingPlaceType | "";
+  category: string; // e.g. "nature"
   area: string;
 
-  // Optional meta
-  hours: string;
-  map_url: string;
-  estimated_duration: string;
+  // Content & copy
+  description: string; // HTML main description
+  history: string;
+  bestTimeToVisit: string;
 
-  // Content
+  // Location & meta
+  location: PlaceLocation;
+  hours: PlaceHours;
+  duration: PlaceDuration;
+  price: PlacePrice;
+
+  // Map URLs (both variants – new & legacy)
+  mapUrl: string;
+  map_url: string;
+
+  // Short/plain text fields (legacy)
+  hours_legacy: string;
+  estimated_duration: string;
   desc: string;
-  price: string;
+  price_legacy: string;
   price_source: string;
 
   // Media
-  images: string[]; // GCS URLs
+  thumbnail: string;
+  images: string[];
+
+  // UX / info chips
+  facilities: string[];
+  highlights: string[];
+  tips: string[];
+  accessibility: PlaceAccessibility;
+  itinerary: PlaceItineraryItem[];
+  nearbyPlaces: PlaceNearby[];
+  llm_chips: PlaceLLMChip[];
+
+  // Ratings
+  rating: number | null;
+  reviewCount: number | null;
 
   // Timestamps / internal
   createdAt?: MongoDate;
@@ -55,81 +136,206 @@ export interface Place {
   __v?: number;
 }
 
-/* A clean initial object mirroring your frontend form defaults */
-export const PLACE_INITIAL: Place = {
+/* ==========================================================
+   4) Initial object (good FE defaults)
+   ========================================================== */
+
+export const SIGHTSEEING_PLACE_INITIAL: SightseeingPlace = {
+  _id: undefined,
+
   name: "",
   type: "",
+  category: "",
   area: "",
-  hours: "",
+
+  description: "",
+  history: "",
+  bestTimeToVisit: "",
+
+  location: {
+    city: "",
+    state: "",
+    country: "",
+    latitude: undefined,
+    longitude: undefined,
+  },
+
+  hours: {
+    open: "",
+    close: "",
+    days: "",
+    note: "",
+  },
+
+  duration: {
+    min: undefined,
+    max: undefined,
+    text: "",
+  },
+
+  price: {
+    type: "",
+    text: "",
+    source: "",
+  },
+
+  mapUrl: "",
   map_url: "",
+
+  hours_legacy: "",
   estimated_duration: "",
   desc: "",
-  price: "",
+  price_legacy: "",
   price_source: "",
+
+  thumbnail: "",
   images: [],
+
+  facilities: [],
+  highlights: [],
+  tips: [],
+  accessibility: {
+    wheelchairAccessible: undefined,
+    difficultyLevel: "easy",
+  },
+  itinerary: [],
+  nearbyPlaces: [],
+  llm_chips: [],
+
+  rating: null,
+  reviewCount: null,
+
+  createdAt: undefined,
+  updatedAt: undefined,
+  __v: undefined,
 };
 
 /* ==========================================================
-   2) Store shape
+   5) Store shape
    ========================================================== */
 
-interface PlaceStoreState {
-  place: Place;
-  // Set/replace the whole place (e.g., when loading for edit)
-  setPlace: (place: Place) => void;
+interface SightseeingPlaceStoreState {
+  sightseeingPlace: SightseeingPlace;
 
-  // Patch update, convenient for form fields
-  updatePlace: (patch: Partial<Place>) => void;
+  // Replace entire place (e.g. load from API for edit)
+  setSightseeingPlace: (place: SightseeingPlace) => void;
+
+  // Shallow patch (top level only – use dedicated helpers for nested if needed)
+  updateSightseeingPlace: (patch: Partial<SightseeingPlace>) => void;
 
   // Media helpers
   addImage: (url: string) => void;
   removeImageAt: (index: number) => void;
   setImages: (images: string[]) => void;
 
-  // Reset to initial
-  clearPlace: () => void;
+  // Simple helpers for nested fields that are heavily used
+  setLocation: (locationPatch: Partial<PlaceLocation>) => void;
+  setHours: (hoursPatch: Partial<PlaceHours>) => void;
+  setDuration: (durationPatch: Partial<PlaceDuration>) => void;
+  setPrice: (pricePatch: Partial<PlacePrice>) => void;
+
+  // Reset
+  clearSightseeingPlace: () => void;
 }
 
 /* ==========================================================
-   3) Zustand store (persisted to localStorage)
+   6) Zustand store (persisted)
    ========================================================== */
 
-export const usePlaceStore = create<PlaceStoreState>()(
+export const useSightseeingPlaceStore = create<SightseeingPlaceStoreState>()(
   persist(
     (set, get) => ({
-      place: { ...PLACE_INITIAL },
+      sightseeingPlace: { ...SIGHTSEEING_PLACE_INITIAL },
 
-      setPlace: (place) => set({ place }),
+      setSightseeingPlace: (place) => set({ sightseeingPlace: place }),
 
-      updatePlace: (patch) => set({ place: { ...get().place, ...patch } }),
+      updateSightseeingPlace: (patch) =>
+        set({
+          sightseeingPlace: { ...get().sightseeingPlace, ...patch },
+        }),
 
       addImage: (url) =>
         set({
-          place: { ...get().place, images: [...(get().place.images || []), url] },
+          sightseeingPlace: {
+            ...get().sightseeingPlace,
+            images: [...(get().sightseeingPlace.images || []), url],
+          },
         }),
 
       removeImageAt: (index) =>
         set({
-          place: {
-            ...get().place,
-            images: (get().place.images || []).filter((_, i) => i !== index),
+          sightseeingPlace: {
+            ...get().sightseeingPlace,
+            images: (get().sightseeingPlace.images || []).filter(
+              (_, i) => i !== index
+            ),
           },
         }),
 
-      setImages: (images) => set({ place: { ...get().place, images } }),
+      setImages: (images) =>
+        set({
+          sightseeingPlace: { ...get().sightseeingPlace, images },
+        }),
 
-      clearPlace: () => set({ place: { ...PLACE_INITIAL } }),
+      setLocation: (locationPatch) =>
+        set({
+          sightseeingPlace: {
+            ...get().sightseeingPlace,
+            location: {
+              ...get().sightseeingPlace.location,
+              ...locationPatch,
+            },
+          },
+        }),
+
+      setHours: (hoursPatch) =>
+        set({
+          sightseeingPlace: {
+            ...get().sightseeingPlace,
+            hours: {
+              ...get().sightseeingPlace.hours,
+              ...hoursPatch,
+            },
+          },
+        }),
+
+      setDuration: (durationPatch) =>
+        set({
+          sightseeingPlace: {
+            ...get().sightseeingPlace,
+            duration: {
+              ...get().sightseeingPlace.duration,
+              ...durationPatch,
+            },
+          },
+        }),
+
+      setPrice: (pricePatch) =>
+        set({
+          sightseeingPlace: {
+            ...get().sightseeingPlace,
+            price: {
+              ...get().sightseeingPlace.price,
+              ...pricePatch,
+            },
+          },
+        }),
+
+      clearSightseeingPlace: () =>
+        set({ sightseeingPlace: { ...SIGHTSEEING_PLACE_INITIAL } }),
     }),
     {
-      name: "place-storage", // localStorage key
+      name: "sightseeing-place-storage",
       version: 1,
     }
   )
 );
 
 /* ==========================================================
-   4) (Optional) Selectors for cleaner usage
+   7) Example usage
    ========================================================== */
-// Example usage:
-// const name = usePlaceStore((s) => s.place.name);
-// const setName = (v: string) => usePlaceStore.getState().updatePlace({ name: v });
+// const name = useSightseeingPlaceStore((s) => s.sightseeingPlace.name);
+// const setName = (v: string) =>
+//   useSightseeingPlaceStore
+//     .getState()
+//     .updateSightseeingPlace({ name: v });

@@ -1,7 +1,7 @@
 "use client";
 
+import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
@@ -16,8 +16,8 @@ import {
   Plus,
   X,
   Check,
+  HelpCircle,
 } from "lucide-react";
-import { usePlaceStore } from "@/store/usesightseeingplace";
 
 // Rich text editor deps
 import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
@@ -25,11 +25,13 @@ import { EditorState, ContentState, convertFromHTML } from "draft-js";
 import { stateToHTML } from "draft-js-export-html";
 import { Editor } from "react-draft-wysiwyg";
 
+import { useSightseeingPlaceStore } from "@/store/usesightseeingplace";
 
 /* =========================
-   Types (same shape as Add)
+   Types
    ========================= */
 
+// Allow known types + any custom string
 export type PlaceType =
   | "beach"
   | "fort"
@@ -44,27 +46,157 @@ export type PlaceType =
   | "other"
   | (string & {});
 
-interface PlaceUI {
-  // Core
-  _id?: string | { $oid: string };
+export type PlaceCategory =
+  | "heritage"
+  | "popular"
+  | "nature"
+  | "calm"
+  | "urban"
+  | "spiritual"
+  | "scenic"
+  | "mixed"
+  | "other"
+  | (string & {});
+
+export type PriceType = "free" | "paid" | "mixed" | "";
+
+interface TimelineItem {
+  time: string;
+  title: string;
+  description: string;
+}
+
+interface NearbyPlaces {
   name: string;
-  type: PlaceType | "";
+  distance: string;
+}
+
+type FAQ = { q: string; a: string };
+
+// Backend place type (approx – adjust keys to match your API)
+interface SightseeingPlace {
+  _id: string;
+  name: string;
+  type: PlaceType;
+  category: PlaceCategory;
   area: string;
 
-  // Optional meta
-  hours: string;
+  description: string;
+  history?: string;
+
+  location?: {
+    city?: string;
+    state?: string;
+    country?: string;
+    latitude?: number;
+    longitude?: number;
+  };
+
+  hours?: {
+    open?: string;
+    close?: string;
+    days?: string;
+    note?: string;
+  };
+
+  mapUrl?: string;
+
+  duration?: {
+    min?: number;
+    max?: number;
+    text?: string;
+  };
+
+  bestTimeToVisit?: string;
+
+  price?: {
+    type?: "free" | "paid" | "mixed";
+    text?: string;
+    source?: string;
+  };
+
+  facilities?: string[];
+  highlights?: string[];
+  tips?: string[];
+
+  accessibility?: {
+    wheelchairAccessible?: boolean;
+    difficultyLevel?: string;
+  };
+
+  itinerary?: TimelineItem[];
+  nearbyPlaces?: NearbyPlaces[];
+
+  llm_chips?: FAQ[];
+
+  rating?: number;
+  reviewCount?: number;
+
+  images?: string[];
+  thumbnail?: string;
+}
+
+// UI state for the form
+interface PlaceUI {
+  // Core
+  name: string;
+  type: PlaceType | "";
+  category: PlaceCategory | "";
+  area: string;
+
+  // Location
+  city: string;
+  state: string;
+  country: string;
+  latitude: string;
+  longitude: string;
+
+  // Hours
+  hours_open: string;
+  hours_close: string;
+  hours_note: string;
+  hours_days: string;
+
+  // Meta
   map_url: string;
+
+  // Duration
+  duration_min: string;
+  duration_max: string;
   estimated_duration: string;
 
+  bestTimeToVisit: string;
+
   // Content
-  desc: string; // HTML from rich editor
+  desc: string; // HTML
+  history: string;
+
+  // Price
+  price_type: PriceType;
   price: string;
   price_source: string;
-  source_citation?: string;
 
-  // Media handling
-  existingImages?: string[]; // images already saved on the doc
-  newImages: Array<{ file: File; preview: string }>; // newly added files
+  facilities: string[];
+  highlights: string[];
+  tips: string[];
+  llm_chips: FAQ[];
+
+  accessibility_wheelchair: boolean;
+  accessibility_difficulty: string;
+
+  rating: string;
+  reviewCount: string;
+
+  itinerary: TimelineItem[];
+  nearbyPlaces: NearbyPlaces[];
+
+  // Thumbnail
+  thumbnail?: string;
+  newThumbnail?: { file: File; preview: string } | null;
+
+  // Media
+  existingImages?: string[];
+  newImages: Array<{ file: File; preview: string }>;
 }
 
 /* =========================
@@ -85,23 +217,64 @@ const PLACE_TYPES: PlaceType[] = [
   "other",
 ];
 
+const CATEGORY_OPTIONS: PlaceCategory[] = [
+  "heritage",
+  "popular",
+  "nature",
+  "calm",
+  "urban",
+  "spiritual",
+  "scenic",
+  "mixed",
+  "other",
+];
+
 const BLANK_PLACE: PlaceUI = {
   name: "",
   type: "",
+  category: "",
   area: "",
-  hours: "",
+  city: "",
+  state: "",
+  country: "",
+  latitude: "",
+  longitude: "",
+
+  hours_open: "",
+  hours_close: "",
+  hours_note: "",
+  hours_days: "",
+
   map_url: "",
+  duration_min: "",
+  duration_max: "",
   estimated_duration: "",
+  bestTimeToVisit: "",
   desc: "",
+  history: "",
+  price_type: "",
   price: "",
   price_source: "",
-  source_citation: "",
+  llm_chips: [{ q: "", a: "" }],
+  facilities: [],
+  highlights: [],
+  tips: [],
+
+  accessibility_wheelchair: false,
+  accessibility_difficulty: "",
+  rating: "",
+  reviewCount: "",
+  itinerary: [{ time: "", title: "", description: "" }],
+  nearbyPlaces: [{ name: "", distance: "" }],
+  thumbnail: undefined,
+  newThumbnail: null,
   existingImages: [],
   newImages: [],
 };
 
 const STEPS = [
   { key: "details", label: "Details", icon: <FileText className="size-4" /> },
+  { key: "llmChips", label: "LLM Chips", icon: <HelpCircle className="size-4" /> },
   { key: "meta", label: "Meta", icon: <ListChecks className="size-4" /> },
   { key: "content", label: "Content", icon: <MapPin className="size-4" /> },
   { key: "media", label: "Media", icon: <ImageIcon className="size-4" /> },
@@ -110,85 +283,169 @@ const STEPS = [
 type StepKey = (typeof STEPS)[number]["key"];
 const LAST_INDEX = STEPS.length - 1;
 
+const sanitizeHtml = (html: string) =>
+  html.replace(/[\n\r]/g, "").replace(/>\s+</g, "><");
+
+const htmlToEditorState = (html?: string) => {
+  const safe = (html ?? "").trim();
+  if (!safe) return EditorState.createEmpty();
+  const blocks = convertFromHTML(safe);
+  const content = ContentState.createFromBlockArray(
+    blocks.contentBlocks,
+    blocks.entityMap
+  );
+  return EditorState.createWithContent(content);
+};
+
+const sightseeingToUI = (p: SightseeingPlace): PlaceUI => ({
+  name: p.name ?? "",
+  type: p.type ?? "",
+  category: p.category ?? "",
+  area: p.area ?? "",
+  city: p.location?.city ?? "",
+  state: p.location?.state ?? "",
+  country: p.location?.country ?? "",
+  latitude:
+    typeof p.location?.latitude === "number"
+      ? String(p.location.latitude)
+      : "",
+  longitude:
+    typeof p.location?.longitude === "number"
+      ? String(p.location.longitude)
+      : "",
+
+  hours_open: p.hours?.open ?? "",
+  hours_close: p.hours?.close ?? "",
+  hours_note: p.hours?.note ?? "",
+  hours_days: p.hours?.days ?? "",
+
+  map_url: p.mapUrl ?? "",
+  duration_min:
+    typeof p.duration?.min === "number" ? String(p.duration.min) : "",
+  duration_max:
+    typeof p.duration?.max === "number" ? String(p.duration.max) : "",
+  estimated_duration: p.duration?.text ?? "",
+  bestTimeToVisit: p.bestTimeToVisit ?? "",
+  desc: p.description ?? "",
+  history: p.history ?? "",
+
+  price_type: (p.price?.type as PriceType) ?? "",
+  price: p.price?.text ?? "",
+  price_source: p.price?.source ?? "",
+
+  facilities: p.facilities ?? [],
+  highlights: p.highlights ?? [],
+  tips: p.tips ?? [],
+  llm_chips:
+    p.llm_chips && p.llm_chips.length ? p.llm_chips : [{ q: "", a: "" }],
+
+  accessibility_wheelchair: !!p.accessibility?.wheelchairAccessible,
+  accessibility_difficulty: p.accessibility?.difficultyLevel ?? "",
+
+  rating: typeof p.rating === "number" ? String(p.rating) : "",
+  reviewCount: typeof p.reviewCount === "number" ? String(p.reviewCount) : "",
+
+  itinerary:
+    p.itinerary && p.itinerary.length
+      ? p.itinerary
+      : [{ time: "", title: "", description: "" }],
+  nearbyPlaces:
+    p.nearbyPlaces && p.nearbyPlaces.length
+      ? p.nearbyPlaces
+      : [{ name: "", distance: "" }],
+
+  thumbnail: p.thumbnail ?? undefined,
+  newThumbnail: null,
+  existingImages: p.images ?? [],
+  newImages: [],
+});
+
 /* =========================
    Component
    ========================= */
 
-export default function EditPlaceMobile() {
+export default function SightseeingPlaceUpsertMobile() {
   const router = useRouter();
+  const { sightseeingPlace } = useSightseeingPlaceStore();
+  const isEdit = !!sightseeingPlace;
 
-  // Pull the selected place from your store
-  const storePlace = usePlaceStore((s: any) => s.place);
-
-  // Normalize _id from store (string or {$oid})
-  const normalizedId =
-    typeof storePlace?._id === "string"
-      ? storePlace._id
-      : (storePlace?._id?.$oid as string | undefined);
-
-  // Initialize state from store; if no store data, show a small hint + back link
-  const [data, setData] = useState<PlaceUI>(() => {
-    if (!storePlace || !storePlace.name) return { ...BLANK_PLACE };
-    return {
-      _id: normalizedId,
-      name: storePlace.name ?? "",
-      type: (storePlace.type ?? "") as PlaceType | "",
-      area: storePlace.area ?? "",
-      hours: storePlace.hours ?? "",
-      map_url: storePlace.map_url ?? "",
-      estimated_duration: storePlace.estimated_duration ?? "",
-      desc: storePlace.desc ?? "",
-      price: storePlace.price ?? "",
-      price_source: storePlace.price_source ?? "",
-      source_citation: storePlace.source_citation ?? "",
-      existingImages: Array.isArray(storePlace.images) ? storePlace.images : [],
-      newImages: [],
-    };
-  });
+  const [data, setData] = useState<PlaceUI>(() =>
+    sightseeingPlace ? sightseeingToUI(sightseeingPlace as SightseeingPlace) : BLANK_PLACE
+  );
 
   const [stepIndex, setStepIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [addingType, setAddingType] = useState(false);
   const [customType, setCustomType] = useState("");
   const customTypeRef = useRef<HTMLInputElement | null>(null);
+
+  const thumbnailInputRef = useRef<HTMLInputElement | null>(null);
   const imagesInputRef = useRef<HTMLInputElement | null>(null);
 
   const step = STEPS[stepIndex];
 
-  // Rich text editor state for desc
-  const [editorState, setEditorState] = useState<EditorState>(() => EditorState.createEmpty());
+  // Rich text editor for description
+  const [editorState, setEditorState] = useState<EditorState>(() =>
+    htmlToEditorState(sightseeingPlace?.description)
+  );
+
+  // LLM chips
+  const [llmChips, setLlmChips] = useState<FAQ[]>(() =>
+    sightseeingPlace?.llm_chips?.length
+      ? sightseeingPlace.llm_chips
+      : BLANK_PLACE.llm_chips
+  );
+  const [llmChipEditors, setLlmChipEditors] = useState<EditorState[]>(() =>
+    (sightseeingPlace?.llm_chips?.length
+      ? sightseeingPlace.llm_chips
+      : BLANK_PLACE.llm_chips
+    ).map((c) => htmlToEditorState(c.a))
+  );
+
+  // When store place changes (e.g. navigating into edit page)
+  useEffect(() => {
+    if (!sightseeingPlace) return;
+    const ui = sightseeingToUI(sightseeingPlace as SightseeingPlace);
+    setData(ui);
+    setEditorState(htmlToEditorState(sightseeingPlace.description));
+    const chips =
+      sightseeingPlace.llm_chips && sightseeingPlace.llm_chips.length
+        ? sightseeingPlace.llm_chips
+        : [{ q: "", a: "" }];
+    setLlmChips(chips);
+    setLlmChipEditors(chips.map((c) => htmlToEditorState(c.a)));
+  }, [sightseeingPlace]);
 
   useEffect(() => {
     if (addingType) customTypeRef.current?.focus();
   }, [addingType]);
 
-  // hydrate the editor with existing HTML when editing
-  useEffect(() => {
-    const html = (data.desc || "").trim();
-    if (!html) return;
-    const blocks = convertFromHTML(html);
-    const content = ContentState.createFromBlockArray(blocks.contentBlocks, blocks.entityMap);
-    setEditorState(EditorState.createWithContent(content));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // revoke previews on unmount
+  // Revoke previews on unmount
   useEffect(() => {
     return () => {
       data.newImages.forEach((i) => i.preview && URL.revokeObjectURL(i.preview));
+      if (data.newThumbnail?.preview) {
+        URL.revokeObjectURL(data.newThumbnail.preview);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const setPlace = (next: Partial<PlaceUI>) => setData((p) => ({ ...p, ...next }));
+  const setPlace = (next: Partial<PlaceUI>) =>
+    setData((p) => ({ ...p, ...next }));
 
   const canContinueDetails = useMemo(
-    () => !!data.name.trim() && !!data.area.trim() && !!data.type,
-    [data.name, data.area, data.type]
+    () =>
+      !!data.name.trim() && !!data.area.trim() && !!data.type && !!data.category,
+    [data.name, data.area, data.type, data.category]
   );
 
   const isValidUrl = (s: string) => /^$|^https?:\/\/.+/i.test(s.trim());
-  const canContinueMeta = useMemo(() => isValidUrl(data.map_url), [data.map_url]);
+
+  const canContinueMeta = useMemo(
+    () => isValidUrl(data.map_url),
+    [data.map_url]
+  );
 
   const isStepValid = (k: StepKey) => {
     switch (k) {
@@ -201,6 +458,23 @@ export default function EditPlaceMobile() {
     }
   };
 
+  const addLlmChip = () => {
+    setLlmChips((p) => [...p, { q: "", a: "" }]);
+    setLlmChipEditors((p) => [...p, EditorState.createEmpty()]);
+  };
+
+  const remLlmChip = (idx: number) => {
+    setLlmChips((p) =>
+      p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)
+    );
+    setLlmChipEditors((p) =>
+      p.length <= 1 ? [EditorState.createEmpty()] : p.filter((_, i) => i !== idx)
+    );
+  };
+
+  const setLlmChip = (idx: number, next: Partial<FAQ>) =>
+    setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
+
   const canGoNext = isStepValid(step.key);
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
 
@@ -211,41 +485,138 @@ export default function EditPlaceMobile() {
       return;
     }
     setStepIndex((i) => Math.min(i + 1, LAST_INDEX));
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
 
   const goBack = () => {
     if (submitting) return;
     setStepIndex((i) => Math.max(i - 1, 0));
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
+  /* ---------- Thumbnail handling ---------- */
+  const handleThumbnailUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (data.newThumbnail?.preview) {
+      URL.revokeObjectURL(data.newThumbnail.preview);
+    }
+
+    const preview = URL.createObjectURL(file);
+    setPlace({
+      newThumbnail: { file, preview },
+      thumbnail: "",
+    });
+  };
+
+  const removeThumbnail = () => {
+    if (data.newThumbnail?.preview) {
+      URL.revokeObjectURL(data.newThumbnail.preview);
+    }
+    setPlace({
+      newThumbnail: null,
+      thumbnail: "",
+    });
   };
 
   /* ---------- Images handling ---------- */
   const handleImagesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    const toAdd = files.map((f) => ({ file: f, preview: URL.createObjectURL(f) }));
+    const toAdd = files.map((f) => ({
+      file: f,
+      preview: URL.createObjectURL(f),
+    }));
     setPlace({ newImages: [...data.newImages, ...toAdd] });
   };
 
   const removeNewImage = (idx: number) => {
     const item = data.newImages[idx];
     if (item?.preview) URL.revokeObjectURL(item.preview);
-    setPlace({ newImages: data.newImages.filter((_, i) => i !== idx) });
+    setPlace({
+      newImages: data.newImages.filter((_, i) => i !== idx),
+    });
   };
 
   const removeExistingImage = (idx: number) => {
-    setPlace({ existingImages: (data.existingImages || []).filter((_, i) => i !== idx) });
+    setPlace({
+      existingImages: (data.existingImages || []).filter((_, i) => i !== idx),
+    });
   };
 
   /* ---------- Dynamic type options (supports custom) ---------- */
   const TYPE_OPTIONS = useMemo(() => {
     const base = [...PLACE_TYPES];
-    if (data.type && !base.includes(data.type)) base.push(data.type);
+    if (data.type && !base.includes(data.type)) {
+      base.push(data.type);
+    }
     return base;
   }, [data.type]);
 
-  /* ---------- Submit: PUT existing doc ---------- */
+  // itinerary handlers
+  const addItineraryItem = () =>
+    setData((p) => ({
+      ...p,
+      itinerary: [...p.itinerary, { time: "", title: "", description: "" }],
+    }));
+
+  const removeItineraryItem = (idx: number) =>
+    setData((p) => {
+      if (p.itinerary.length <= 1) {
+        return {
+          ...p,
+          itinerary: [{ time: "", title: "", description: "" }],
+        };
+      }
+      return {
+        ...p,
+        itinerary: p.itinerary.filter((_, i) => i !== idx),
+      };
+    });
+
+  const updateItineraryItem = (idx: number, next: Partial<TimelineItem>) =>
+    setData((p) => ({
+      ...p,
+      itinerary: p.itinerary.map((it, i) =>
+        i === idx ? { ...it, ...next } : it
+      ),
+    }));
+
+  // nearby places handlers
+  const addnearbyplacesItem = () =>
+    setData((p) => ({
+      ...p,
+      nearbyPlaces: [...p.nearbyPlaces, { name: "", distance: "" }],
+    }));
+
+  const removenearbyplacesItem = (idx: number) =>
+    setData((p) => {
+      if (p.nearbyPlaces.length <= 1) {
+        return {
+          ...p,
+          nearbyPlaces: [{ name: "", distance: "" }],
+        };
+      }
+      return {
+        ...p,
+        nearbyPlaces: p.nearbyPlaces.filter((_, i) => i !== idx),
+      };
+    });
+
+  const updatenearbyplacesItem = (idx: number, next: Partial<NearbyPlaces>) =>
+    setData((p) => ({
+      ...p,
+      nearbyPlaces: p.nearbyPlaces.map((it, i) =>
+        i === idx ? { ...it, ...next } : it
+      ),
+    }));
+
+  /* ---------- Submit: create or update ---------- */
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (stepIndex < LAST_INDEX) {
@@ -253,47 +624,111 @@ export default function EditPlaceMobile() {
       return;
     }
 
-    if (!normalizedId) {
-      alert("No place selected for editing.");
-      return;
-    }
-
     try {
       setSubmitting(true);
 
-      // ensure desc is current HTML from the editor
       const descHtml = stateToHTML(editorState.getCurrentContent()).trim();
 
-      // Build payload (server merges images with current unless imagesReplace=true)
       const cooked = {
         name: data.name.trim(),
         type: (data.type || "other").toLowerCase(),
+        category: (data.category || "other").toLowerCase(),
         area: data.area.trim(),
-        hours: data.hours.trim(),
-        map_url: data.map_url.trim(),
-        estimated_duration: data.estimated_duration.trim(),
-        desc: descHtml,
-        price: data.price.trim(),
-        price_source: data.price_source.trim(),
-        source_citation: (data.source_citation || "").trim(),
-        images: data.existingImages || [], // keep only those not removed in UI
+        description: descHtml,
+        history: data.history.trim(),
+        location: {
+          city: data.city.trim(),
+          state: data.state.trim(),
+          country: data.country.trim(),
+          latitude: data.latitude ? Number(data.latitude) : undefined,
+          longitude: data.longitude ? Number(data.longitude) : undefined,
+        },
+        hours: {
+          open: data.hours_open.trim(),
+          close: data.hours_close.trim(),
+          days: data.hours_days.trim(),
+          note: data.hours_note.trim(),
+        },
+        mapUrl: data.map_url.trim(),
+        duration: {
+          min: data.duration_min ? Number(data.duration_min) : undefined,
+          max: data.duration_max ? Number(data.duration_max) : undefined,
+          text: data.estimated_duration.trim(),
+        },
+        bestTimeToVisit: data.bestTimeToVisit.trim(),
+        price: {
+          type: (data.price_type || "mixed") as "free" | "paid" | "mixed",
+          text: data.price.trim(),
+          source: data.price_source.trim(),
+        },
+        facilities: data.facilities,
+        highlights: data.highlights,
+        tips: data.tips,
+        accessibility: {
+          wheelchairAccessible: !!data.accessibility_wheelchair,
+          difficultyLevel: data.accessibility_difficulty.trim(),
+        },
+        itinerary: data.itinerary
+          .map((it) => ({
+            time: (it.time || "").trim(),
+            title: (it.title || "").trim(),
+            description: (it.description || "").trim(),
+          }))
+          .filter((it) => it.time || it.title || it.description),
+        nearbyPlaces: data.nearbyPlaces
+          .map((it) => ({
+            name: (it.name || "").trim(),
+            distance: (it.distance || "").trim(),
+          }))
+          .filter((it) => it.name || it.distance),
+        llm_chips: llmChips
+          .map((c, idx) => {
+            const editor = llmChipEditors[idx] || EditorState.createEmpty();
+            const content = editor.getCurrentContent();
+            const hasText = content.hasText();
+            const rawHtml = stateToHTML(content);
+            const html = hasText ? sanitizeHtml(rawHtml) : "";
+            return {
+              q: (c.q || "").trim(),
+              a: html.trim(),
+            };
+          })
+          .filter((c) => c.q || c.a),
+        rating: data.rating ? Number(data.rating) : undefined,
+        reviewCount: data.reviewCount ? Number(data.reviewCount) : undefined,
+        images: data.existingImages || [],
+        thumbnail: data.thumbnail || undefined,
       };
 
       const fd = new FormData();
-      fd.append("payload", JSON.stringify({ place: cooked })); // compatible with your server
+      fd.append(
+        "payload",
+        JSON.stringify({
+          place: cooked,
+          // If you need updatedAt for edit, you can add that here
+          createdAt: !isEdit ? new Date().toISOString() : undefined,
+        })
+      );
+
       for (const item of data.newImages) {
-        // server accepts both "images" and "images[]"; here we use "images"
         fd.append("images", item.file, item.file.name);
       }
+      if (data.newThumbnail) {
+        fd.append("thumbnail", data.newThumbnail.file, data.newThumbnail.file.name);
+      }
 
-      const url = `${process.env.NEXT_PUBLIC_API_BASE}sightseeing/${normalizedId}?imagesReplace=false`;
-      const res = await fetch(url, { method: "PUT", body: fd });
+      const base = process.env.NEXT_PUBLIC_API_BASE;
+      const url = isEdit
+        ? `${base}sightseeing-places/update/${(sightseeingPlace as SightseeingPlace)._id}`
+        : `${base}sightseeing-places/create`;
+
+      const res = await fetch(url, { method: "PATCH", body: fd });
       if (!res.ok) {
         const t = await res.text();
         throw new Error(t || "Request failed");
       }
 
-      alert("Place updated successfully! ✅");
+      alert(isEdit ? "Place updated successfully! 🎉" : "Place created successfully! 🎉");
       router.push("/dashboard/Sightseeing");
     } catch (err: any) {
       console.error(err);
@@ -303,27 +738,7 @@ export default function EditPlaceMobile() {
     }
   };
 
-  const title = data.name.trim() || "Edit Place";
-
-  if (!storePlace || !storePlace.name) {
-    return (
-      <div className="min-h-[60vh] grid place-items-center p-6">
-        <div className="max-w-md text-center">
-          <h2 className="text-lg font-semibold text-gray-900">No place selected</h2>
-          <p className="text-sm text-gray-600 mt-1">
-            Open the Sightseeing list and click <span className="font-medium">Edit</span> on a place to continue.
-          </p>
-          <button
-            type="button"
-            onClick={() => router.push("/dashboard/Sightseeing")}
-            className="mt-4 inline-flex items-center px-4 py-2 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700"
-          >
-            Go to Sightseeing
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const title = data.name.trim() || (isEdit ? "Edit Place" : "New Place");
 
   return (
     <form className="min-h-screen bg-gray-50" onSubmit={handleSubmit}>
@@ -336,30 +751,15 @@ export default function EditPlaceMobile() {
             </div>
             <div className="flex-1 min-w-0">
               <h1 className="text-base font-semibold text-gray-900 truncate">
-                Edit Place — {title}
+                {isEdit ? "Edit Place" : "Add Place"} — {title}
               </h1>
-              <p className="text-[11px] text-gray-500 truncate">Update sightseeing place details</p>
+              <p className="text-[11px] text-gray-500 truncate">
+                {isEdit ? "Update sightseeing place" : "Create a sightseeing place"}
+              </p>
             </div>
             <button
               type="button"
-              onClick={() =>
-                setData({
-                  ...BLANK_PLACE,
-                  _id: normalizedId,
-                  name: storePlace.name ?? "",
-                  type: (storePlace.type ?? "") as PlaceType | "",
-                  area: storePlace.area ?? "",
-                  hours: storePlace.hours ?? "",
-                  map_url: storePlace.map_url ?? "",
-                  estimated_duration: storePlace.estimated_duration ?? "",
-                  desc: storePlace.desc ?? "",
-                  price: storePlace.price ?? "",
-                  price_source: storePlace.price_source ?? "",
-                  source_citation: storePlace.source_citation ?? "",
-                  existingImages: Array.isArray(storePlace.images) ? storePlace.images : [],
-                  newImages: [],
-                })
-              }
+              onClick={() => setData(sightseeingPlace ? sightseeingToUI(sightseeingPlace as SightseeingPlace) : BLANK_PLACE)}
               disabled={submitting}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${
                 submitting
@@ -367,7 +767,7 @@ export default function EditPlaceMobile() {
                   : "border-gray-300 text-gray-700 hover:bg-gray-50"
               }`}
             >
-              Reset to Loaded
+              Reset
             </button>
           </div>
 
@@ -383,9 +783,13 @@ export default function EditPlaceMobile() {
                   onClick={() => {
                     if (submitting) return;
                     const allPrevValid =
-                      i <= stepIndex ? true : STEPS.slice(0, i).every((st) => isStepValid(st.key));
+                      i <= stepIndex
+                        ? true
+                        : STEPS.slice(0, i).every((st) => isStepValid(st.key));
                     if (allPrevValid) setStepIndex(i);
-                    window.scrollTo({ top: 0, behavior: "smooth" });
+                    if (typeof window !== "undefined") {
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }
                   }}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs whitespace-nowrap ${
                     active
@@ -408,7 +812,9 @@ export default function EditPlaceMobile() {
           {/* Progress */}
           <div className="mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
             <div
-              className={`h-full transition-all ${submitting ? "bg-emerald-400" : "bg-emerald-600"}`}
+              className={`h-full transition-all ${
+                submitting ? "bg-emerald-400" : "bg-emerald-600"
+              }`}
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -416,7 +822,8 @@ export default function EditPlaceMobile() {
       </header>
 
       {/* Content */}
-      <main className="max-w-3xl mx-auto p-4 sm:p-6 pb-36">
+      <main className="max-w-3xl mx-auto p-4 sm:p-6 pb-36 lg:pb-64">
+        {/* DETAILS */}
         {step.key === "details" && (
           <SectionCard
             title="Basic Details"
@@ -504,7 +911,9 @@ export default function EditPlaceMobile() {
                         }}
                         disabled={submitting}
                         className={`size-10 grid place-items-center rounded-full text-white transition ${
-                          submitting ? "bg-red-300 cursor-not-allowed" : "bg-red-600 hover:bg-red-700 active:bg-red-800"
+                          submitting
+                            ? "bg-red-300 cursor-not-allowed"
+                            : "bg-red-600 hover:bg-red-700 active:bg-red-800"
                         }`}
                         title="Cancel"
                         aria-label="Cancel add type"
@@ -514,8 +923,27 @@ export default function EditPlaceMobile() {
                     </div>
                   )}
                   <p className="text-[11px] text-gray-500 mt-2">
-                    Can’t find it? Choose <span className="font-medium">“Add a custom type…”</span>
+                    Can’t find it? Choose{" "}
+                    <span className="font-medium">“Add a custom type…”</span>
                   </p>
+                </Field>
+
+                <Field label="Category *" required>
+                  <select
+                    className="input"
+                    value={data.category}
+                    onChange={(e) =>
+                      setPlace({ category: e.target.value as PlaceCategory | "" })
+                    }
+                    disabled={submitting}
+                  >
+                    <option value="">Select category</option>
+                    {CATEGORY_OPTIONS.map((c) => (
+                      <option key={c} value={c} className="capitalize">
+                        {c}
+                      </option>
+                    ))}
+                  </select>
                 </Field>
 
                 <Field label="Area *" required>
@@ -524,7 +952,7 @@ export default function EditPlaceMobile() {
                     className="input"
                     value={data.area}
                     onChange={(e) => setPlace({ area: e.target.value })}
-                    placeholder="City / Region (e.g., South Goa)"
+                    placeholder="Area / Region (e.g., South Goa)"
                     disabled={submitting}
                   />
                 </Field>
@@ -533,44 +961,215 @@ export default function EditPlaceMobile() {
           </SectionCard>
         )}
 
+        {/* LLM CHIPS */}
+        {step.key === "llmChips" && (
+          <SectionCard
+            title="LLM Chips & FAQs"
+            subtitle="Predefined Q&A used by the assistant and on the product page."
+            icon={<HelpCircle className="size-5 text-blue-600" />}
+          >
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-semibold text-gray-800">
+                  LLM chips
+                </span>
+                <button
+                  type="button"
+                  onClick={addLlmChip}
+                  disabled={submitting}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                >
+                  <Plus className="size-3.5" />
+                  Add chip
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {llmChips.map((c, i) => (
+                  <div
+                    key={`llm-chip-${i}`}
+                    className="rounded-xl border border-gray-200 p-3"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-semibold text-gray-600">
+                        Chip #{i + 1}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => remLlmChip(i)}
+                        disabled={submitting}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                      >
+                        <X className="size-3.5" />
+                        Remove
+                      </button>
+                    </div>
+                    <div className="space-y-3">
+                      <Field label="Question / Prompt">
+                        <input
+                          type="text"
+                          className="input w-full"
+                          value={c.q}
+                          onChange={(e) => setLlmChip(i, { q: e.target.value })}
+                          placeholder="What does this activity include?"
+                          disabled={submitting}
+                        />
+                      </Field>
+                      <Field label="Answer / Response">
+                        <div className="rounded-xl border border-gray-300 bg-white p-2">
+                          <Editor
+                            editorState={
+                              llmChipEditors[i] || EditorState.createEmpty()
+                            }
+                            onEditorStateChange={(next) =>
+                              setLlmChipEditors((eds) =>
+                                eds.map((ed, idx) => (idx === i ? next : ed))
+                              )
+                            }
+                            toolbar={{
+                              options: ["inline", "list"],
+                              inline: {
+                                options: [
+                                  "bold",
+                                  "italic",
+                                  "underline",
+                                  "strikethrough",
+                                ],
+                              },
+                              list: { options: ["unordered", "ordered"] },
+                            }}
+                            toolbarClassName="border-b"
+                            wrapperClassName="rounded-xl overflow-hidden"
+                            editorClassName="min-h-[100px] px-3"
+                          />
+                        </div>
+                      </Field>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </SectionCard>
+        )}
+
+        {/* META */}
         {step.key === "meta" && (
           <SectionCard
             title="Meta & Logistics"
             subtitle="Optional details to help travellers plan."
             icon={<ListChecks className="size-5 text-emerald-600" />}
           >
-            <div className="rounded-xl border border-gray-200 p-4">
+            <div className="rounded-xl border border-gray-200 p-4 space-y-4">
+              {/* Hours */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Hours">
+                <Field label="Open Time" hint='e.g., 09:30 AM (hours.open)'>
                   <div className="relative">
                     <input
                       type="text"
                       className="input pr-9"
-                      value={data.hours}
-                      onChange={(e) => setPlace({ hours: e.target.value })}
-                      placeholder="e.g., 9 AM – 6 PM"
+                      value={data.hours_open}
+                      onChange={(e) => setPlace({ hours_open: e.target.value })}
+                      placeholder="09:30 AM"
                       disabled={submitting}
                     />
                     <Clock className="size-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   </div>
                 </Field>
 
-                <Field label="Estimated Duration">
+                <Field label="Close Time" hint='e.g., 06:00 PM (hours.close)'>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      className="input pr-9"
+                      value={data.hours_close}
+                      onChange={(e) => setPlace({ hours_close: e.target.value })}
+                      placeholder="06:00 PM"
+                      disabled={submitting}
+                    />
+                    <Clock className="size-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  </div>
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Days" hint='e.g., "Daily" / "Mon–Fri" (hours.days)'>
                   <input
                     type="text"
                     className="input"
-                    value={data.estimated_duration}
-                    onChange={(e) => setPlace({ estimated_duration: e.target.value })}
-                    placeholder="e.g., 1–2 hours"
+                    value={data.hours_days}
+                    onChange={(e) => setPlace({ hours_days: e.target.value })}
+                    placeholder="Daily"
                     disabled={submitting}
                   />
                 </Field>
 
+                <Field
+                  label="Hours (note)"
+                  hint='e.g., "Sunday opening at 10:30 AM" (hours.note)'
+                >
+                  <input
+                    type="text"
+                    className="input"
+                    value={data.hours_note}
+                    onChange={(e) => setPlace({ hours_note: e.target.value })}
+                    placeholder="e.g., 9 AM – 6 PM (Sunday 10:30 AM)"
+                    disabled={submitting}
+                  />
+                </Field>
+              </div>
+
+              {/* Duration */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Field label="Duration Min (minutes)" hint="duration.min">
+                  <input
+                    type="number"
+                    min="0"
+                    className="input"
+                    value={data.duration_min}
+                    onChange={(e) => setPlace({ duration_min: e.target.value })}
+                    placeholder="60"
+                    disabled={submitting}
+                  />
+                </Field>
+
+                <Field label="Duration Max (minutes)" hint="duration.max">
+                  <input
+                    type="number"
+                    min="0"
+                    className="input"
+                    value={data.duration_max}
+                    onChange={(e) => setPlace({ duration_max: e.target.value })}
+                    placeholder="90"
+                    disabled={submitting}
+                  />
+                </Field>
+
+                <Field
+                  label="Duration (display text)"
+                  hint='duration.text (e.g., "60–90 min")'
+                >
+                  <input
+                    type="text"
+                    className="input"
+                    value={data.estimated_duration}
+                    onChange={(e) =>
+                      setPlace({ estimated_duration: e.target.value })
+                    }
+                    placeholder="60–90 min"
+                    disabled={submitting}
+                  />
+                </Field>
+              </div>
+
+              {/* Maps + best time */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Google Maps URL" hint="Must start with http(s)://">
                   <div className="relative">
                     <input
                       type="url"
-                      className={`input pr-9 ${isValidUrl(data.map_url) ? "" : "ring-2 ring-amber-300 w-full"}`}
+                      className={`input pr-9 ${
+                        isValidUrl(data.map_url) ? "" : "ring-2 ring-amber-300"
+                      }`}
                       value={data.map_url}
                       onChange={(e) => setPlace({ map_url: e.target.value })}
                       placeholder="https://maps.google.com/..."
@@ -579,84 +1178,511 @@ export default function EditPlaceMobile() {
                     <Link2 className="size-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   </div>
                 </Field>
-              </div>
-            </div>
-          </SectionCard>
-        )}
 
-        {step.key === "content" && (
-          <SectionCard
-            title="Content"
-            subtitle="Describe the place and add pricing notes."
-            icon={<MapPin className="size-5 text-emerald-600" />}
-          >
-            <div className="rounded-xl border border-gray-200 p-4">
-              <div className="grid grid-cols-1 gap-4">
-                <Field label="Description" hint="Rich text supported">
-                  <div className="rounded-xl border border-gray-300 bg-white shadow-sm">
-                    <Editor
-                      editorState={editorState}
-                      onEditorStateChange={(next) => {
-                        setEditorState(next);
-                        const html = stateToHTML(next.getCurrentContent());
-                        setPlace({ desc: html });
-                      }}
-                      placeholder="What makes this place special? Best time to visit, tips, etc."
-                      toolbar={{
-                        options: ["inline", "list", "link", "history"],
-                        inline: { options: ["bold", "italic", "underline"] },
-                        list: { options: ["unordered", "ordered"] },
-                        link: { defaultTargetOption: "_blank" },
-                      }}
-                      editorClassName="px-4 py-3 min-h-[140px]"
-                      toolbarClassName="border-b"
-                      wrapperClassName="rounded-xl overflow-hidden"
-                      readOnly={submitting}
-                    />
+                <Field label="Best Time to Visit">
+                  <input
+                    type="text"
+                    className="input"
+                    value={data.bestTimeToVisit}
+                    onChange={(e) =>
+                      setPlace({ bestTimeToVisit: e.target.value })
+                    }
+                    placeholder="e.g., October to March"
+                    disabled={submitting}
+                  />
+                </Field>
+              </div>
+
+              {/* Location */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Field label="City">
+                  <input
+                    type="text"
+                    className="input"
+                    value={data.city}
+                    onChange={(e) => setPlace({ city: e.target.value })}
+                    placeholder="e.g., Calangute"
+                    disabled={submitting}
+                  />
+                </Field>
+                <Field label="State">
+                  <input
+                    type="text"
+                    className="input"
+                    value={data.state}
+                    onChange={(e) => setPlace({ state: e.target.value })}
+                    placeholder="e.g., Goa"
+                    disabled={submitting}
+                  />
+                </Field>
+                <Field label="Country">
+                  <input
+                    type="text"
+                    className="input"
+                    value={data.country}
+                    onChange={(e) => setPlace({ country: e.target.value })}
+                    placeholder="e.g., India"
+                    disabled={submitting}
+                  />
+                </Field>
+              </div>
+
+              {/* Coordinates */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Latitude" hint="Optional">
+                  <input
+                    type="text"
+                    className="input"
+                    value={data.latitude}
+                    onChange={(e) => setPlace({ latitude: e.target.value })}
+                    placeholder="e.g., 15.5448"
+                    disabled={submitting}
+                  />
+                </Field>
+                <Field label="Longitude" hint="Optional">
+                  <input
+                    type="text"
+                    className="input"
+                    value={data.longitude}
+                    onChange={(e) => setPlace({ longitude: e.target.value })}
+                    placeholder="e.g., 73.755"
+                    disabled={submitting}
+                  />
+                </Field>
+              </div>
+
+              {/* Accessibility */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Wheelchair Accessible?">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPlace({
+                          accessibility_wheelchair:
+                            !data.accessibility_wheelchair,
+                        })
+                      }
+                      className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-medium ${
+                        data.accessibility_wheelchair
+                          ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                          : "border-gray-300 bg-white text-gray-700"
+                      }`}
+                      disabled={submitting}
+                    >
+                      <span
+                        className={`size-4 rounded-full border flex items-center justify-center ${
+                          data.accessibility_wheelchair
+                            ? "border-emerald-500 bg-emerald-500 text-white"
+                            : "border-gray-300 text-transparent"
+                        }`}
+                      >
+                        <Check className="size-3" />
+                      </span>
+                      Yes, generally accessible
+                    </button>
                   </div>
                 </Field>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field label="Price">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        className="input pl-9"
-                        value={data.price}
-                        onChange={(e) => setPlace({ price: e.target.value })}
-                        placeholder="e.g., ₹50 entry"
-                        disabled={submitting}
-                      />
-                      <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    </div>
-                  </Field>
+                <Field
+                  label="Difficulty Level"
+                  hint="e.g., easy / medium / hard"
+                >
+                  <select
+                    className="input"
+                    value={data.accessibility_difficulty}
+                    onChange={(e) =>
+                      setPlace({ accessibility_difficulty: e.target.value })
+                    }
+                    disabled={submitting}
+                  >
+                    <option value="">Select</option>
+                    <option value="easy">Easy</option>
+                    <option value="medium">Medium</option>
+                    <option value="hard">Hard</option>
+                  </select>
+                </Field>
+              </div>
 
-                  <Field label="Price Source">
-                    <input
-                      type="text"
-                      className="input"
-                      value={data.price_source}
-                      onChange={(e) => setPlace({ price_source: e.target.value })}
-                      placeholder="e.g., Ticket counter (Oct 2025)"
-                      disabled={submitting}
-                    />
-                  </Field>
-                </div>
+              {/* Ratings */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Rating" hint="From 0 to 5">
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="5"
+                    className="input"
+                    value={data.rating}
+                    onChange={(e) => setPlace({ rating: e.target.value })}
+                    placeholder="e.g., 4.5"
+                    disabled={submitting}
+                  />
+                </Field>
+                <Field label="Review Count">
+                  <input
+                    type="number"
+                    min="0"
+                    className="input"
+                    value={data.reviewCount}
+                    onChange={(e) =>
+                      setPlace({ reviewCount: e.target.value })
+                    }
+                    placeholder="e.g., 320"
+                    disabled={submitting}
+                  />
+                </Field>
               </div>
             </div>
           </SectionCard>
         )}
 
+        {/* CONTENT */}
+        {step.key === "content" && (
+          <SectionCard
+            title="Content"
+            subtitle="Describe the place, pricing and visitor info."
+            icon={<MapPin className="size-5 text-emerald-600" />}
+          >
+            <div className="rounded-xl border border-gray-200 p-4 space-y-6">
+              <Field label="Description" hint="Rich text supported">
+                <div className="rounded-xl border border-gray-300 bg-white shadow-sm">
+                  <Editor
+                    editorState={editorState}
+                    onEditorStateChange={(next) => {
+                      setEditorState(next);
+                      const html = stateToHTML(next.getCurrentContent());
+                      setPlace({ desc: html });
+                    }}
+                    placeholder="What makes this place special? Atmosphere, history, vibe, etc."
+                    toolbar={{
+                      options: ["inline", "list", "link", "history"],
+                      inline: { options: ["bold", "italic", "underline"] },
+                      list: { options: ["unordered", "ordered"] },
+                      link: { defaultTargetOption: "_blank" },
+                    }}
+                    editorClassName="px-4 py-3 min-h-[140px]"
+                    toolbarClassName="border-b"
+                    wrapperClassName="rounded-xl overflow-hidden"
+                    readOnly={submitting}
+                  />
+                </div>
+              </Field>
+
+              <Field label="History" hint="Shown as a short history paragraph">
+                <textarea
+                  className="textarea"
+                  value={data.history}
+                  onChange={(e) => setPlace({ history: e.target.value })}
+                  placeholder="Historical context, when it was built, why it matters..."
+                  disabled={submitting}
+                />
+              </Field>
+
+              {/* Price */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Price Text">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      className="input pl-9"
+                      value={data.price}
+                      onChange={(e) => setPlace({ price: e.target.value })}
+                      placeholder="e.g., Free entry, activities extra"
+                      disabled={submitting}
+                    />
+                    <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  </div>
+                </Field>
+
+                <Field label="Price Source">
+                  <input
+                    type="text"
+                    className="input"
+                    value={data.price_source}
+                    onChange={(e) =>
+                      setPlace({ price_source: e.target.value })
+                    }
+                    placeholder="e.g., Goa Tourism / Ticket counter"
+                    disabled={submitting}
+                  />
+                </Field>
+              </div>
+
+              <Field label="Price Type">
+                <select
+                  className="input"
+                  value={data.price_type}
+                  onChange={(e) =>
+                    setPlace({ price_type: e.target.value as PriceType })
+                  }
+                  disabled={submitting}
+                >
+                  <option value="">Select type</option>
+                  <option value="free">Free</option>
+                  <option value="paid">Paid</option>
+                  <option value="mixed">Mixed (some free, some paid)</option>
+                </select>
+              </Field>
+
+              {/* Itinerary */}
+              <div className="border-t border-gray-100 pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    Itinerary
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={addItineraryItem}
+                    disabled={submitting}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                  >
+                    <Plus className="size-3.5" />
+                    Add step
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {data.itinerary.map((it, idx) => (
+                    <div
+                      key={idx}
+                      className="rounded-xl border border-gray-200 p-3"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold text-gray-600">
+                          Step #{idx + 1}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => removeItineraryItem(idx)}
+                          disabled={submitting}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                        >
+                          <X className="size-3.5" />
+                          Remove
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <Field label="Time" className="sm:col-span-1">
+                          <input
+                            type="text"
+                            className="input"
+                            value={it.time}
+                            onChange={(e) =>
+                              updateItineraryItem(idx, {
+                                time: e.target.value,
+                              })
+                            }
+                            placeholder="7:00 AM"
+                            disabled={submitting}
+                          />
+                        </Field>
+                        <Field label="Title" className="sm:col-span-3">
+                          <input
+                            type="text"
+                            className="input"
+                            value={it.title}
+                            onChange={(e) =>
+                              updateItineraryItem(idx, {
+                                title: e.target.value,
+                              })
+                            }
+                            placeholder="Pickup from Hotel"
+                            disabled={submitting}
+                          />
+                        </Field>
+                      </div>
+                      <div className="mt-2 grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <Field label="Description" className="sm:col-span-3">
+                          <textarea
+                            className="textarea w-full"
+                            value={it.description}
+                            onChange={(e) =>
+                              updateItineraryItem(idx, {
+                                description: e.target.value,
+                              })
+                            }
+                            placeholder="Guests are picked up from hotels near Calangute, Baga, Candolim."
+                            disabled={submitting}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Nearby places */}
+              <div className="border-t border-gray-100 pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    Near by Places
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={addnearbyplacesItem}
+                    disabled={submitting}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                  >
+                    <Plus className="size-3.5" />
+                    Add step
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {data.nearbyPlaces.map((it, idx) => (
+                    <div
+                      key={idx}
+                      className="rounded-xl border border-gray-200 p-3"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold text-gray-600">
+                          Step #{idx + 1}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => removenearbyplacesItem(idx)}
+                          disabled={submitting}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                        >
+                          <X className="size-3.5" />
+                          Remove
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <Field label="Name">
+                          <input
+                            type="text"
+                            className="input"
+                            value={it.name}
+                            onChange={(e) =>
+                              updatenearbyplacesItem(idx, {
+                                name: e.target.value,
+                              })
+                            }
+                            placeholder="Place name"
+                            disabled={submitting}
+                          />
+                        </Field>
+
+                        <Field label="Distance">
+                          <input
+                            type="text"
+                            className="input"
+                            value={it.distance}
+                            onChange={(e) =>
+                              updatenearbyplacesItem(idx, {
+                                distance: e.target.value,
+                              })
+                            }
+                            placeholder="Distance"
+                            disabled={submitting}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Lists */}
+              <div className="grid grid-cols-1 gap-4">
+                <Field label="Highlights" hint="Add each highlight separately">
+                  <TagsInput
+                    items={data.highlights}
+                    onChange={(items) => setPlace({ highlights: items })}
+                    placeholder="e.g., Jeep ride through jungle trails"
+                    disabled={submitting}
+                  />
+                </Field>
+
+                <Field label="Tips" hint="Add each tip separately">
+                  <TagsInput
+                    items={data.tips}
+                    onChange={(items) => setPlace({ tips: items })}
+                    placeholder="e.g., Visit early morning"
+                    disabled={submitting}
+                  />
+                </Field>
+
+                <Field label="Facilities" hint="Add each facility separately">
+                  <TagsInput
+                    items={data.facilities}
+                    onChange={(items) => setPlace({ facilities: items })}
+                    placeholder="e.g., Parking"
+                    disabled={submitting}
+                  />
+                </Field>
+              </div>
+            </div>
+          </SectionCard>
+        )}
+
+        {/* MEDIA */}
         {step.key === "media" && (
           <SectionCard
             title="Images"
-            subtitle="Manage existing images and upload new ones."
+            subtitle="Upload one or more images for this place."
             icon={<ImageIcon className="size-5 text-emerald-600" />}
           >
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 sm:p-4">
+              {/* Thumbnail */}
+              <div className="mb-4">
+                <h4 className="text-xs font-semibold text-emerald-900 mb-2">
+                  Thumbnail / Cover Image
+                </h4>
+                <div className="flex flex-wrap items-center gap-3">
+                  {data.newThumbnail?.preview || data.thumbnail ? (
+                    <div className="relative w-32 h-32 rounded-xl overflow-hidden border-2 border-emerald-400 bg-white">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={data.newThumbnail?.preview || (data.thumbnail as string)}
+                        alt="Thumbnail"
+                        className="w-full h-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={removeThumbnail}
+                        disabled={submitting}
+                        className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                        title="Remove thumbnail"
+                        aria-label="Remove thumbnail"
+                      >
+                        <X className="size-4" strokeWidth={3} />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="w-32 h-32">
+                      <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-emerald-300 rounded-xl cursor-pointer hover:border-emerald-500 transition-colors bg-white hover:bg-emerald-50">
+                        <ImageIcon className="size-6 text-emerald-500" />
+                        <p className="mt-1 text-xs font-medium text-emerald-900 text-center">
+                          Upload Thumbnail
+                        </p>
+                        <p className="text-[10px] text-emerald-800/70 text-center">
+                          Recommended 4:3 or 16:9
+                        </p>
+                      </div>
+                      <input
+                        ref={thumbnailInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleThumbnailUpload}
+                        className="hidden"
+                        disabled={submitting}
+                      />
+                    </label>
+                  )}
+
+                  <p className="text-[11px] text-emerald-900/80 max-w-xs">
+                    This image will be used as the main cover photo for the place
+                    (card, listing, etc.).
+                  </p>
+                </div>
+              </div>
+
               {(data.existingImages?.length || 0) > 0 && (
                 <>
-                  <h4 className="text-xs font-semibold text-emerald-900 mb-2">Existing</h4>
+                  <h4 className="text-xs font-semibold text-emerald-900 mb-2">
+                    Existing
+                  </h4>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-4">
                     {data.existingImages!.map((url, i) => (
                       <div
@@ -664,7 +1690,11 @@ export default function EditPlaceMobile() {
                         className="relative aspect-square rounded-xl overflow-hidden border-2 border-emerald-300 bg-white"
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt={`Image ${i + 1}`} className="w-full h-full object-cover" />
+                        <img
+                          src={url}
+                          alt={`Image ${i + 1}`}
+                          className="w-full h-full object-cover"
+                        />
                         <button
                           type="button"
                           onClick={() => removeExistingImage(i)}
@@ -681,7 +1711,9 @@ export default function EditPlaceMobile() {
                 </>
               )}
 
-              <h4 className="text-xs font-semibold text-emerald-900 mb-2">Add New Uploads</h4>
+              <h4 className="text-xs font-semibold text-emerald-900 mb-2">
+                New Uploads
+              </h4>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {data.newImages.map((img, i) => (
                   <div
@@ -689,12 +1721,16 @@ export default function EditPlaceMobile() {
                     className="relative aspect-square rounded-xl overflow-hidden border-2 border-emerald-400 bg-white"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={img.preview} alt={`New ${i + 1}`} className="w-full h-full object-cover" />
+                    <img
+                      src={img.preview}
+                      alt={`New ${i + 1}`}
+                      className="w-full h-full object-cover"
+                    />
                     <button
                       type="button"
                       onClick={() => removeNewImage(i)}
                       className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
-                      title="Remove image"
+                      title="Remove new image"
                       aria-label="Remove new image"
                       disabled={submitting}
                     >
@@ -707,8 +1743,12 @@ export default function EditPlaceMobile() {
                 <label className="block aspect-square">
                   <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-emerald-300 rounded-xl cursor-pointer hover:border-emerald-500 transition-colors bg-white hover:bg-emerald-50">
                     <Plus className="size-6 text-emerald-500" />
-                    <p className="mt-1 text-sm font-medium text-emerald-900">Add Images</p>
-                    <p className="text-[11px] text-emerald-800/70">JPG/PNG/WebP</p>
+                    <p className="mt-1 text-sm font-medium text-emerald-900">
+                      Add Images
+                    </p>
+                    <p className="text-[11px] text-emerald-800/70">
+                      JPG/PNG/WebP
+                    </p>
                   </div>
                   <input
                     ref={imagesInputRef}
@@ -733,9 +1773,13 @@ export default function EditPlaceMobile() {
             <div className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
               <span className="inline-flex items-center gap-2 text-xs text-gray-600 bg-gray-100 rounded-full px-3 py-1.5 font-semibold self-start sm:self-auto">
                 <span
-                  className={`size-2 rounded-full ${isStepValid(step.key) ? "bg-green-500" : "bg-amber-500"}`}
+                  className={`size-2 rounded-full ${
+                    isStepValid(step.key) ? "bg-green-500" : "bg-amber-500"
+                  }`}
                 />
-                {isStepValid(step.key) ? "Looks good" : "Complete required fields"}
+                {isStepValid(step.key)
+                  ? "Looks good"
+                  : "Complete required fields"}
               </span>
 
               <div className="flex w-full sm:w-auto gap-2 sm:ml-auto">
@@ -767,8 +1811,19 @@ export default function EditPlaceMobile() {
                     "Continue"
                   ) : (
                     <span className="inline-flex items-center gap-2">
-                      {submitting && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-                      {submitting ? "Updating..." : "Update Place"}
+                      {submitting && (
+                        <Loader2
+                          className="size-4 animate-spin"
+                          aria-hidden="true"
+                        />
+                      )}
+                      {submitting
+                        ? isEdit
+                          ? "Updating..."
+                          : "Creating..."
+                        : isEdit
+                        ? "Update Place"
+                        : "Create Place"}
                     </span>
                   )}
                 </button>
@@ -787,9 +1842,16 @@ export default function EditPlaceMobile() {
         .textarea {
           @apply w-full min-h-[120px] px-4 py-3 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-[16px] placeholder:text-gray-400 transition-all resize-y;
         }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        .safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem); }
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+        .safe-bottom {
+          padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem);
+        }
       `}</style>
     </form>
   );
@@ -804,7 +1866,7 @@ export default function EditPlaceMobile() {
   }
 }
 
-/* ---------- Reusables (same as Add) ---------- */
+/* ---------- Reusables ---------- */
 function SectionCard({
   title,
   subtitle,
@@ -823,14 +1885,20 @@ function SectionCard({
       <div className="bg-white rounded-xl border border-gray-200 shadow-md overflow-visible">
         <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="size-8 grid place-items-center bg-emerald-50 rounded-lg">{icon}</div>
+            <div className="size-8 grid place-items-center bg-emerald-50 rounded-lg">
+              {icon}
+            </div>
             <div>
               <h2 className="text-base font-bold text-gray-900">{title}</h2>
-              {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+              {subtitle && (
+                <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
+              )}
             </div>
           </div>
           {requiredHint && (
-            <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">* Required</span>
+            <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">
+              * Required
+            </span>
           )}
         </div>
         <div className="p-4 sm:p-5">{children}</div>
@@ -862,5 +1930,90 @@ function Field({
       </div>
       {children}
     </label>
+  );
+}
+
+/* ---------- Tag input ---------- */
+function TagsInput({
+  items,
+  onChange,
+  placeholder,
+  disabled,
+}: {
+  items: string[];
+  onChange: (items: string[]) => void;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const [value, setValue] = useState("");
+
+  const addTag = () => {
+    const v = value.trim();
+    if (!v) return;
+    if (items.includes(v)) {
+      setValue("");
+      return;
+    }
+    onChange([...items, v]);
+    setValue("");
+  };
+
+  const removeTag = (idx: number) => {
+    onChange(items.filter((_, i) => i !== idx));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (!disabled) addTag();
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-gray-300 bg-white px-3 py-2 shadow-sm">
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          className="flex-1 border-none outline-none focus:ring-0 text-sm placeholder:text-gray-400"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          disabled={disabled}
+        />
+        <button
+          type="button"
+          onClick={addTag}
+          disabled={disabled || !value.trim()}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${
+            disabled || !value.trim()
+              ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+              : "bg-emerald-600 text-white hover:bg-emerald-700"
+          }`}
+        >
+          Add
+        </button>
+      </div>
+      {items.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {items.map((tag, idx) => (
+            <span
+              key={`${tag}-${idx}`}
+              className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-800"
+            >
+              {tag}
+              <button
+                type="button"
+                onClick={() => removeTag(idx)}
+                disabled={disabled}
+                className="flex items-center justify-center"
+              >
+                <X className="size-3 text-gray-500 hover:text-gray-700" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

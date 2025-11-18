@@ -15,6 +15,7 @@ import {
   Plus,
   X,
   Check,
+  HelpCircle
 } from "lucide-react";
 
 // Rich text editor deps
@@ -56,6 +57,17 @@ export type PlaceCategory =
 
 export type PriceType = "free" | "paid" | "mixed" | "";
 
+interface TimelineItem {
+  time: string;
+  title: string;
+  description: string;
+}
+interface NearbyPlaces {
+  name: string;
+  distance: string;
+}
+type FAQ = { q: string; a: string };
+
 // UI state for the form
 interface PlaceUI {
   // Core
@@ -96,11 +108,12 @@ interface PlaceUI {
   price: string; // price.text
   price_source: string; // price.source
 
-  // Arrays (stored as newline-separated; split on submit)
-  facilities: string; // one per line
-  highlights: string; // one per line
-  tips: string; // one per line
-
+  // Arrays (now stored as arrays in UI)
+  facilities: string[];
+  highlights: string[];
+  tips: string[];
+  llm_chips: FAQ[];
+  
   // Accessibility (SightseeingAccessibilitySchema)
   accessibility_wheelchair: boolean;
   accessibility_difficulty: string;
@@ -109,20 +122,12 @@ interface PlaceUI {
   rating: string; // convert to number
   reviewCount: string; // convert to number
 
-  // Itinerary (SightseeingItineraryItemSchema)
-  itinerary: Array<{
-    time: string;
-    title: string;
-    description: string;
-  }>;
+  itinerary: TimelineItem[];
+  nearbyPlaces: NearbyPlaces[];
 
-  // Nearby places (SightseeingNearbyPlaceSchema)
-  nearbyPlaces: Array<{
-    name: string;
-    distance: string;
-    placeId: string; // ObjectId as string (optional)
-  }>;
-
+  // Thumbnail (single image)
+  thumbnail?: string; // existing thumbnail URL when editing
+  newThumbnail?: { file: File; preview: string } | null;
   // Media handling (create/edit)
   existingImages?: string[]; // existing image URLs when editing
   newImages: Array<{ file: File; preview: string }>; // newly added files
@@ -184,23 +189,27 @@ const BLANK_PLACE: PlaceUI = {
   price_type: "",
   price: "",
   price_source: "",
-  facilities: "",
-  highlights: "",
-  tips: "",
+  llm_chips: [{ q: "", a: "" }],
+  // arrays
+  facilities: [],
+  highlights: [],
+  tips: [],
+
   accessibility_wheelchair: false,
   accessibility_difficulty: "",
   rating: "",
   reviewCount: "",
-
-  itinerary: [],
-  nearbyPlaces: [],
-
+  itinerary: [{ time: "", title: "", description: "" }],
+  nearbyPlaces: [{ name: "", distance: "" }],
+  thumbnail: undefined,
+  newThumbnail: null,
   existingImages: [],
   newImages: [],
 };
 
 const STEPS = [
   { key: "details", label: "Details", icon: <FileText className="size-4" /> },
+  { key: "llmChips", label: "LLM Chips", icon: <HelpCircle className="size-4" /> },
   { key: "meta", label: "Meta", icon: <ListChecks className="size-4" /> },
   { key: "content", label: "Content", icon: <MapPin className="size-4" /> },
   { key: "media", label: "Media", icon: <ImageIcon className="size-4" /> },
@@ -210,13 +219,8 @@ type StepKey = (typeof STEPS)[number]["key"];
 const LAST_INDEX = STEPS.length - 1;
 
 const initialForm: PlaceUI = { ...BLANK_PLACE };
-
-const splitToList = (s: string): string[] =>
-  s
-    .split("\n")
-    .map((v) => v.trim())
-    .filter(Boolean);
-
+const sanitizeHtml = (html: string) =>
+  html.replace(/[\n\r]/g, "").replace(/>\s+</g, "><");
 /* =========================
    Component
    ========================= */
@@ -231,6 +235,7 @@ export default function AddPlaceMobile() {
   const customTypeRef = useRef<HTMLInputElement | null>(null);
 
   // file input ref to allow opening picker
+  const thumbnailInputRef = useRef<HTMLInputElement | null>(null);
   const imagesInputRef = useRef<HTMLInputElement | null>(null);
 
   const step = STEPS[stepIndex];
@@ -256,6 +261,45 @@ export default function AddPlaceMobile() {
     setEditorState(EditorState.createWithContent(content));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+  return () => {
+    data.newImages.forEach((i) => i.preview && URL.revokeObjectURL(i.preview));
+    if (data.newThumbnail?.preview) {
+      URL.revokeObjectURL(data.newThumbnail.preview);
+    }
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
+/* ---------- Thumbnail handling (single image) ---------- */
+const handleThumbnailUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  // Revoke previous preview if replacing
+  if (data.newThumbnail?.preview) {
+    URL.revokeObjectURL(data.newThumbnail.preview);
+  }
+
+  const preview = URL.createObjectURL(file);
+  setPlace({
+    newThumbnail: { file, preview },
+    // If you were editing and had an existing thumbnail URL, we clear it when new one is chosen
+    thumbnail: "",
+  });
+};
+
+const removeThumbnail = () => {
+  if (data.newThumbnail?.preview) {
+    URL.revokeObjectURL(data.newThumbnail.preview);
+  }
+  setPlace({
+    newThumbnail: null,
+    thumbnail: "",
+  });
+};
+
+
 
   // revoke previews on unmount
   useEffect(() => {
@@ -291,6 +335,35 @@ export default function AddPlaceMobile() {
         return true;
     }
   };
+  const htmlToEditorState = (html?: string) => {
+      const safe = (html ?? "").trim();
+      if (!safe) return EditorState.createEmpty();
+      const blocks = convertFromHTML(safe);
+      const content = ContentState.createFromBlockArray(
+        blocks.contentBlocks,
+        blocks.entityMap
+      );
+      return EditorState.createWithContent(content);
+    };
+  const [llmChips, setLlmChips] = useState<FAQ[]>(BLANK_PLACE.llm_chips);
+  const [llmChipEditors, setLlmChipEditors] = useState<EditorState[]>(() =>
+    BLANK_PLACE.llm_chips.map((c) => htmlToEditorState(c.a))
+  );
+    const addLlmChip = () => {
+      setLlmChips((p) => [...p, { q: "", a: "" }]);
+      setLlmChipEditors((p) => [...p, EditorState.createEmpty()]);
+    };
+    const remLlmChip = (idx: number) => {
+      setLlmChips((p) =>
+        p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)
+      );
+      setLlmChipEditors((p) =>
+        p.length <= 1 ? [EditorState.createEmpty()] : p.filter((_, i) => i !== idx)
+      );
+    };
+    const setLlmChip = (idx: number, next: Partial<FAQ>) =>
+      setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
+  
 
   const canGoNext = isStepValid(step.key);
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
@@ -349,64 +422,66 @@ export default function AddPlaceMobile() {
     return base;
   }, [data.type]);
 
- /* ---------- Itinerary handling ---------- */
-const addItineraryItem = () => {
-  setData((prev) => ({
-    ...prev,
-    itinerary: [
-      ...prev.itinerary,
-      { time: "", title: "", description: "" },
-    ],
-  }));
-};
+  // itinerary handlers
+  const addItineraryItem = () =>
+    setData((p) => ({
+      ...p,
+      itinerary: [
+        ...p.itinerary,
+        { time: "", title: "", description: "" },
+      ],
+    }));
 
-const updateItineraryItem = (
-  index: number,
-  patch: Partial<PlaceUI["itinerary"][number]>
-) => {
-  setData((prev) => {
-    const copy = [...prev.itinerary];
-    copy[index] = { ...copy[index], ...patch };
-    return { ...prev, itinerary: copy };
-  });
-};
+  const removeItineraryItem = (idx: number) =>
+    setData((p) => {
+      if (p.itinerary.length <= 1) {
+        return {
+          ...p,
+          itinerary: [{ time: "", title: "", description: "" }],
+        };
+      }
+      return {
+        ...p,
+        itinerary: p.itinerary.filter((_, i) => i !== idx),
+      };
+    });
 
-const removeItineraryItem = (index: number) => {
-  setData((prev) => ({
-    ...prev,
-    itinerary: prev.itinerary.filter((_, i) => i !== index),
-  }));
-};
+  const updateItineraryItem = (idx: number, next: Partial<TimelineItem>) =>
+    setData((p) => ({
+      ...p,
+      itinerary: p.itinerary.map((it, i) =>
+        i === idx ? { ...it, ...next } : it
+      ),
+    }));
 
+  // nearbyplaces handlers
+  const addnearbyplacesItem = () =>
+    setData((p) => ({
+      ...p,
+      nearbyPlaces: [...p.nearbyPlaces, { name: "", distance: "" }],
+    }));
 
- /* ---------- Nearby places handling ---------- */
-const addNearbyPlace = () => {
-  setData((prev) => ({
-    ...prev,
-    nearbyPlaces: [
-      ...prev.nearbyPlaces,
-      { name: "", distance: "", placeId: "" },
-    ],
-  }));
-};
+  const removenearbyplacesItem = (idx: number) =>
+    setData((p) => {
+      if (p.nearbyPlaces.length <= 1) {
+        return {
+          ...p,
+          nearbyPlaces: [{ name: "", distance: "" }],
+        };
+      }
+      return {
+        ...p,
+        nearbyPlaces: p.nearbyPlaces.filter((_, i) => i !== idx),
+      };
+    });
 
-const updateNearbyPlace = (
-  index: number,
-  patch: Partial<PlaceUI["nearbyPlaces"][number]>
-) => {
-  setData((prev) => {
-    const copy = [...prev.nearbyPlaces];
-    copy[index] = { ...copy[index], ...patch };
-    return { ...prev, nearbyPlaces: copy };
-  });
-};
-
-const removeNearbyPlace = (index: number) => {
-  setData((prev) => ({
-    ...prev,
-    nearbyPlaces: prev.nearbyPlaces.filter((_, i) => i !== index),
-  }));
-};
+  const updatenearbyplacesItem = (idx: number, next: Partial<NearbyPlaces>) =>
+    setData((p) => ({
+      ...p,
+      nearbyPlaces: p.nearbyPlaces.map((it, i) =>
+        i === idx ? { ...it, ...next } : it
+      ),
+    }));
 
   /* ---------- Submit: send JSON + files in one go ---------- */
   const handleSubmit = async (e?: React.FormEvent) => {
@@ -455,32 +530,44 @@ const removeNearbyPlace = (index: number) => {
           text: data.price.trim(),
           source: data.price_source.trim(),
         },
-        facilities: splitToList(data.facilities),
-        highlights: splitToList(data.highlights),
-        tips: splitToList(data.tips),
+        // already arrays now
+        facilities: data.facilities,
+        highlights: data.highlights,
+        tips: data.tips,
         accessibility: {
           wheelchairAccessible: !!data.accessibility_wheelchair,
           difficultyLevel: data.accessibility_difficulty.trim(),
         },
+        itinerary: data.itinerary
+          .map((it) => ({
+            time: (it.time || "").trim(),
+            title: (it.title || "").trim(),
+            description: (it.description || "").trim(),
+          }))
+          .filter((it) => it.time || it.title || it.description),
+        nearbyPlaces: data.nearbyPlaces
+          .map((it) => ({
+            name: (it.name || "").trim(),
+            distance: (it.distance || "").trim(),
+          }))
+          .filter((it) => it.name || it.distance),
+         llm_chips: llmChips
+                  .map((c, idx) => {
+                    const editor = llmChipEditors[idx] || EditorState.createEmpty();
+                    const content = editor.getCurrentContent();
+                    const hasText = content.hasText();
+                    const rawHtml = stateToHTML(content);
+                    const html = hasText ? sanitizeHtml(rawHtml) : "";
+                    return {
+                      q: (c.q || "").trim(),
+                      a: html.trim(),
+                    };
+                  })
+                  .filter((c) => c.q || c.a),
         rating: data.rating ? Number(data.rating) : undefined,
         reviewCount: data.reviewCount ? Number(data.reviewCount) : undefined,
         images: data.existingImages || [],
-        itinerary: data.itinerary
-          .filter(
-            (i) => i.title.trim() && i.description.trim()
-          )
-          .map((i) => ({
-            time: i.time.trim(),
-            title: i.title.trim(),
-            description: i.description.trim(),
-          })),
-        nearbyPlaces: data.nearbyPlaces
-          .filter((p) => p.name.trim())
-          .map((p) => ({
-            name: p.name.trim(),
-            distance: p.distance.trim(),
-            placeId: p.placeId.trim() || undefined,
-          })),
+        thumbnail: data.thumbnail || undefined, 
       };
 
       const fd = new FormData();
@@ -496,8 +583,11 @@ const removeNearbyPlace = (index: number) => {
       for (const item of data.newImages) {
         fd.append("images", item.file, item.file.name);
       }
+      if (data.newThumbnail) {
+        fd.append("thumbnail", data.newThumbnail.file, data.newThumbnail.file.name);
+      }
 
-      const url = `${process.env.NEXT_PUBLIC_API_BASE}sightseeing/create`;
+      const url = `${process.env.NEXT_PUBLIC_API_BASE}sightseeing-places/create`;
       const res = await fetch(url, { method: "POST", body: fd });
       if (!res.ok) {
         const t = await res.text();
@@ -601,7 +691,6 @@ const removeNearbyPlace = (index: number) => {
 
       {/* Content */}
       <main className="max-w-3xl mx-auto p-4 sm:p-6 pb-36 lg:pb-64">
-
         {step.key === "details" && (
           <SectionCard
             title="Basic Details"
@@ -705,9 +794,7 @@ const removeNearbyPlace = (index: number) => {
                   )}
                   <p className="text-[11px] text-gray-500 mt-2">
                     Can’t find it? Choose{" "}
-                    <span className="font-medium">
-                      “Add a custom type…”
-                    </span>
+                    <span className="font-medium">“Add a custom type…”</span>
                   </p>
                 </Field>
 
@@ -745,6 +832,97 @@ const removeNearbyPlace = (index: number) => {
             </div>
           </SectionCard>
         )}
+          {/* LLM CHIPS */}
+                {step.key === "llmChips" && (
+                 <SectionCard
+                    title="LLM Chips & FAQs"
+                    subtitle="Predefined Q&A used by the assistant and on the product page."
+                    icon={<HelpCircle className="size-5 text-blue-600" />}
+                  >
+                    {/* LLM Chips */}
+                    <div className="mb-6">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-gray-800">
+                          LLM chips
+                        </span>
+                        <button
+                          type="button"
+                          onClick={addLlmChip}
+                          disabled={submitting}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                        >
+                          <Plus className="size-3.5" />
+                          Add chip
+                        </button>
+                      </div>
+        
+                      <div className="space-y-3">
+                        {llmChips.map((c, i) => (
+                          <div
+                            key={`llm-chip-${i}`}
+                            className="rounded-xl border border-gray-200 p-3"
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-xs font-semibold text-gray-600">
+                                Chip #{i + 1}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => remLlmChip(i)}
+                                disabled={submitting}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                              >
+                                <X className="size-3.5" />
+                                Remove
+                              </button>
+                            </div>
+                            <div className="space-y-3">
+                              <Field label="Question / Prompt">
+                                <input
+                                  type="text"
+                                  className="input w-full"
+                                  value={c.q}
+                                  onChange={(e) => setLlmChip(i, { q: e.target.value })}
+                                  placeholder="What does this activity include?"
+                                  disabled={submitting}
+                                />
+                              </Field>
+                              <Field label="Answer / Response">
+                                <div className="rounded-xl border border-gray-300 bg-white p-2">
+                                  <Editor
+                                    editorState={
+                                      llmChipEditors[i] || EditorState.createEmpty()
+                                    }
+                                    onEditorStateChange={(next) =>
+                                      setLlmChipEditors((eds) =>
+                                        eds.map((ed, idx) => (idx === i ? next : ed))
+                                      )
+                                    }
+                                    toolbar={{
+                                      options: ["inline", "list"],
+                                      inline: {
+                                        options: [
+                                          "bold",
+                                          "italic",
+                                          "underline",
+                                          "strikethrough",
+                                        ],
+                                      },
+                                      list: { options: ["unordered", "ordered"] },
+                                    }}
+                                    toolbarClassName="border-b"
+                                    wrapperClassName="rounded-xl overflow-hidden"
+                                    editorClassName="min-h-[100px] px-3"
+                                  />
+                                </div>
+                              </Field>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div> 
+                  </SectionCard> 
+                )}
 
         {step.key === "meta" && (
           <SectionCard
@@ -832,7 +1010,7 @@ const removeNearbyPlace = (index: number) => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Field
                   label="Duration Min (minutes)"
-                  hint='duration.min'
+                  hint="duration.min"
                 >
                   <input
                     type="number"
@@ -849,7 +1027,7 @@ const removeNearbyPlace = (index: number) => {
 
                 <Field
                   label="Duration Max (minutes)"
-                  hint='duration.max'
+                  hint="duration.max"
                 >
                   <input
                     type="number"
@@ -1151,209 +1329,202 @@ const removeNearbyPlace = (index: number) => {
                 </select>
               </Field>
 
-              {/* Lists */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <Field label="Highlights" hint="One highlight per line">
-                  <textarea
-                    className="textarea"
-                    value={data.highlights}
-                    onChange={(e) =>
-                      setPlace({ highlights: e.target.value })
-                    }
-                    placeholder={`Indo-Portuguese architecture
-Sea views
-Water sports hub`}
+              {/* Itinerary */}
+              <div className="border-t border-gray-100 pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    Itinerary
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={addItineraryItem}
                     disabled={submitting}
-                  />
-                </Field>
-
-                <Field label="Tips" hint="One tip per line">
-                  <textarea
-                    className="textarea"
-                    value={data.tips}
-                    onChange={(e) => setPlace({ tips: e.target.value })}
-                    placeholder={`Visit early morning
-Carry sunscreen
-Avoid monsoon swimming`}
-                    disabled={submitting}
-                  />
-                </Field>
-
-                <Field label="Facilities" hint="One facility per line">
-                  <textarea
-                    className="textarea"
-                    value={data.facilities}
-                    onChange={(e) =>
-                      setPlace({ facilities: e.target.value })
-                    }
-                    placeholder={`Parking
-Restrooms
-Shacks`}
-                    disabled={submitting}
-                  />
-                </Field>
-              </div>
-
-              {/* Itinerary (SightseeingItineraryItemSchema) */}
-              <Field
-                label="Suggested Itinerary"
-                hint="Add optional time blocks like 0–20 min, 20–40 min etc."
-              >
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                  >
+                    <Plus className="size-3.5" />
+                    Add step
+                  </button>
+                </div>
                 <div className="space-y-3">
-                  {data.itinerary.map((item, idx) => (
+                  {data.itinerary.map((it, idx) => (
                     <div
                       key={idx}
-                      className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4 flex flex-col gap-3"
+                      className="rounded-xl border border-gray-200 p-3"
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-gray-700">
-                          Step {idx + 1}
-                        </span>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold text-gray-600">
+                          Step #{idx + 1}
+                        </p>
                         <button
                           type="button"
                           onClick={() => removeItineraryItem(idx)}
-                          className="inline-flex items-center gap-1 text-[11px] text-red-600 hover:text-red-700"
                           disabled={submitting}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
                         >
-                          <X className="size-3" />
+                          <X className="size-3.5" />
                           Remove
                         </button>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="sm:col-span-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <Field label="Time" className="sm:col-span-1">
                           <input
                             type="text"
-                            className="input h-10 text-sm"
-                            value={item.time}
+                            className="input"
+                            value={it.time}
                             onChange={(e) =>
                               updateItineraryItem(idx, {
                                 time: e.target.value,
                               })
                             }
-                            placeholder="0–20 min"
+                            placeholder="7:00 AM"
                             disabled={submitting}
                           />
-                        </div>
-                        <div className="sm:col-span-2">
+                        </Field>
+                        <Field label="Title" className="sm:col-span-3">
                           <input
                             type="text"
-                            className="input h-10 text-sm"
-                            value={item.title}
+                            className="input"
+                            value={it.title}
                             onChange={(e) =>
                               updateItineraryItem(idx, {
                                 title: e.target.value,
                               })
                             }
-                            placeholder="Walk along the main promenade"
+                            placeholder="Pickup from Hotel"
                             disabled={submitting}
                           />
-                        </div>
+                        </Field>
                       </div>
-                      <textarea
-                        className="textarea text-sm min-h-[80px]"
-                        value={item.description}
-                        onChange={(e) =>
-                          updateItineraryItem(idx, {
-                            description: e.target.value,
-                          })
-                        }
-                        placeholder="Describe what to do / see in this time block..."
-                        disabled={submitting}
-                      />
+                      <div className="mt-2 grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <Field
+                          label="Description"
+                          className="sm:col-span-3"
+                        >
+                          <textarea
+                            className="textarea w-full"
+                            value={it.description}
+                            onChange={(e) =>
+                              updateItineraryItem(idx, {
+                                description: e.target.value,
+                              })
+                            }
+                            placeholder="Guests are picked up from hotels near Calangute, Baga, Candolim."
+                            disabled={submitting}
+                          />
+                        </Field>
+                      </div>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* Nearbyplaces */}
+              <div className="border-t border-gray-100 pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    Near by Places
+                  </h3>
                   <button
                     type="button"
-                    onClick={addItineraryItem}
+                    onClick={addnearbyplacesItem}
                     disabled={submitting}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-emerald-400 text-xs font-medium text-emerald-700 bg-emerald-50/40 hover:bg-emerald-50"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
                   >
-                    <Plus className="size-4" />
-                    Add itinerary step
+                    <Plus className="size-3.5" />
+                    Add step
                   </button>
                 </div>
-              </Field>
-
-              {/* Nearby places (SightseeingNearbyPlaceSchema) */}
-              <Field
-                label="Nearby Places"
-                hint="Optional. Show places in walking/short drive distance."
-              >
                 <div className="space-y-3">
-                  {data.nearbyPlaces.map((place, idx) => (
+                  {data.nearbyPlaces.map((it, idx) => (
                     <div
                       key={idx}
-                      className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4 flex flex-col gap-3"
+                      className="rounded-xl border border-gray-200 p-3"
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-gray-700">
-                          Nearby {idx + 1}
-                        </span>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold text-gray-600">
+                          Step #{idx + 1}
+                        </p>
                         <button
                           type="button"
-                          onClick={() => removeNearbyPlace(idx)}
-                          className="inline-flex items-center gap-1 text-[11px] text-red-600 hover:text-red-700"
+                          onClick={() => removenearbyplacesItem(idx)}
                           disabled={submitting}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
                         >
-                          <X className="size-3" />
+                          <X className="size-3.5" />
                           Remove
                         </button>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="sm:col-span-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <Field label="Name">
                           <input
                             type="text"
-                            className="input h-10 text-sm"
-                            value={place.name}
+                            className="input"
+                            value={it.name}
                             onChange={(e) =>
-                              updateNearbyPlace(idx, {
+                              updatenearbyplacesItem(idx, {
                                 name: e.target.value,
                               })
                             }
-                            placeholder="Calangute Beach"
+                            placeholder="Place name"
                             disabled={submitting}
                           />
-                        </div>
-                        <div className="sm:col-span-1">
+                        </Field>
+
+                        <Field label="Distance">
                           <input
                             type="text"
-                            className="input h-10 text-sm"
-                            value={place.distance}
+                            className="input"
+                            value={it.distance}
                             onChange={(e) =>
-                              updateNearbyPlace(idx, {
+                              updatenearbyplacesItem(idx, {
                                 distance: e.target.value,
                               })
                             }
-                            placeholder="3 km"
+                            placeholder="Distance"
                             disabled={submitting}
                           />
-                        </div>
+                        </Field>
                       </div>
-                      <input
-                        type="text"
-                        className="input h-10 text-xs"
-                        value={place.placeId}
-                        onChange={(e) =>
-                          updateNearbyPlace(idx, {
-                            placeId: e.target.value,
-                          })
-                        }
-                        placeholder="Optional: Linked place ObjectId"
-                        disabled={submitting}
-                      />
                     </div>
                   ))}
-                  <button
-                    type="button"
-                    onClick={addNearbyPlace}
-                    disabled={submitting}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-emerald-400 text-xs font-medium text-emerald-700 bg-emerald-50/40 hover:bg-emerald-50"
-                  >
-                    <Plus className="size-4" />
-                    Add nearby place
-                  </button>
                 </div>
-              </Field>
+              </div>
+
+              {/* Lists (chips) */}
+              <div className="grid grid-cols-1 gap-4">
+                <Field
+                  label="Highlights"
+                  hint="Add each highlight separately"
+                >
+                  <TagsInput
+                    items={data.highlights}
+                    onChange={(items) => setPlace({ highlights: items })}
+                    placeholder="e.g., Jeep ride through jungle trails"
+                    disabled={submitting}
+                  />
+                </Field>
+
+                <Field label="Tips" hint="Add each tip separately">
+                  <TagsInput
+                    items={data.tips}
+                    onChange={(items) => setPlace({ tips: items })}
+                    placeholder="e.g., Visit early morning"
+                    disabled={submitting}
+                  />
+                </Field>
+
+                <Field
+                  label="Facilities"
+                  hint="Add each facility separately"
+                >
+                  <TagsInput
+                    items={data.facilities}
+                    onChange={(items) => setPlace({ facilities: items })}
+                    placeholder="e.g., Parking"
+                    disabled={submitting}
+                  />
+                </Field>
+              </div>
             </div>
           </SectionCard>
         )}
@@ -1365,6 +1536,61 @@ Shacks`}
             icon={<ImageIcon className="size-5 text-emerald-600" />}
           >
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 sm:p-4">
+
+                  {/* Thumbnail (single cover image) */}
+      <div className="mb-4">
+        <h4 className="text-xs font-semibold text-emerald-900 mb-2">
+          Thumbnail / Cover Image
+        </h4>
+        <div className="flex flex-wrap items-center gap-3">
+          {data.newThumbnail?.preview || data.thumbnail ? (
+            <div className="relative w-32 h-32 rounded-xl overflow-hidden border-2 border-emerald-400 bg-white">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={data.newThumbnail?.preview || (data.thumbnail as string)}
+                alt="Thumbnail"
+                className="w-full h-full object-cover"
+              />
+              <button
+                type="button"
+                onClick={removeThumbnail}
+                disabled={submitting}
+                className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                title="Remove thumbnail"
+                aria-label="Remove thumbnail"
+              >
+                <X className="size-4" strokeWidth={3} />
+              </button>
+            </div>
+          ) : (
+            <label className="w-32 h-32">
+              <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-emerald-300 rounded-xl cursor-pointer hover:border-emerald-500 transition-colors bg-white hover:bg-emerald-50">
+                <ImageIcon className="size-6 text-emerald-500" />
+                <p className="mt-1 text-xs font-medium text-emerald-900 text-center">
+                  Upload Thumbnail
+                </p>
+                <p className="text-[10px] text-emerald-800/70 text-center">
+                  Recommended 4:3 or 16:9
+                </p>
+              </div>
+              <input
+                ref={thumbnailInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleThumbnailUpload}
+                className="hidden"
+                disabled={submitting}
+              />
+            </label>
+          )}
+
+          <p className="text-[11px] text-emerald-900/80 max-w-xs">
+            This image will be used as the main cover photo for the place
+            (card, listing, etc.).
+          </p>
+        </div>
+      </div>
+
               {(data.existingImages?.length || 0) > 0 && (
                 <>
                   <h4 className="text-xs font-semibold text-emerald-900 mb-2">
@@ -1611,5 +1837,90 @@ function Field({
       </div>
       {children}
     </label>
+  );
+}
+
+/* ---------- Tag input for highlights/tips/facilities ---------- */
+function TagsInput({
+  items,
+  onChange,
+  placeholder,
+  disabled,
+}: {
+  items: string[];
+  onChange: (items: string[]) => void;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const [value, setValue] = useState("");
+
+  const addTag = () => {
+    const v = value.trim();
+    if (!v) return;
+    if (items.includes(v)) {
+      setValue("");
+      return;
+    }
+    onChange([...items, v]);
+    setValue("");
+  };
+
+  const removeTag = (idx: number) => {
+    onChange(items.filter((_, i) => i !== idx));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (!disabled) addTag();
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-gray-300 bg-white px-3 py-2 shadow-sm">
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          className="flex-1 border-none outline-none focus:ring-0 text-sm placeholder:text-gray-400"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          disabled={disabled}
+        />
+        <button
+          type="button"
+          onClick={addTag}
+          disabled={disabled || !value.trim()}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${
+            disabled || !value.trim()
+              ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+              : "bg-emerald-600 text-white hover:bg-emerald-700"
+          }`}
+        >
+          Add
+        </button>
+      </div>
+      {items.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {items.map((tag, idx) => (
+            <span
+              key={`${tag}-${idx}`}
+              className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-800"
+            >
+              {tag}
+              <button
+                type="button"
+                onClick={() => removeTag(idx)}
+                disabled={disabled}
+                className="flex items-center justify-center"
+              >
+                <X className="size-3 text-gray-500 hover:text-gray-700" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
