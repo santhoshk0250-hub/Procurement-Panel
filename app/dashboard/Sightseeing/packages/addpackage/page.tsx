@@ -14,7 +14,6 @@ import {
   Search,
   Trash2,
   HelpCircle,
-
 } from "lucide-react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
@@ -25,7 +24,7 @@ import { EditorState, ContentState, convertFromHTML } from "draft-js";
 import { stateToHTML } from "draft-js-export-html";
 
 /* =========================
-   Types aligned to your Mongoose schema
+   Types aligned to your schema / sample docs
    ========================= */
 
 type ObjId = string;
@@ -35,21 +34,50 @@ interface PlaceLite {
   name: string;
   images?: string[];
 }
+
 type FAQ = { q: string; a: string };
 
 interface BlockoutSurcharge {
-  id: string;                 // local uid for rendering
-  mode: "single" | "range";   // single date or date range
-  amount: number | "" | null; // INR
-  start_date: string;         // yyyy-mm-dd
-  end_date?: string;          // yyyy-mm-dd (required when mode === "range")
-  currency?: "INR";           // fixed, defaults to INR
+  id: string; // local uid for rendering
+  mode: "single" | "range";
+  amount: number | "" | null;
+  start_date: string; // yyyy-mm-dd
+  end_date?: string; // yyyy-mm-dd
+  currency?: "INR";
+}
+
+interface WhyChooseItem {
+  title: string;
+  description: string;
+  icon: string;
+}
+
+interface TimedBlock {
+  time: string;
+  title: string;
+  description: string;
+}
+
+interface ExpectationItem {
+  title: string;
+  description: string;
+}
+
+interface PriceBreakdownUI {
+  basePrice: number | "" | null;
+  serviceCharges: number | "" | null;
+  taxes: number | "" | null;
+  totalPrice: number | "" | null;
 }
 
 interface SightseeingPackageUI {
   // Core
-  tour_name: string;
+  tour_name: string; // maps to title
   vehicle_type: string;
+
+  // Id/code & destination
+  code: string; // maps to "id" (e.g., SIGHT003)
+  destination: string;
 
   // Pax & duration
   min_pax: number | "";
@@ -61,21 +89,66 @@ interface SightseeingPackageUI {
   alternative_timings: string;
 
   // Places
-  places_to_visit_names: string[]; // denormalized names (chips)
-  place_ids: ObjId[]; // selected place IDs
+  places_to_visit_names: string[];
+  place_ids: ObjId[];
 
   // Commercials
   inclusions: string[];
   exclusions: string[];
 
-  // Pricing
+  // Pricing (internal)
   vendor_charge: number | "" | null;
   seller_charge: number | "" | null;
 
   // Multi surcharges
   blockout_surcharges: BlockoutSurcharge[];
-  service_charge: number | "" | null;
+
+  // Extended content / meta (from sample docs)
+  category: string[];
+  description: string;
+  thumbnail: string;
+  images: string[];
+  highlights: string[];
+  whyChoose: WhyChooseItem[];
+  itinerary: TimedBlock[];
+  operationProcess: TimedBlock[];
+  whatToExpect: ExpectationItem[];
+
+  // Pickup & ops
+  pickupType: string;
+  pickupAreas: string[];
+  meetingTime: string;
+  operatingHours: string;
+  bestTimeToVisit: string;
+  seasonalAvailability: string;
+  groupSize: string;
+  minParticipants: number | "";
+  maxParticipants: number | "";
+  accessibility: string;
+  fitnessLevel: string;
+
+  goodToKnow: string[];
+  whatToBring: string[];
+  voucherInfo: string[];
+  languages: string[];
+
+  // Pricing breakdown
+  priceBreakdown: PriceBreakdownUI;
+
+  // Cancellation & policies
+  cancellationPolicyShort: string;
+  cancellationDetails: string[];
+  rating: number | "" | null;
+  reviewCount: number | "" | null;
+  bookedCount: number | "" | null;
+  instantConfirmation: boolean;
+  freeCancellation: boolean;
+
+  operatedBy: string;
+
+  // LLM chips
   llm_chips?: FAQ[];
+
   // Notes
   special_mentions: string;
   notes: string;
@@ -85,17 +158,16 @@ interface SightseeingPackageUI {
    Helpers & Constants
    ========================= */
 
-// Unique vehicle type options from your data
+// Vehicle type options (for "coach" tours – walking/boat can still be free text)
 const VEHICLE_TYPES = [
   "4 Seater",
   "7 Seater",
   "13 Seater",
-  "17–20 Seater", // en dash
+  "17–20 Seater",
   "20–30 Seater",
   "30–40 Seater",
 ] as const;
 
-// Presets (handles hyphen/en-dash variants)
 const VEHICLE_PAX_PRESETS: Record<string, { min: number; max: number }> = {
   "4 Seater": { min: 1, max: 4 },
   "7 Seater": { min: 5, max: 7 },
@@ -111,15 +183,10 @@ const VEHICLE_PAX_PRESETS: Record<string, { min: number; max: number }> = {
   "30-40 Seater": { min: 30, max: 40 },
 };
 
-// Try to derive {min,max} from free text, e.g. "12–18 Seater" or "18-24 Seater".
-// If it's a single number like "8 Seater", we’ll assume min = max-2 (fallback) unless a preset exists.
 function derivePaxFromVehicleType(label: string): { min: number; max: number } | null {
   const s = (label || "").trim();
-
-  // 1) Exact preset match first (includes en-dash/hyphen variants)
   if (VEHICLE_PAX_PRESETS[s]) return VEHICLE_PAX_PRESETS[s];
 
-  // 2) Range like "17–20 Seater" or "17-20 Seater"
   const range = s.match(/(\d+)\s*[-–]\s*(\d+)\s*Seater/i);
   if (range) {
     const a = Number(range[1]);
@@ -127,7 +194,6 @@ function derivePaxFromVehicleType(label: string): { min: number; max: number } |
     if (!Number.isNaN(a) && !Number.isNaN(b)) return { min: Math.min(a, b), max: Math.max(a, b) };
   }
 
-  // 3) Single like "13 Seater" (fallback rule if not covered by presets)
   const single = s.match(/(\d+)\s*Seater/i);
   if (single) {
     const max = Number(single[1]);
@@ -145,30 +211,88 @@ const TIME_RANGE_REGEX =
   /^([0-1]?\d|2[0-3])\s?(am|pm)?\s?(-|to)\s?([0-1]?\d|2[0-3])\s?(am|pm)?$/i;
 
 const BLANK: SightseeingPackageUI = {
+  // core
   tour_name: "",
   vehicle_type: "",
+  code: "",
+  destination: "",
+
+  // pax & duration
   min_pax: "",
   max_pax: "",
   duration_hours: "",
+
+  // timings
   regular_timings: "",
   alternative_timings: "",
+
+  // places
   places_to_visit_names: [],
   place_ids: [],
+
+  // commercials
   inclusions: [],
   exclusions: [],
   vendor_charge: "",
   seller_charge: "",
   blockout_surcharges: [],
-  service_charge: "",
+
+  // extended content
+  category: [],
+  description: "",
+  thumbnail: "",
+  images: [],
+  highlights: [],
+  whyChoose: [],
+  itinerary: [],
+  operationProcess: [],
+  whatToExpect: [],
+
+  // pickup & ops
+  pickupType: "",
+  pickupAreas: [],
+  meetingTime: "",
+  operatingHours: "",
+  bestTimeToVisit: "",
+  seasonalAvailability: "",
+  groupSize: "",
+  minParticipants: "",
+  maxParticipants: "",
+  accessibility: "",
+  fitnessLevel: "",
+
+  goodToKnow: [],
+  whatToBring: [],
+  voucherInfo: [],
+  languages: [],
+
+  priceBreakdown: {
+    basePrice: "",
+    serviceCharges: "",
+    taxes: "",
+    totalPrice: "",
+  },
+
+  cancellationPolicyShort: "",
+  cancellationDetails: [],
+  rating: "",
+  reviewCount: "",
+  bookedCount: "",
+  instantConfirmation: true,
+  freeCancellation: true,
+
+  operatedBy: "",
+
+  llm_chips: [],
   special_mentions: "",
   notes: "",
 };
-// Put near other local utils
+
 function uid() {
   return Math.random().toString(36).slice(2, 9);
 }
 
-// Steps: merged Timings + Places
+// Steps
 const STEPS = [
   { key: "details", label: "Details", icon: <FileText className="size-4" /> },
   { key: "llmChips", label: "LLM Chips", icon: <HelpCircle className="size-4" /> },
@@ -181,8 +305,30 @@ const LAST_INDEX = STEPS.length - 1;
 
 const sanitizeHtml = (html: string) =>
   html
-    .replace(/[\n\r]/g, "") // drop newline and carriage return characters
-    .replace(/>\s+</g, "><"); 
+    .replace(/[\n\r]/g, "")
+    .replace(/>\s+</g, "><");
+
+/* =========================
+   Local utils
+   ========================= */
+
+function cleanTime(s: string) {
+  return s.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function numOrDefault(v: number | "" | null, d: number) {
+  if (v === "" || v == null || Number.isNaN(Number(v))) return d;
+  return Number(v);
+}
+
+function numOrNull(v: number | "" | null) {
+  if (v === "" || v == null || Number.isNaN(Number(v))) return null;
+  return Number(v);
+}
+
+function emptyToNull(v: string) {
+  return v === "" ? null : Number(v);
+}
 
 /* =========================
    Component
@@ -194,20 +340,50 @@ export default function AddSightseeingPackageMobile() {
   const [stepIndex, setStepIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
-  // Places data (dropdown, multi-select)
+  // Places data
   const [places, setPlaces] = useState<PlaceLite[]>([]);
   const [loadingPlaces, setLoadingPlaces] = useState(true);
 
+  const [doc] = useState<SightseeingPackageUI | null>(null);
+
   const step = STEPS[stepIndex];
 
-    const htmlToEditorState = (html?: string) => {
-      const safe = (html ?? "").trim();
-      if (!safe) return EditorState.createEmpty();
-      const blocks = convertFromHTML(safe);
-      const content = ContentState.createFromBlockArray(blocks.contentBlocks, blocks.entityMap);
-      return EditorState.createWithContent(content);
-    };
-  
+  const htmlToEditorState = (html?: string) => {
+    const safe = (html ?? "").trim();
+    if (!safe) return EditorState.createEmpty();
+    const blocks = convertFromHTML(safe);
+    const content = ContentState.createFromBlockArray(
+      blocks.contentBlocks,
+      blocks.entityMap
+    );
+    return EditorState.createWithContent(content);
+  };
+
+  // LLM chips
+  const [llmChips, setLlmChips] = useState<FAQ[]>(
+    doc?.llm_chips && doc.llm_chips.length ? doc.llm_chips : [{ q: "", a: "" }]
+  );
+
+  const [llmChipEditors, setLlmChipEditors] = useState<EditorState[]>(() =>
+    (doc?.llm_chips && doc.llm_chips.length ? doc.llm_chips : [{ q: "", a: "" }]).map(
+      (c) => htmlToEditorState(c.a)
+    )
+  );
+
+  const addLlmChip = () => {
+    setLlmChips((p) => [...p, { q: "", a: "" }]);
+    setLlmChipEditors((p) => [...p, EditorState.createEmpty()]);
+  };
+
+  const remLlmChip = (idx: number) => {
+    setLlmChips((p) => (p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)));
+    setLlmChipEditors((p) =>
+      p.length <= 1 ? [EditorState.createEmpty()] : p.filter((_, i) => i !== idx)
+    );
+  };
+
+  const setLlmChip = (idx: number, next: Partial<FAQ>) =>
+    setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
 
   /* ---------- Fetch places (ALL pages) ---------- */
   useEffect(() => {
@@ -217,7 +393,6 @@ export default function AddSightseeingPackageMobile() {
       setLoadingPlaces(true);
       try {
         const base = process.env.NEXT_PUBLIC_API_BASE || "/";
-        // inner fetch for one page (as per your provided API)
         const fetchPlaces = async (pageNum: number) => {
           const res = await axios.get(`${base}sightseeing/fetch?page=${pageNum}`);
           const fetched: any[] = res.data.items || res.data.data || [];
@@ -234,7 +409,6 @@ export default function AddSightseeingPackageMobile() {
           );
           for (const r of rest) all = all.concat(r.items || []);
         }
-        // de-dupe by _id just in case
         const dedup = Array.from(new Map(all.map((p) => [p._id, p])).values());
         if (mounted) setPlaces(dedup);
       } catch (e) {
@@ -250,34 +424,6 @@ export default function AddSightseeingPackageMobile() {
       mounted = false;
     };
   }, []);
-
-   const [doc, setDoc] = useState<SightseeingPackageUI | null>();
-      // NEW: LLM chips state + editors
-      const [llmChips, setLlmChips] = useState<FAQ[]>(
-        doc?.llm_chips && doc.llm_chips.length ? doc.llm_chips : [{ q: "", a: "" }]
-      );
-    
-      const [llmChipEditors, setLlmChipEditors] = useState<EditorState[]>(() =>
-        (doc?.llm_chips && doc.llm_chips.length ? doc.llm_chips : [{ q: "", a: "" }]).map((c) =>
-          htmlToEditorState(c.a)
-        )
-      );
-  
-      const addLlmChip = () => {
-        setLlmChips((p) => [...p, { q: "", a: "" }]);
-        setLlmChipEditors((p) => [...p, EditorState.createEmpty()]);
-      };
-    
-      const remLlmChip = (idx: number) => {
-        setLlmChips((p) => (p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)));
-        setLlmChipEditors((p) =>
-          p.length <= 1 ? [EditorState.createEmpty()] : p.filter((_, i) => i !== idx)
-        );
-      };
-    
-      const setLlmChip = (idx: number, next: Partial<FAQ>) =>
-        setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
-  
 
   /* ---------- Derived ---------- */
   const title = form.tour_name.trim() || "New Sightseeing Package";
@@ -302,7 +448,7 @@ export default function AddSightseeingPackageMobile() {
     const ok2 =
       !form.alternative_timings ||
       TIME_RANGE_REGEX.test(cleanTime(form.alternative_timings));
-    const hasPlaces = form.place_ids.length > 0; // selected via dropdown
+    const hasPlaces = form.place_ids.length > 0;
     return ok1 && ok2 && hasPlaces;
   }, [form.regular_timings, form.alternative_timings, form.place_ids]);
 
@@ -346,24 +492,49 @@ export default function AddSightseeingPackageMobile() {
     setForm((prev) => ({ ...prev, ...patch }));
 
   const addChip = (
-    key: "inclusions" | "exclusions" | "places_to_visit_names",
+    key:
+      | "inclusions"
+      | "exclusions"
+      | "places_to_visit_names"
+      | "category"
+      | "highlights"
+      | "pickupAreas"
+      | "goodToKnow"
+      | "whatToBring"
+      | "voucherInfo"
+      | "languages"
+      | "images"
+      | "cancellationDetails",
     value: string
   ) => {
     const v = value.trim();
     if (!v) return;
-    set({ [key]: Array.from(new Set([...(form[key] as string[]), v])) } as any);
+    const arr = (form as any)[key] as string[];
+    set({ [key]: Array.from(new Set([...(arr || []), v])) } as any);
   };
 
   const removeChip = (
-    key: "inclusions" | "exclusions" | "places_to_visit_names",
+    key:
+      | "inclusions"
+      | "exclusions"
+      | "places_to_visit_names"
+      | "category"
+      | "highlights"
+      | "pickupAreas"
+      | "goodToKnow"
+      | "whatToBring"
+      | "voucherInfo"
+      | "languages"
+      | "images"
+      | "cancellationDetails",
     idx: number
   ) => {
-    const arr = [...(form[key] as string[])];
+    const arr = [...((form as any)[key] as string[])];
     arr.splice(idx, 1);
     set({ [key]: arr } as any);
   };
 
-  // When user selects place IDs from dropdown, also keep names in sync for display
+  // When user selects place IDs from dropdown, also keep names in sync
   const syncPlacesToNames = (ids: ObjId[]) => {
     const names = places
       .filter((p) => ids.includes(p._id))
@@ -382,8 +553,16 @@ export default function AddSightseeingPackageMobile() {
     try {
       setSubmitting(true);
 
-      // Prepare payload—match your router /packages/create expectations
+      const placesToVisit = form.place_ids
+        .map((id) => {
+          const p = places.find((pl) => pl._id === id);
+          if (!p) return null;
+          return { name: p.name, placeId: id };
+        })
+        .filter(Boolean) as { name: string; placeId: string }[];
+
       const cooked: Record<string, any> = {
+        // original internal fields
         tour_name: form.tour_name.trim(),
         vehicle_type: form.vehicle_type.trim(),
         min_pax: numOrDefault(form.min_pax, 1),
@@ -396,33 +575,105 @@ export default function AddSightseeingPackageMobile() {
         inclusions: form.inclusions,
         exclusions: form.exclusions,
         llm_chips: llmChips
-                          .map((c, idx) => {
-                            const editor = llmChipEditors[idx] || EditorState.createEmpty();
-                            const content = editor.getCurrentContent();
-                            const hasText = content.hasText();
-                            const rawHtml = stateToHTML(content);
-                            const html = hasText ? sanitizeHtml(rawHtml) : "";
-                
-                            return {
-                              q: (c.q || "").trim(),
-                              a: html.trim(),
-                            };
-                          })
-                          .filter((c) => c.q || c.a),
-      vendor_charge: numOrNull(form.vendor_charge),
-     seller_charge: numOrNull(form.seller_charge),
-  blockout_surcharges: form.blockout_surcharges
-    .filter(s => s.amount != null && s.amount !== "" && s.start_date)
-    .map(s => ({
-      mode: s.mode,
-      amount: Number(s.amount),
-      currency: "INR",
-      start_date: s.start_date,
-      end_date: s.mode === "range" ? s.end_date || s.start_date : s.start_date,
-    })),
-        // service_charge: numOrNull(form.service_charge),
+          .map((c, idx) => {
+            const editor = llmChipEditors[idx] || EditorState.createEmpty();
+            const content = editor.getCurrentContent();
+            const hasText = content.hasText();
+            const rawHtml = stateToHTML(content);
+            const html = hasText ? sanitizeHtml(rawHtml) : "";
+            return {
+              q: (c.q || "").trim(),
+              a: html.trim(),
+            };
+          })
+          .filter((c) => c.q || c.a),
+        vendor_charge: numOrNull(form.vendor_charge),
+        seller_charge: numOrNull(form.seller_charge),
+        blockout_surcharges: form.blockout_surcharges
+          .filter((s) => s.amount != null && s.amount !== "" && s.start_date)
+          .map((s) => ({
+            mode: s.mode,
+            amount: Number(s.amount),
+            currency: "INR",
+            start_date: s.start_date,
+            end_date: s.mode === "range" ? s.end_date || s.start_date : s.start_date,
+          })),
         special_mentions: form.special_mentions.trim(),
         notes: form.notes.trim(),
+
+        // fields matching your sample docs
+        id: form.code.trim(), // SIGHT00X
+        title: form.tour_name.trim(),
+        destination: form.destination.trim(),
+        vehicleType: form.vehicle_type.trim(),
+        duration: numOrDefault(form.duration_hours, 1),
+        regularTimings: form.regular_timings.trim(),
+        alternativeTimings: form.alternative_timings.trim(),
+        category: form.category,
+        description: form.description.trim(),
+        thumbnail: form.thumbnail.trim(),
+        images: form.images,
+        placesToVisit,
+        highlights: form.highlights,
+        whyChoose: form.whyChoose
+          .map((w) => ({
+            title: w.title.trim(),
+            description: w.description.trim(),
+            icon: w.icon.trim(),
+          }))
+          .filter((w) => w.title || w.description || w.icon),
+        itinerary: form.itinerary
+          .map((b) => ({
+            time: b.time.trim(),
+            title: b.title.trim(),
+            description: b.description.trim(),
+          }))
+          .filter((b) => b.time || b.title || b.description),
+        operationProcess: form.operationProcess
+          .map((b) => ({
+            time: b.time.trim(),
+            title: b.title.trim(),
+            description: b.description.trim(),
+          }))
+          .filter((b) => b.time || b.title || b.description),
+        whatToExpect: form.whatToExpect
+          .map((b) => ({
+            title: b.title.trim(),
+            description: b.description.trim(),
+          }))
+          .filter((b) => b.title || b.description),
+
+        pickupType: form.pickupType.trim(),
+        pickupAreas: form.pickupAreas,
+        meetingTime: form.meetingTime.trim(),
+        goodToKnow: form.goodToKnow,
+        whatToBring: form.whatToBring,
+        operatingHours: form.operatingHours.trim(),
+        bestTimeToVisit: form.bestTimeToVisit.trim(),
+        seasonalAvailability: form.seasonalAvailability.trim(),
+        groupSize: form.groupSize.trim(),
+        minParticipants: numOrDefault(form.minParticipants, 0),
+        maxParticipants: numOrDefault(form.maxParticipants, 0),
+        accessibility: form.accessibility.trim(),
+        fitnessLevel: form.fitnessLevel.trim(),
+
+        priceBreakdown: {
+          basePrice: numOrNull(form.priceBreakdown.basePrice),
+          serviceCharges: numOrNull(form.priceBreakdown.serviceCharges),
+          taxes: numOrNull(form.priceBreakdown.taxes),
+          totalPrice: numOrNull(form.priceBreakdown.totalPrice),
+        },
+
+        voucherInfo: form.voucherInfo,
+        languages: form.languages,
+        cancellationPolicyShort: form.cancellationPolicyShort.trim(),
+        cancellationDetails: form.cancellationDetails,
+        rating: form.rating == null || form.rating === "" ? 0 : Number(form.rating),
+        reviewCount: numOrDefault(form.reviewCount, 0),
+        bookedCount: numOrDefault(form.bookedCount, 0),
+        instantConfirmation: form.instantConfirmation,
+        freeCancellation: form.freeCancellation,
+        operatedBy: form.operatedBy.trim(),
       };
 
       const fd = new FormData();
@@ -442,6 +693,10 @@ export default function AddSightseeingPackageMobile() {
       setSubmitting(false);
     }
   };
+
+  /* =========================
+     Render
+     ========================= */
 
   return (
     <form className="min-h-screen bg-gray-50" onSubmit={handleSubmit}>
@@ -524,177 +779,266 @@ export default function AddSightseeingPackageMobile() {
 
       {/* Content */}
       <main className="max-w-3xl mx-auto p-4 sm:p-6 pb-36">
-        {/* Details */}
+        {/* DETAILS STEP */}
         {step.key === "details" && (
-          <SectionCard
-            title="Basic Details"
-            subtitle="Required fields for the package."
-            icon={<FileText className="size-5 text-emerald-600" />}
-            requiredHint
-          >
-            <div className="rounded-xl border border-gray-200 p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Tour Name *" required>
-                  <input
-                    type="text"
-                    className="input"
-                    value={form.tour_name}
-                    onChange={(e) => set({ tour_name: e.target.value })}
-                    placeholder='e.g., "North Goa Sightseeing (Sharing)"'
+          <>
+            <SectionCard
+              title="Basic Details"
+              subtitle="Required fields for the package."
+              icon={<FileText className="size-5 text-emerald-600" />}
+              requiredHint
+            >
+              <div className="rounded-xl border border-gray-200 p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Tour Name *" required>
+                    <input
+                      type="text"
+                      className="input"
+                      value={form.tour_name}
+                      onChange={(e) => set({ tour_name: e.target.value })}
+                      placeholder='e.g., "South Goa Sightseeing Tour"'
+                      disabled={submitting}
+                    />
+                  </Field>
+
+                  <Field label="Internal Code (ID)">
+                    <input
+                      type="text"
+                      className="input"
+                      value={form.code}
+                      onChange={(e) => set({ code: e.target.value })}
+                      placeholder='e.g., "SIGHT002"'
+                      disabled={submitting}
+                    />
+                  </Field>
+
+                  <Field label="Destination">
+                    <input
+                      type="text"
+                      className="input"
+                      value={form.destination}
+                      onChange={(e) => set({ destination: e.target.value })}
+                      placeholder="e.g., Goa"
+                      disabled={submitting}
+                    />
+                  </Field>
+
+                  <Field label="Vehicle Type *" required>
+                    <select
+                      className="input"
+                      value={form.vehicle_type}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const derived = derivePaxFromVehicleType(val);
+                        set({
+                          vehicle_type: val,
+                          ...(derived ? { min_pax: derived.min, max_pax: derived.max } : {}),
+                        });
+                      }}
+                      disabled={submitting}
+                    >
+                      <option value="">Select vehicle type</option>
+                      {VEHICLE_TYPES.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+
+                  <Field label="Min Pax *" required>
+                    <input
+                      type="number"
+                      className="input"
+                      min={0}
+                      value={form.min_pax}
+                      onChange={(e) =>
+                        set({
+                          min_pax: e.target.value === "" ? "" : Number(e.target.value),
+                        })
+                      }
+                      placeholder="e.g., 1"
+                      disabled={submitting}
+                    />
+                  </Field>
+
+                  <Field label="Max Pax *" required>
+                    <input
+                      type="number"
+                      className="input"
+                      min={0}
+                      value={form.max_pax}
+                      onChange={(e) =>
+                        set({
+                          max_pax: e.target.value === "" ? "" : Number(e.target.value),
+                        })
+                      }
+                      placeholder="e.g., 17"
+                      disabled={submitting}
+                    />
+                  </Field>
+
+                  <Field label="Duration (hours) *" required>
+                    <input
+                      type="number"
+                      className="input"
+                      min={1}
+                      max={24}
+                      value={form.duration_hours}
+                      onChange={(e) =>
+                        set({
+                          duration_hours:
+                            e.target.value === "" ? "" : Number(e.target.value),
+                        })
+                      }
+                      placeholder="e.g., 7"
+                      disabled={submitting}
+                    />
+                  </Field>
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              title="Product Meta & Content"
+              subtitle="Destination, categories, description, and media."
+              icon={<FileText className="size-5 text-blue-600" />}
+            >
+              <div className="space-y-4">
+                <Field label="Categories">
+                  <ChipInput
+                    value={form.category}
+                    placeholder='Type and press Enter (e.g., "heritage", "family")'
+                    disabled={submitting}
+                    onAdd={(v) => addChip("category", v)}
+                    onRemove={(idx) => removeChip("category", idx)}
+                  />
+                </Field>
+
+                <Field label="Description">
+                  <textarea
+                    className="textarea"
+                    rows={4}
+                    value={form.description}
+                    onChange={(e) => set({ description: e.target.value })}
+                    placeholder="Short product description shown to users…"
                     disabled={submitting}
                   />
                 </Field>
 
-                {/* Vehicle Type (NO custom add flow) */}
-                <Field label="Vehicle Type *" required>
-                  <select
-                    className="input"
-                    value={form.vehicle_type}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      const derived = derivePaxFromVehicleType(val);
-                      set({
-                        vehicle_type: val,
-                        ...(derived ? { min_pax: derived.min, max_pax: derived.max } : {}),
-                      });
-                    }}
-                    disabled={submitting}
-                  >
-                    <option value="">Select vehicle type</option>
-                    {VEHICLE_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Thumbnail URL">
+                    <input
+                      type="text"
+                      className="input"
+                      value={form.thumbnail}
+                      onChange={(e) => set({ thumbnail: e.target.value })}
+                      placeholder="https://…"
+                      disabled={submitting}
+                    />
+                  </Field>
 
-                <Field label="Min Pax *" required>
-                  <input
-                    type="number"
-                    className="input"
-                    min={0}
-                    value={form.min_pax}
-                    onChange={(e) =>
-                      set({
-                        min_pax: e.target.value === "" ? "" : Number(e.target.value),
-                      })
-                    }
-                    placeholder="e.g., 1"
-                    disabled={submitting}
-                  />
-                </Field>
-                <Field label="Max Pax *" required>
-                  <input
-                    type="number"
-                    className="input"
-                    min={0}
-                    value={form.max_pax}
-                    onChange={(e) =>
-                      set({
-                        max_pax: e.target.value === "" ? "" : Number(e.target.value),
-                      })
-                    }
-                    placeholder="e.g., 7"
-                    disabled={submitting}
-                  />
-                </Field>
+                  <Field label="Images URLs">
+                    <ChipInput
+                      value={form.images}
+                      placeholder="Paste image URL and press Enter"
+                      disabled={submitting}
+                      onAdd={(v) => addChip("images", v)}
+                      onRemove={(idx) => removeChip("images", idx)}
+                    />
+                  </Field>
+                </div>
 
-                <Field label="Duration (hours) *" required>
-                  <input
-                    type="number"
-                    className="input"
-                    min={1}
-                    max={24}
-                    value={form.duration_hours}
-                    onChange={(e) =>
-                      set({
-                        duration_hours:
-                          e.target.value === "" ? "" : Number(e.target.value),
-                      })
-                    }
-                    placeholder="e.g., 6"
+                <Field label="Highlights">
+                  <ChipInput
+                    value={form.highlights}
+                    placeholder='e.g., "UNESCO Heritage Monuments"'
                     disabled={submitting}
+                    onAdd={(v) => addChip("highlights", v)}
+                    onRemove={(idx) => removeChip("highlights", idx)}
                   />
                 </Field>
               </div>
+            </SectionCard>
+          </>
+        )}
+
+        {/* LLM CHIPS STEP */}
+        {step.key === "llmChips" && (
+          <SectionCard
+            title="LLM Chips"
+            subtitle="Predefined Q&A snippets for the assistant."
+            icon={<HelpCircle className="size-5 text-blue-600" />}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold text-gray-800">Chips</span>
+              <button
+                type="button"
+                onClick={addLlmChip}
+                disabled={submitting}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+              >
+                <Plus className="size-3.5" />
+                Add Chip
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {llmChips.map((c, i) => (
+                <div key={`llm-chip-${i}`} className="rounded-xl border border-gray-200 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold text-gray-600">Chip #{i + 1}</p>
+                    <button
+                      type="button"
+                      onClick={() => remLlmChip(i)}
+                      disabled={submitting}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                    >
+                      <Trash2 className="size-3.5" />
+                      Remove
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    <Field label="Question / Prompt">
+                      <input
+                        type="text"
+                        className="input w-full"
+                        value={c.q}
+                        onChange={(e) => setLlmChip(i, { q: e.target.value })}
+                        placeholder="e.g., Do you offer Jain or vegan meals?"
+                        disabled={submitting}
+                      />
+                    </Field>
+                    <Field label="Answer / Response">
+                      <div className="rounded-xl border border-gray-300 bg-white p-2">
+                        <Editor
+                          editorState={llmChipEditors[i] || EditorState.createEmpty()}
+                          onEditorStateChange={(next) =>
+                            setLlmChipEditors((eds) =>
+                              eds.map((ed, idx) => (idx === i ? next : ed))
+                            )
+                          }
+                          toolbar={{
+                            options: ["inline", "list"],
+                            inline: {
+                              options: ["bold", "italic", "underline", "strikethrough"],
+                            },
+                            list: { options: ["unordered", "ordered"] },
+                          }}
+                          toolbarClassName="border-b"
+                          wrapperClassName="rounded-xl overflow-hidden"
+                          editorClassName="min-h-[100px] px-3"
+                        />
+                      </div>
+                    </Field>
+                  </div>
+                </div>
+              ))}
             </div>
           </SectionCard>
         )}
 
-          {step.key === "llmChips" && (
-                          <SectionCard
-                            title="LLM Chips"
-                            subtitle="Predefined Q&A snippets for the assistant."
-                            icon={<HelpCircle className="size-5 text-blue-600" />}
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-semibold text-gray-800">Chips</span>
-                              <button
-                                type="button"
-                                onClick={addLlmChip}
-                                disabled={submitting}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
-                              >
-                                <Plus className="size-3.5" />
-                                Add Chip
-                              </button>
-                            </div>
-                
-                            <div className="space-y-3">
-                              {llmChips.map((c, i) => (
-                                <div key={`llm-chip-${i}`} className="rounded-xl border border-gray-200 p-3">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <p className="text-xs font-semibold text-gray-600">Chip #{i + 1}</p>
-                                    <button
-                                      type="button"
-                                      onClick={() => remLlmChip(i)}
-                                      disabled={submitting}
-                                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
-                                    >
-                                      <Trash2 className="size-3.5" />
-                                      Remove
-                                    </button>
-                                  </div>
-                                  <div className="space-y-3">
-                                    <Field label="Question / Prompt">
-                                      <input
-                                        type="text"
-                                        className="input w-full"
-                                        value={c.q}
-                                        onChange={(e) => setLlmChip(i, { q: e.target.value })}
-                                        placeholder="e.g., Do you offer Jain or vegan meals?"
-                                        disabled={submitting}
-                                      />
-                                    </Field>
-                                    <Field label="Answer / Response">
-                                      <div className="rounded-xl border border-gray-300 bg-white p-2">
-                                        <Editor
-                                          editorState={llmChipEditors[i] || EditorState.createEmpty()}
-                                          onEditorStateChange={(next) =>
-                                            setLlmChipEditors((eds) =>
-                                              eds.map((ed, idx) => (idx === i ? next : ed))
-                                            )
-                                          }
-                                          toolbar={{
-                                            options: ["inline", "list"],
-                                            inline: { options: ["bold", "italic", "underline", "strikethrough"] },
-                                            list: { options: ["unordered", "ordered"] },
-                                          }}
-                                          toolbarClassName="border-b"
-                                          wrapperClassName="rounded-xl overflow-hidden"
-                                          editorClassName="min-h-[100px] px-3"
-                                        />
-                                      </div>
-                                    </Field>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </SectionCard>
-                        )}
-
-        {/* Timings & Places (merged) */}
+        {/* SCHEDULE STEP */}
         {step.key === "schedule" && (
           <SectionCard
             title="Timings & Places"
@@ -704,7 +1048,7 @@ export default function AddSightseeingPackageMobile() {
             <div className="rounded-xl border border-gray-200 p-4 space-y-6">
               {/* Timings */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Regular Timings" hint="e.g., 10 am - 6 pm">
+                <Field label="Regular Timings" hint="e.g., 9:00 AM - 5:00 PM">
                   <div className="relative">
                     <input
                       type="text"
@@ -716,7 +1060,7 @@ export default function AddSightseeingPackageMobile() {
                       }`}
                       value={form.regular_timings}
                       onChange={(e) => set({ regular_timings: e.target.value })}
-                      placeholder="10 am - 6 pm"
+                      placeholder="9:00 AM - 5:00 PM"
                       disabled={submitting}
                     />
                     <Clock className="size-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -735,7 +1079,7 @@ export default function AddSightseeingPackageMobile() {
                       }`}
                       value={form.alternative_timings}
                       onChange={(e) => set({ alternative_timings: e.target.value })}
-                      placeholder="2 pm - 8 pm"
+                      placeholder="1:00 PM - 7:00 PM"
                       disabled={submitting}
                     />
                     <Clock className="size-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -743,7 +1087,7 @@ export default function AddSightseeingPackageMobile() {
                 </Field>
               </div>
 
-              {/* Places multi-select (custom dropdown) */}
+              {/* Places multi-select */}
               <div>
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <span className="block text-sm font-medium text-gray-700">
@@ -798,253 +1142,985 @@ export default function AddSightseeingPackageMobile() {
           </SectionCard>
         )}
 
-        {/* Inclusions & Pricing */}
-       {/* Inclusions & Pricing (reworked) */}
-{step.key === "commerce" && (
-  <SectionCard
-    title="Inclusions, Exclusions & Pricing"
-    subtitle="Add inclusions/exclusions, base charges, and block-out surcharges."
-    icon={<ListChecks className="size-5 text-emerald-600" />}
-  >
-    <div className="rounded-xl border border-gray-200 p-4 space-y-6">
-      {/* Inclusions / Exclusions */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Inclusions">
-          <ChipInput
-            value={form.inclusions}
-            placeholder='Type and press Enter (e.g., "AC coach")'
-            disabled={submitting}
-            onAdd={(v) => addChip("inclusions", v)}
-            onRemove={(i) => removeChip("inclusions", i)}
-          />
-        </Field>
-        <Field label="Exclusions">
-          <ChipInput
-            value={form.exclusions}
-            placeholder='Type and press Enter (e.g., "Lunch")'
-            disabled={submitting}
-            onAdd={(v) => addChip("exclusions", v)}
-            onRemove={(i) => removeChip("exclusions", i)}
-          />
-        </Field>
-      </div>
-
-      {/* Base charges */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Vendor Charge (₹)">
-          <div className="relative">
-            <input
-              type="number"
-              className="input pl-9"
-              value={form.vendor_charge ?? ""}
-              onChange={(e) => set({ vendor_charge: emptyToNull(e.target.value) })}
-              placeholder="e.g., 2500"
-              disabled={submitting}
-            />
-            <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          </div>
-        </Field>
-        <Field label="Seller Charge (₹)">
-          <div className="relative">
-            <input
-              type="number"
-              className="input pl-9"
-              value={form.seller_charge ?? ""}
-              onChange={(e) => set({ seller_charge: emptyToNull(e.target.value) })}
-              placeholder="e.g., 500"
-              disabled={submitting}
-            />
-            <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          </div>
-        </Field>
-      </div>
-
-      {/* Block-out surcharges (multi) */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="block text-sm font-medium text-gray-700">
-            Block-out Surcharges
-          </span>
-          <button
-            type="button"
-            onClick={() =>
-              set({
-                blockout_surcharges: [
-                  ...form.blockout_surcharges,
-                  {
-                    id: uid(),
-                    mode: "range",
-                    amount: "",
-                    start_date: "",
-                    end_date: "",
-                    currency: "INR",
-                  },
-                ],
-              })
-            }
-            disabled={submitting}
-            className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
-          >
-            <Plus className="size-4" />
-            Add
-          </button>
-        </div>
-
-        {form.blockout_surcharges.length === 0 ? (
-          <p className="text-sm text-gray-500">
-            No surcharges added. Click <strong>Add</strong> to create one.
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {form.blockout_surcharges.map((s, idx) => (
-              <div
-                key={s.id}
-                className="rounded-xl border border-gray-200 overflow-hidden"
-              >
-                <div className="flex items-center justify-between px-3 py-2 bg-amber-50 border-b border-amber-100">
-                  <span className="text-xs font-semibold text-amber-800">
-                    Surge #{idx + 1}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = [...form.blockout_surcharges];
-                      next.splice(idx, 1);
-                      set({ blockout_surcharges: next });
-                    }}
-                    className="text-xs text-red-600 hover:underline inline-flex items-center gap-1"
-                    disabled={submitting}
-                  >
-                    <X className="size-3" />
-                    Remove
-                  </button>
+        {/* COMMERCE STEP */}
+        {step.key === "commerce" && (
+          <>
+            {/* Inclusions & pricing / surcharges / notes */}
+            <SectionCard
+              title="Inclusions, Exclusions & Pricing"
+              subtitle="Add inclusions/exclusions, base charges, and block-out surcharges."
+              icon={<ListChecks className="size-5 text-emerald-600" />}
+            >
+              <div className="rounded-xl border border-gray-200 p-4 space-y-6">
+                {/* Inclusions / Exclusions */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Inclusions">
+                    <ChipInput
+                      value={form.inclusions}
+                      placeholder='Type and press Enter (e.g., "AC coach")'
+                      disabled={submitting}
+                      onAdd={(v) => addChip("inclusions", v)}
+                      onRemove={(i) => removeChip("inclusions", i)}
+                    />
+                  </Field>
+                  <Field label="Exclusions">
+                    <ChipInput
+                      value={form.exclusions}
+                      placeholder='Type and press Enter (e.g., "Lunch")'
+                      disabled={submitting}
+                      onAdd={(v) => addChip("exclusions", v)}
+                      onRemove={(i) => removeChip("exclusions", i)}
+                    />
+                  </Field>
                 </div>
 
-                <div className="p-3 sm:p-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  {/* Mode */}
-                  <div className="sm:col-span-2">
-                    <div className="flex items-center gap-4">
-                      <label className="inline-flex items-center gap-2 text-sm">
-                        <input
-                          type="radio"
-                          className="accent-emerald-600"
-                          checked={s.mode === "single"}
-                          onChange={() => {
-                            const next = [...form.blockout_surcharges];
-                            next[idx] = { ...s, mode: "single", end_date: undefined };
-                            set({ blockout_surcharges: next });
-                          }}
-                        />
-                        Single date
-                      </label>
-                      <label className="inline-flex items-center gap-2 text-sm">
-                        <input
-                          type="radio"
-                          className="accent-emerald-600"
-                          checked={s.mode === "range"}
-                          onChange={() => {
-                            const next = [...form.blockout_surcharges];
-                            next[idx] = { ...s, mode: "range", end_date: s.end_date || "" };
-                            set({ blockout_surcharges: next });
-                          }}
-                        />
-                        Date range
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Amount */}
-                  <div className="sm:col-span-1">
+                {/* Base charges */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Vendor Charge (₹)">
                     <div className="relative">
                       <input
                         type="number"
                         className="input pl-9"
-                        value={s.amount ?? ""}
-                        onChange={(e) => {
-                          const next = [...form.blockout_surcharges];
-                          next[idx] = { ...s, amount: emptyToNull(e.target.value) };
-                          set({ blockout_surcharges: next });
-                        }}
-                        placeholder="Amount"
+                        value={form.vendor_charge ?? ""}
+                        onChange={(e) => set({ vendor_charge: emptyToNull(e.target.value) })}
+                        placeholder="e.g., 2500"
                         disabled={submitting}
                       />
                       <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                     </div>
-                  </div>
-
-                  {/* Currency (locked INR to mirror UI) */}
-                  <div className="sm:col-span-1 flex items-center">
-                    <span className="text-xs text-gray-500">INR</span>
-                  </div>
-
-                  {/* Dates */}
-                  <div className="sm:col-span-2">
-                    <Field label={s.mode === "single" ? "Date" : "Start date"}>
+                  </Field>
+                  <Field label="Seller Charge (₹)">
+                    <div className="relative">
                       <input
-                        type="date"
+                        type="number"
+                        className="input pl-9"
+                        value={form.seller_charge ?? ""}
+                        onChange={(e) => set({ seller_charge: emptyToNull(e.target.value) })}
+                        placeholder="e.g., 500"
+                        disabled={submitting}
+                      />
+                      <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    </div>
+                  </Field>
+                </div>
+
+                {/* Block-out surcharges */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="block text-sm font-medium text-gray-700">
+                      Block-out Surcharges
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        set({
+                          blockout_surcharges: [
+                            ...form.blockout_surcharges,
+                            {
+                              id: uid(),
+                              mode: "range",
+                              amount: "",
+                              start_date: "",
+                              end_date: "",
+                              currency: "INR",
+                            },
+                          ],
+                        })
+                      }
+                      disabled={submitting}
+                      className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+                    >
+                      <Plus className="size-4" />
+                      Add
+                    </button>
+                  </div>
+
+                  {form.blockout_surcharges.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      No surcharges added. Click <strong>Add</strong> to create one.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {form.blockout_surcharges.map((s, idx) => (
+                        <div
+                          key={s.id}
+                          className="rounded-xl border border-gray-200 overflow-hidden"
+                        >
+                          <div className="flex items-center justify-between px-3 py-2 bg-amber-50 border-b border-amber-100">
+                            <span className="text-xs font-semibold text-amber-800">
+                              Surcharge #{idx + 1}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = [...form.blockout_surcharges];
+                                next.splice(idx, 1);
+                                set({ blockout_surcharges: next });
+                              }}
+                              className="text-xs text-red-600 hover:underline inline-flex items-center gap-1"
+                              disabled={submitting}
+                            >
+                              <X className="size-3" />
+                              Remove
+                            </button>
+                          </div>
+
+                          <div className="p-3 sm:p-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
+                            {/* Mode */}
+                            <div className="sm:col-span-2">
+                              <div className="flex items-center gap-4">
+                                <label className="inline-flex items-center gap-2 text-sm">
+                                  <input
+                                    type="radio"
+                                    className="accent-emerald-600"
+                                    checked={s.mode === "single"}
+                                    onChange={() => {
+                                      const next = [...form.blockout_surcharges];
+                                      next[idx] = { ...s, mode: "single", end_date: undefined };
+                                      set({ blockout_surcharges: next });
+                                    }}
+                                  />
+                                  Single date
+                                </label>
+                                <label className="inline-flex items-center gap-2 text-sm">
+                                  <input
+                                    type="radio"
+                                    className="accent-emerald-600"
+                                    checked={s.mode === "range"}
+                                    onChange={() => {
+                                      const next = [...form.blockout_surcharges];
+                                      next[idx] = {
+                                        ...s,
+                                        mode: "range",
+                                        end_date: s.end_date || "",
+                                      };
+                                      set({ blockout_surcharges: next });
+                                    }}
+                                  />
+                                  Date range
+                                </label>
+                              </div>
+                            </div>
+
+                            {/* Amount */}
+                            <div className="sm:col-span-1">
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  className="input pl-9"
+                                  value={s.amount ?? ""}
+                                  onChange={(e) => {
+                                    const next = [...form.blockout_surcharges];
+                                    next[idx] = {
+                                      ...s,
+                                      amount: emptyToNull(e.target.value),
+                                    };
+                                    set({ blockout_surcharges: next });
+                                  }}
+                                  placeholder="Amount"
+                                  disabled={submitting}
+                                />
+                                <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                              </div>
+                            </div>
+
+                            {/* Currency (locked INR) */}
+                            <div className="sm:col-span-1 flex items-center">
+                              <span className="text-xs text-gray-500">INR</span>
+                            </div>
+
+                            {/* Dates */}
+                            <div className="sm:col-span-2">
+                              <Field label={s.mode === "single" ? "Date" : "Start date"}>
+                                <input
+                                  type="date"
+                                  className="input"
+                                  value={s.start_date}
+                                  onChange={(e) => {
+                                    const next = [...form.blockout_surcharges];
+                                    next[idx] = { ...s, start_date: e.target.value };
+                                    set({ blockout_surcharges: next });
+                                  }}
+                                  disabled={submitting}
+                                />
+                              </Field>
+                            </div>
+
+                            {s.mode === "range" && (
+                              <div className="sm:col-span-2">
+                                <Field label="End date">
+                                  <input
+                                    type="date"
+                                    className="input"
+                                    value={s.end_date || ""}
+                                    onChange={(e) => {
+                                      const next = [...form.blockout_surcharges];
+                                      next[idx] = { ...s, end_date: e.target.value };
+                                      set({ blockout_surcharges: next });
+                                    }}
+                                    disabled={submitting}
+                                  />
+                                </Field>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Notes */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Special Mentions">
+                    <textarea
+                      className="textarea"
+                      rows={3}
+                      value={form.special_mentions}
+                      onChange={(e) => set({ special_mentions: e.target.value })}
+                      placeholder="Any special notes (e.g., festival surcharges, seasonal changes)…"
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="Internal Notes">
+                    <textarea
+                      className="textarea"
+                      rows={3}
+                      value={form.notes}
+                      onChange={(e) => set({ notes: e.target.value })}
+                      placeholder="Internal notes…"
+                      disabled={submitting}
+                    />
+                  </Field>
+                </div>
+              </div>
+            </SectionCard>
+
+            {/* Pickup & preparation */}
+            <SectionCard
+              title="Pickup & Preparation"
+              subtitle="Pickup info, good to know, and what to bring."
+              icon={<Clock className="size-5 text-blue-600" />}
+            >
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Pickup Type" hint='e.g., "self", "commonPoint", "jettyPoint"'>
+                    <input
+                      type="text"
+                      className="input"
+                      value={form.pickupType}
+                      onChange={(e) => set({ pickupType: e.target.value })}
+                      disabled={submitting}
+                    />
+                  </Field>
+
+                  <Field label="Meeting Time">
+                    <input
+                      type="text"
+                      className="input"
+                      value={form.meetingTime}
+                      onChange={(e) => set({ meetingTime: e.target.value })}
+                      placeholder="e.g., 9:00 AM"
+                      disabled={submitting}
+                    />
+                  </Field>
+                </div>
+
+                <Field label="Pickup Areas">
+                  <ChipInput
+                    value={form.pickupAreas}
+                    placeholder='e.g., "Old Goa Church Complex"'
+                    disabled={submitting}
+                    onAdd={(v) => addChip("pickupAreas", v)}
+                    onRemove={(idx) => removeChip("pickupAreas", idx)}
+                  />
+                </Field>
+
+                <Field label="Good to Know">
+                  <ChipInput
+                    value={form.goodToKnow}
+                    placeholder='e.g., "Wear comfortable walking shoes"'
+                    disabled={submitting}
+                    onAdd={(v) => addChip("goodToKnow", v)}
+                    onRemove={(idx) => removeChip("goodToKnow", idx)}
+                  />
+                </Field>
+
+                <Field label="What to Bring">
+                  <ChipInput
+                    value={form.whatToBring}
+                    placeholder='e.g., "Water bottle", "Cap/Hat"'
+                    disabled={submitting}
+                    onAdd={(v) => addChip("whatToBring", v)}
+                    onRemove={(idx) => removeChip("whatToBring", idx)}
+                  />
+                </Field>
+              </div>
+            </SectionCard>
+
+            {/* Experience content & policies */}
+            <SectionCard
+              title="Experience Details & Policies"
+              subtitle="Itinerary, what to expect, pricing breakdown, and policies."
+              icon={<ListChecks className="size-5 text-blue-600" />}
+            >
+              <div className="space-y-6">
+                {/* Operations & seasonality */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Operating Hours">
+                    <input
+                      type="text"
+                      className="input"
+                      value={form.operatingHours}
+                      onChange={(e) => set({ operatingHours: e.target.value })}
+                      placeholder="e.g., 9:00 AM – 6:00 PM"
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="Best Time to Visit">
+                    <input
+                      type="text"
+                      className="input"
+                      value={form.bestTimeToVisit}
+                      onChange={(e) => set({ bestTimeToVisit: e.target.value })}
+                      placeholder="e.g., October to March"
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="Seasonal Availability">
+                    <input
+                      type="text"
+                      className="input"
+                      value={form.seasonalAvailability}
+                      onChange={(e) => set({ seasonalAvailability: e.target.value })}
+                      placeholder="e.g., Year-round"
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="Group Size (label)">
+                    <input
+                      type="text"
+                      className="input"
+                      value={form.groupSize}
+                      onChange={(e) => set({ groupSize: e.target.value })}
+                      placeholder='e.g., "10 - 20"'
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="Min Participants">
+                    <input
+                      type="number"
+                      className="input"
+                      value={form.minParticipants ?? ""}
+                      onChange={(e) =>
+                        set({
+                          minParticipants:
+                            e.target.value === "" ? "" : Number(e.target.value),
+                        })
+                      }
+                      placeholder="e.g., 5"
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="Max Participants">
+                    <input
+                      type="number"
+                      className="input"
+                      value={form.maxParticipants ?? ""}
+                      onChange={(e) =>
+                        set({
+                          maxParticipants:
+                            e.target.value === "" ? "" : Number(e.target.value),
+                        })
+                      }
+                      placeholder="e.g., 20"
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="Accessibility">
+                    <input
+                      type="text"
+                      className="input"
+                      value={form.accessibility}
+                      onChange={(e) => set({ accessibility: e.target.value })}
+                      placeholder="e.g., Not wheelchair accessible"
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="Fitness Level">
+                    <input
+                      type="text"
+                      className="input"
+                      value={form.fitnessLevel}
+                      onChange={(e) => set({ fitnessLevel: e.target.value })}
+                      placeholder="e.g., Easy / Moderate"
+                      disabled={submitting}
+                    />
+                  </Field>
+                </div>
+
+                {/* Price breakdown */}
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-800 mb-2">
+                    Price Breakdown (per person/package)
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <Field label="Base Price (₹)">
+                      <input
+                        type="number"
                         className="input"
-                        value={s.start_date}
-                        onChange={(e) => {
-                          const next = [...form.blockout_surcharges];
-                          next[idx] = { ...s, start_date: e.target.value };
-                          set({ blockout_surcharges: next });
-                        }}
+                        value={form.priceBreakdown.basePrice ?? ""}
+                        onChange={(e) =>
+                          set({
+                            priceBreakdown: {
+                              ...form.priceBreakdown,
+                              basePrice: emptyToNull(e.target.value),
+                            },
+                          })
+                        }
+                        placeholder="e.g., 1499"
+                        disabled={submitting}
+                      />
+                    </Field>
+                    <Field label="Service Charges (₹)">
+                      <input
+                        type="number"
+                        className="input"
+                        value={form.priceBreakdown.serviceCharges ?? ""}
+                        onChange={(e) =>
+                          set({
+                            priceBreakdown: {
+                              ...form.priceBreakdown,
+                              serviceCharges: emptyToNull(e.target.value),
+                            },
+                          })
+                        }
+                        placeholder="e.g., 40"
+                        disabled={submitting}
+                      />
+                    </Field>
+                    <Field label="Taxes (₹)">
+                      <input
+                        type="number"
+                        className="input"
+                        value={form.priceBreakdown.taxes ?? ""}
+                        onChange={(e) =>
+                          set({
+                            priceBreakdown: {
+                              ...form.priceBreakdown,
+                              taxes: emptyToNull(e.target.value),
+                            },
+                          })
+                        }
+                        placeholder="e.g., 0"
+                        disabled={submitting}
+                      />
+                    </Field>
+                    <Field label="Total Price (₹)">
+                      <input
+                        type="number"
+                        className="input"
+                        value={form.priceBreakdown.totalPrice ?? ""}
+                        onChange={(e) =>
+                          set({
+                            priceBreakdown: {
+                              ...form.priceBreakdown,
+                              totalPrice: emptyToNull(e.target.value),
+                            },
+                          })
+                        }
+                        placeholder="e.g., 1539"
                         disabled={submitting}
                       />
                     </Field>
                   </div>
-
-                  {s.mode === "range" && (
-                    <div className="sm:col-span-2">
-                      <Field label="End date">
-                        <input
-                          type="date"
-                          className="input"
-                          value={s.end_date || ""}
-                          onChange={(e) => {
-                            const next = [...form.blockout_surcharges];
-                            next[idx] = { ...s, end_date: e.target.value };
-                            set({ blockout_surcharges: next });
-                          }}
-                          disabled={submitting}
-                        />
-                      </Field>
-                    </div>
-                  )}
                 </div>
+
+                {/* Content blocks: Why Choose, Itinerary, Operation, What to Expect */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold text-gray-800">Why Choose</h3>
+                  <div className="space-y-3">
+                    {form.whyChoose.map((w, idx) => (
+                      <div
+                        key={`why-${idx}`}
+                        className="border border-gray-200 rounded-xl p-3 space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-gray-600">
+                            Card #{idx + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              set({
+                                whyChoose: form.whyChoose.filter((_, i) => i !== idx),
+                              })
+                            }
+                            disabled={submitting}
+                            className="text-xs text-red-600 inline-flex items-center gap-1"
+                          >
+                            <X className="size-3" />
+                            Remove
+                          </button>
+                        </div>
+                        <Field label="Title">
+                          <input
+                            type="text"
+                            className="input"
+                            value={w.title}
+                            onChange={(e) => {
+                              const next = [...form.whyChoose];
+                              next[idx] = { ...w, title: e.target.value };
+                              set({ whyChoose: next });
+                            }}
+                            placeholder="e.g., Comfort & Convenience"
+                            disabled={submitting}
+                          />
+                        </Field>
+                        <Field label="Description">
+                          <textarea
+                            className="textarea"
+                            rows={2}
+                            value={w.description}
+                            onChange={(e) => {
+                              const next = [...form.whyChoose];
+                              next[idx] = { ...w, description: e.target.value };
+                              set({ whyChoose: next });
+                            }}
+                            placeholder="Explain why this tour is special…"
+                            disabled={submitting}
+                          />
+                        </Field>
+                        <Field label="Icon Key">
+                          <input
+                            type="text"
+                            className="input"
+                            value={w.icon}
+                            onChange={(e) => {
+                              const next = [...form.whyChoose];
+                              next[idx] = { ...w, icon: e.target.value };
+                              set({ whyChoose: next });
+                            }}
+                            placeholder="e.g., comfort, guide, history"
+                            disabled={submitting}
+                          />
+                        </Field>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        set({
+                          whyChoose: [
+                            ...form.whyChoose,
+                            { title: "", description: "", icon: "" },
+                          ],
+                        })
+                      }
+                      disabled={submitting}
+                      className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50"
+                    >
+                      <Plus className="size-3.5" />
+                      Add Why Choose Card
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold text-gray-800">Itinerary</h3>
+                  <div className="space-y-3">
+                    {form.itinerary.map((b, idx) => (
+                      <div
+                        key={`iti-${idx}`}
+                        className="border border-gray-200 rounded-xl p-3 space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-gray-600">
+                            Stop #{idx + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              set({
+                                itinerary: form.itinerary.filter((_, i) => i !== idx),
+                              })
+                            }
+                            disabled={submitting}
+                            className="text-xs text-red-600 inline-flex items-center gap-1"
+                          >
+                            <X className="size-3" />
+                            Remove
+                          </button>
+                        </div>
+                        <Field label="Time">
+                          <input
+                            type="text"
+                            className="input"
+                            value={b.time}
+                            onChange={(e) => {
+                              const next = [...form.itinerary];
+                              next[idx] = { ...b, time: e.target.value };
+                              set({ itinerary: next });
+                            }}
+                            placeholder="e.g., 9:00 AM"
+                            disabled={submitting}
+                          />
+                        </Field>
+                        <Field label="Title">
+                          <input
+                            type="text"
+                            className="input"
+                            value={b.title}
+                            onChange={(e) => {
+                              const next = [...form.itinerary];
+                              next[idx] = { ...b, title: e.target.value };
+                              set({ itinerary: next });
+                            }}
+                            placeholder="e.g., Pickup"
+                            disabled={submitting}
+                          />
+                        </Field>
+                        <Field label="Description">
+                          <textarea
+                            className="textarea"
+                            rows={2}
+                            value={b.description}
+                            onChange={(e) => {
+                              const next = [...form.itinerary];
+                              next[idx] = { ...b, description: e.target.value };
+                              set({ itinerary: next });
+                            }}
+                            placeholder="Describe what happens in this slot…"
+                            disabled={submitting}
+                          />
+                        </Field>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        set({
+                          itinerary: [
+                            ...form.itinerary,
+                            { time: "", title: "", description: "" },
+                          ],
+                        })
+                      }
+                      disabled={submitting}
+                      className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50"
+                    >
+                      <Plus className="size-3.5" />
+                      Add Itinerary Block
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold text-gray-800">Operation Process</h3>
+                  <div className="space-y-3">
+                    {form.operationProcess.map((b, idx) => (
+                      <div
+                        key={`op-${idx}`}
+                        className="border border-gray-200 rounded-xl p-3 space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-gray-600">
+                            Step #{idx + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              set({
+                                operationProcess: form.operationProcess.filter(
+                                  (_, i) => i !== idx
+                                ),
+                              })
+                            }
+                            disabled={submitting}
+                            className="text-xs text-red-600 inline-flex items-center gap-1"
+                          >
+                            <X className="size-3" />
+                            Remove
+                          </button>
+                        </div>
+                        <Field label="Time">
+                          <input
+                            type="text"
+                            className="input"
+                            value={b.time}
+                            onChange={(e) => {
+                              const next = [...form.operationProcess];
+                              next[idx] = { ...b, time: e.target.value };
+                              set({ operationProcess: next });
+                            }}
+                            placeholder="e.g., 8:45 AM"
+                            disabled={submitting}
+                          />
+                        </Field>
+                        <Field label="Title">
+                          <input
+                            type="text"
+                            className="input"
+                            value={b.title}
+                            onChange={(e) => {
+                              const next = [...form.operationProcess];
+                              next[idx] = { ...b, title: e.target.value };
+                              set({ operationProcess: next });
+                            }}
+                            placeholder="e.g., Guide Reporting"
+                            disabled={submitting}
+                          />
+                        </Field>
+                        <Field label="Description">
+                          <textarea
+                            className="textarea"
+                            rows={2}
+                            value={b.description}
+                            onChange={(e) => {
+                              const next = [...form.operationProcess];
+                              next[idx] = { ...b, description: e.target.value };
+                              set({ operationProcess: next });
+                            }}
+                            placeholder="Describe the internal process…"
+                            disabled={submitting}
+                          />
+                        </Field>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        set({
+                          operationProcess: [
+                            ...form.operationProcess,
+                            { time: "", title: "", description: "" },
+                          ],
+                        })
+                      }
+                      disabled={submitting}
+                      className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50"
+                    >
+                      <Plus className="size-3.5" />
+                      Add Operation Step
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold text-gray-800">What to Expect</h3>
+                  <div className="space-y-3">
+                    {form.whatToExpect.map((b, idx) => (
+                      <div
+                        key={`exp-${idx}`}
+                        className="border border-gray-200 rounded-xl p-3 space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-gray-600">
+                            Point #{idx + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              set({
+                                whatToExpect: form.whatToExpect.filter((_, i) => i !== idx),
+                              })
+                            }
+                            disabled={submitting}
+                            className="text-xs text-red-600 inline-flex items-center gap-1"
+                          >
+                            <X className="size-3" />
+                            Remove
+                          </button>
+                        </div>
+                        <Field label="Title">
+                          <input
+                            type="text"
+                            className="input"
+                            value={b.title}
+                            onChange={(e) => {
+                              const next = [...form.whatToExpect];
+                              next[idx] = { ...b, title: e.target.value };
+                              set({ whatToExpect: next });
+                            }}
+                            placeholder="e.g., Historical Exploration"
+                            disabled={submitting}
+                          />
+                        </Field>
+                        <Field label="Description">
+                          <textarea
+                            className="textarea"
+                            rows={2}
+                            value={b.description}
+                            onChange={(e) => {
+                              const next = [...form.whatToExpect];
+                              next[idx] = { ...b, description: e.target.value };
+                              set({ whatToExpect: next });
+                            }}
+                            placeholder="Explain what guests will experience…"
+                            disabled={submitting}
+                          />
+                        </Field>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        set({
+                          whatToExpect: [
+                            ...form.whatToExpect,
+                            { title: "", description: "" },
+                          ],
+                        })
+                      }
+                      disabled={submitting}
+                      className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50"
+                    >
+                      <Plus className="size-3.5" />
+                      Add Expectation Point
+                    </button>
+                  </div>
+                </div>
+
+                {/* Vouchers, languages & cancellation */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Voucher Info">
+                    <ChipInput
+                      value={form.voucherInfo}
+                      placeholder='e.g., "Mobile voucher accepted"'
+                      disabled={submitting}
+                      onAdd={(v) => addChip("voucherInfo", v)}
+                      onRemove={(idx) => removeChip("voucherInfo", idx)}
+                    />
+                  </Field>
+                  <Field label="Languages">
+                    <ChipInput
+                      value={form.languages}
+                      placeholder='e.g., "English", "Hindi"'
+                      disabled={submitting}
+                      onAdd={(v) => addChip("languages", v)}
+                      onRemove={(idx) => removeChip("languages", idx)}
+                    />
+                  </Field>
+                </div>
+
+                <Field label="Short Cancellation Policy">
+                  <input
+                    type="text"
+                    className="input"
+                    value={form.cancellationPolicyShort}
+                    onChange={(e) => set({ cancellationPolicyShort: e.target.value })}
+                    placeholder="e.g., Free cancellation 24 hours before"
+                    disabled={submitting}
+                  />
+                </Field>
+
+                <Field label="Cancellation Details">
+                  <ChipInput
+                    value={form.cancellationDetails}
+                    placeholder='e.g., "No refund within 24 hours"'
+                    disabled={submitting}
+                    onAdd={(v) => addChip("cancellationDetails", v)}
+                    onRemove={(idx) => removeChip("cancellationDetails", idx)}
+                  />
+                </Field>
+
+                {/* Ratings & counts */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <Field label="Rating (0–5)">
+                    <input
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      max={5}
+                      className="input"
+                      value={form.rating ?? ""}
+                      onChange={(e) =>
+                        set({
+                          rating: e.target.value === "" ? "" : Number(e.target.value),
+                        })
+                      }
+                      placeholder="e.g., 4.7"
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="Review Count">
+                    <input
+                      type="number"
+                      className="input"
+                      value={form.reviewCount ?? ""}
+                      onChange={(e) =>
+                        set({
+                          reviewCount:
+                            e.target.value === "" ? "" : Number(e.target.value),
+                        })
+                      }
+                      placeholder="e.g., 98"
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="Booked Count">
+                    <input
+                      type="number"
+                      className="input"
+                      value={form.bookedCount ?? ""}
+                      onChange={(e) =>
+                        set({
+                          bookedCount:
+                            e.target.value === "" ? "" : Number(e.target.value),
+                        })
+                      }
+                      placeholder="e.g., 740"
+                      disabled={submitting}
+                    />
+                  </Field>
+                </div>
+
+                {/* Flags & operator */}
+                <div className="flex flex-wrap items-center gap-4">
+                  <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      className="accent-emerald-600"
+                      checked={form.instantConfirmation}
+                      onChange={(e) =>
+                        set({
+                          instantConfirmation: e.target.checked,
+                        })
+                      }
+                      disabled={submitting}
+                    />
+                    Instant Confirmation
+                  </label>
+                  <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      className="accent-emerald-600"
+                      checked={form.freeCancellation}
+                      onChange={(e) =>
+                        set({
+                          freeCancellation: e.target.checked,
+                        })
+                      }
+                      disabled={submitting}
+                    />
+                    Free Cancellation
+                  </label>
+                </div>
+
+                <Field label="Operated By">
+                  <input
+                    type="text"
+                    className="input"
+                    value={form.operatedBy}
+                    onChange={(e) => set({ operatedBy: e.target.value })}
+                    placeholder="e.g., Goa Heritage Walks"
+                    disabled={submitting}
+                  />
+                </Field>
               </div>
-            ))}
-          </div>
+            </SectionCard>
+          </>
         )}
-      </div>
-
-      {/* Notes */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Special Mentions">
-          <textarea
-            className="textarea"
-            rows={3}
-            value={form.special_mentions}
-            onChange={(e) => set({ special_mentions: e.target.value })}
-            placeholder="Any special notes (e.g., festival surcharges, seasonal changes)…"
-            disabled={submitting}
-          />
-        </Field>
-        <Field label="Notes">
-          <textarea
-            className="textarea"
-            rows={3}
-            value={form.notes}
-            onChange={(e) => set({ notes: e.target.value })}
-            placeholder="Internal notes…"
-            disabled={submitting}
-          />
-        </Field>
-      </div>
-    </div>
-  </SectionCard>
-)}
-
       </main>
 
       {/* Sticky step nav */}
@@ -1128,7 +2204,7 @@ export default function AddSightseeingPackageMobile() {
 }
 
 /* =========================
-   Small Reusable Components
+   Reusable components
    ========================= */
 
 function SectionCard({
@@ -1310,10 +2386,10 @@ function MultiSelectDropdown({
   }, [q, options]);
 
   const toggle = (id: string) => {
-    const set = new Set(selected);
-    if (set.has(id)) set.delete(id);
-    else set.add(id);
-    onChange(Array.from(set));
+    const setSel = new Set(selected);
+    if (setSel.has(id)) setSel.delete(id);
+    else setSel.add(id);
+    onChange(Array.from(setSel));
   };
 
   return (
@@ -1339,7 +2415,6 @@ function MultiSelectDropdown({
       {open && (
         <div className="absolute z-50 mt-2 w-full rounded-xl border border-gray-200 bg-white shadow-lg">
           <div className="p-2 border-b border-gray-100">
-            {/* Selected summary button: closes dropdown */}
             {selected.length > 0 && (
               <button
                 type="button"
@@ -1411,26 +2486,4 @@ function MultiSelectDropdown({
       )}
     </div>
   );
-}
-
-/* =========================
-   Local utils
-   ========================= */
-
-function cleanTime(s: string) {
-  return s.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function numOrDefault(v: number | "" | null, d: number) {
-  if (v === "" || v == null) return d;
-  return Number(v);
-}
-
-function numOrNull(v: number | "" | null) {
-  if (v === "" || v == null) return null;
-  return Number(v);
-}
-
-function emptyToNull(v: string) {
-  return v === "" ? null : Number(v);
 }
