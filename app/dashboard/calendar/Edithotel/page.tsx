@@ -16,7 +16,7 @@ import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import axios from "axios";
 import { postInstance } from "@/lib/swr";
 import { showToast } from "@/providers/ToastProvider";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 import { useHotelStore } from "@/store/hotelStore";
 
 
@@ -376,7 +376,7 @@ const [activitiesNearby, setActivitiesNearby] = useState<string>("");
   ];
 const [checkInTime, setCheckInTime] = useState<Dayjs | null>(null);
 const [checkOutTime, setCheckOutTime] = useState<Dayjs | null>(null);
-  const [description, setDescription] = useState("");
+  const [description, setDescription] = useState<string[]>([]);
   const [totalRooms, setTotalRooms] = useState<number | "">("");
 
   // Features
@@ -634,7 +634,16 @@ useEffect(() => {
     setCheckInTime(hotel.check_in_time ? dayjs(hotel.check_in_time, "hh:mm A") : null);
     setCheckOutTime(hotel.check_out_time ? dayjs(hotel.check_out_time, "hh:mm A") : null);
     setTotalRooms(hotel.total_rooms ?? "");
-   setDescription(hotel.description || "");
+    // Parse description: handle markdown format (- ) or other bullet formats
+    if (hotel.description) {
+      const descriptionPoints = hotel.description
+        .split('\n')
+        .map(line => line.replace(/^[-•\*]\s+/, '').trim()) // Remove markdown list markers (-, •, *)
+        .filter(line => line.length > 0);
+      setDescription(descriptionPoints.length > 0 ? descriptionPoints : []);
+    } else {
+      setDescription([]);
+    }
     setAccessibilityFeatures(hotel.accessibility_features?.join(", ") || "");
     setParkingFacility(hotel.parking_facility || "");
     setSafetyFeatures(hotel.safety_features?.join(", ") || "");
@@ -958,6 +967,14 @@ const handleAddRatePlan = (roomIdx: number) => {
   setRooms(updatedRooms);
 };
 
+const handleRemoveRatePlan = (roomIdx: number, planIdx: number) => {
+  const updatedRooms = [...rooms];
+  const ratePlans = updatedRooms[roomIdx].pricing?.rate_plans || [];
+  ratePlans.splice(planIdx, 1);
+  updatedRooms[roomIdx].pricing!.rate_plans = ratePlans;
+  setRooms(updatedRooms);
+};
+
 const handleRatePlanChange = (
   roomIdx: number,
   planIdx: number,
@@ -1234,7 +1251,14 @@ const removeImage = (type: keyof MediaGallery, index: number) => {
     if (checkInTime) formData.append("check_in_time", checkInTime.format("hh:mm A"));
     if (checkOutTime) formData.append("check_out_time", checkOutTime.format("hh:mm A"));
     if (totalRooms) formData.append("total_rooms", String(totalRooms));
-    if (description) formData.append("description", description);
+    if (description.length > 0) {
+      // Format description as markdown list
+      const descriptionText = description
+        .filter(point => point.trim().length > 0)
+        .map(point => `- ${point.trim()}`)
+        .join('\n');
+      formData.append("description", descriptionText);
+    }
     
     if (accessibilityFeatures)
       formData.append(
@@ -1853,13 +1877,48 @@ useEffect(() => {
     </LocalizationProvider>
     <div className="border-t pt-4">
   <h2 className="text-lg font-semibold text-gray-700 mb-2">About this space</h2>
-  <textarea
-    rows={4}
-    placeholder="Write a short description about the property..."
-    value={description}
-    onChange={(e) => setDescription(e.target.value)}
-    className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
-  />
+  <div className="space-y-3">
+    {description.map((point, index) => (
+      <div key={index} className="flex items-start gap-2">
+        <div className="flex-1 flex items-center gap-2">
+          <span className="text-gray-500 mt-2">•</span>
+          <input
+            type="text"
+            placeholder={`Point ${index + 1}...`}
+            value={point}
+            onChange={(e) => {
+              const newDescription = [...description];
+              newDescription[index] = e.target.value;
+              setDescription(newDescription);
+            }}
+            className="flex-1 rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            const newDescription = description.filter((_, i) => i !== index);
+            setDescription(newDescription);
+          }}
+          className="mt-2 p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+          aria-label="Remove point"
+        >
+          <X size={20} />
+        </button>
+      </div>
+    ))}
+    <button
+      type="button"
+      onClick={() => setDescription([...description, ""])}
+      className="flex items-center gap-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2 rounded-lg transition-colors border border-blue-200"
+    >
+      <Plus size={18} />
+      <span>Add Point</span>
+    </button>
+    {description.length === 0 && (
+      <p className="text-sm text-gray-500 italic">Click "Add Point" to add description points</p>
+    )}
+  </div>
 </div>
 
     {/* Loyalty Program */}
@@ -3317,34 +3376,44 @@ useEffect(() => {
             <div className="mt-4">
               <h4 className="font-medium text-gray-700 mb-2">Rate Plans</h4>
               {room.pricing?.rate_plans?.map((plan, pIdx) => (
-                <div key={pIdx} className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2">
-                  <input
-                    type="text"
-                    placeholder="Plan Name"
-                    value={plan.plan_name}
-                    onChange={(e) =>
-                      handleRatePlanChange(idx, pIdx, "plan_name", e.target.value)
-                    }
-                    className="rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Price"
-                    value={plan.price}
-                    onChange={(e) =>
-                      handleRatePlanChange(idx, pIdx, "price", Number(e.target.value))
-                    }
-                    className="rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Cancellation Policy"
-                    value={plan.cancellation_policy || ""}
-                    onChange={(e) =>
-                      handleRatePlanChange(idx, pIdx, "cancellation_policy", e.target.value)
-                    }
-                    className="rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
-                  />
+                <div key={pIdx} className="flex gap-3 mb-2 items-start">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1">
+                    <input
+                      type="text"
+                      placeholder="Plan Name"
+                      value={plan.plan_name}
+                      onChange={(e) =>
+                        handleRatePlanChange(idx, pIdx, "plan_name", e.target.value)
+                      }
+                      className="rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Price"
+                      value={plan.price}
+                      onChange={(e) =>
+                        handleRatePlanChange(idx, pIdx, "price", Number(e.target.value))
+                      }
+                      className="rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Cancellation Policy"
+                      value={plan.cancellation_policy || ""}
+                      onChange={(e) =>
+                        handleRatePlanChange(idx, pIdx, "cancellation_policy", e.target.value)
+                      }
+                      className="rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveRatePlan(idx, pIdx)}
+                    className="mt-2 p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                    aria-label="Remove rate plan"
+                  >
+                    <X size={20} />
+                  </button>
                 </div>
               ))}
               <button

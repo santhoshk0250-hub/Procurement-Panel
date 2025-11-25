@@ -18,6 +18,7 @@ import {
   Menu,
   X,
   ChevronRight,
+  Info,
 } from "lucide-react";
 
 type Item = { label: string; href: string; icon: any };
@@ -40,6 +41,7 @@ export default function Sidebar() {
       { label: "Activities",        href: "/dashboard/Activities",       icon: Dumbbell },
       { label: "Leisure-activity",  href: "/dashboard/leisure-activity", icon: Palmtree },
       { label: "Food Service",      href: "/dashboard/Food-service",     icon: UtensilsCrossed },
+      { label: "About Us",          href: "/dashboard/about-us",         icon: Info },
     ],
     []
   );
