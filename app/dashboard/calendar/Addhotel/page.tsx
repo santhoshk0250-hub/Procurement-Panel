@@ -726,7 +726,9 @@ const handleStationChange = (
         tax_percent_for_stay: 0,
         service_charge: 0,
         dynamic_pricing_flag: false,
-        rate_plans: [],
+        rate_plans: [
+          { plan_name: "Room only", price: 0, cancellation_policy: "" }
+        ],
         hotel_bf_price: 0,
         hotel_lunch_price: 0,
         hotel_dinner_price: 0,
@@ -802,6 +804,10 @@ const handleAddRatePlan = (roomIdx: number) => {
 };
 
 const handleRemoveRatePlan = (roomIdx: number, planIdx: number) => {
+  // Prevent removing the default "Room only" plan (always at index 0)
+  if (planIdx === 0) {
+    return;
+  }
   const updatedRooms = [...rooms];
   const ratePlans = updatedRooms[roomIdx].pricing?.rate_plans || [];
   ratePlans.splice(planIdx, 1);
@@ -817,6 +823,10 @@ const handleRatePlanChange = (
 ) => {
   const updatedRooms = [...rooms];
   const ratePlans = updatedRooms[roomIdx].pricing?.rate_plans || [];
+  // Prevent editing plan_name for the default "Room only" plan (always at index 0)
+  if (planIdx === 0 && field === "plan_name") {
+    return;
+  }
   ratePlans[planIdx] = { ...ratePlans[planIdx], [field]: value };
   updatedRooms[roomIdx].pricing!.rate_plans = ratePlans;
   setRooms(updatedRooms);
@@ -3260,47 +3270,55 @@ const handleSpecialBlackoutChange = (
             {/* ✅ Rate Plans */}
             <div className="mt-4">
               <h4 className="font-medium text-gray-700 mb-2">Rate Plans</h4>
-              {room.pricing?.rate_plans?.map((plan, pIdx) => (
-                <div key={pIdx} className="flex gap-3 mb-2 items-start">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1">
-                    <input
-                      type="text"
-                      placeholder="Plan Name"
-                      value={plan.plan_name}
-                      onChange={(e) =>
-                        handleRatePlanChange(idx, pIdx, "plan_name", e.target.value)
-                      }
-                      className="rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Price"
-                      value={plan.price}
-                      onChange={(e) =>
-                        handleRatePlanChange(idx, pIdx, "price", Number(e.target.value))
-                      }
-                      className="rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Cancellation Policy"
-                      value={plan.cancellation_policy || ""}
-                      onChange={(e) =>
-                        handleRatePlanChange(idx, pIdx, "cancellation_policy", e.target.value)
-                      }
-                      className="rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
-                    />
+              {room.pricing?.rate_plans?.map((plan, pIdx) => {
+                const isDefaultPlan = pIdx === 0 && plan.plan_name === "Room only";
+                return (
+                  <div key={pIdx} className="flex gap-3 mb-2 items-start">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1">
+                      <input
+                        type="text"
+                        placeholder="Plan Name"
+                        value={plan.plan_name}
+                        onChange={(e) =>
+                          handleRatePlanChange(idx, pIdx, "plan_name", e.target.value)
+                        }
+                        disabled={isDefaultPlan}
+                        className={`rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500 ${
+                          isDefaultPlan ? "bg-gray-100 cursor-not-allowed" : ""
+                        }`}
+                      />
+                      <input
+                        type="number"
+                        placeholder="Price"
+                        value={plan.price}
+                        onChange={(e) =>
+                          handleRatePlanChange(idx, pIdx, "price", Number(e.target.value))
+                        }
+                        className="rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Cancellation Policy"
+                        value={plan.cancellation_policy || ""}
+                        onChange={(e) =>
+                          handleRatePlanChange(idx, pIdx, "cancellation_policy", e.target.value)
+                        }
+                        className="rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    {!isDefaultPlan && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRatePlan(idx, pIdx)}
+                        className="mt-2 p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                        aria-label="Remove rate plan"
+                      >
+                        <X size={20} />
+                      </button>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveRatePlan(idx, pIdx)}
-                    className="mt-2 p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
-                    aria-label="Remove rate plan"
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
-              ))}
+                );
+              })}
               <button
                 type="button"
                 onClick={() => handleAddRatePlan(idx)}
