@@ -1899,7 +1899,7 @@ export default function AddActivityFormMobile() {
         )}
 
         {/* EXPERIENCE */}
-        {step.key === "experience" && (
+       {step.key === "experience" && (
           <SectionCard
             title="Experience Content"
             subtitle="Highlights, inclusions, expectations and important notes."
@@ -2415,7 +2415,7 @@ export default function AddActivityFormMobile() {
               </div>
             </div>
           </SectionCard>
-        )}
+        )} 
 
         {/* SURCHARGES */}
         {step.key === "surcharges" && (
@@ -2636,7 +2636,7 @@ export default function AddActivityFormMobile() {
               </div>
             </div>
 
-            {/* Main gallery images */}
+           {/* Main gallery images */}
             <h3 className="text-sm font-semibold text-gray-900 mb-2">
               Gallery images
             </h3>
@@ -2663,7 +2663,7 @@ export default function AddActivityFormMobile() {
                   className="relative aspect-square rounded-xl overflow-hidden border-2 border-dashed border-blue-400 bg-blue-50"
                 >
                   <img
-                    src={img.preview}
+                     src={img.preview}
                     alt={`New ${idx + 1}`}
                     className="w-full h-full object-cover opacity-80"
                   />

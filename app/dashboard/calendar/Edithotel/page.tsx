@@ -16,7 +16,7 @@ import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import axios from "axios";
 import { postInstance } from "@/lib/swr";
 import { showToast } from "@/providers/ToastProvider";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight,Plus,X } from "lucide-react";
 import { useHotelStore } from "@/store/hotelStore";
 
 
@@ -54,6 +54,7 @@ type ContactInfo = {
 };
 type MediaGallery = {
   room: File[];
+  leisure_images:File[];
   lobby: File[];
   pool_area: File[];
   restaurants: File[];
@@ -107,7 +108,6 @@ type HotelAmenity = {
 
 type Award = {
   award_name: string;
-  year: number;
 };
 
 type RatePlan = {
@@ -185,7 +185,7 @@ type Room = {
   bed_type?: string;
   view_type?: string;
   smoking_policy?: "Smoking" | "Non-Smoking" | "Designated Areas";
-  total_rooms?: string;
+  total_room?: string;
   extra_bed_availability?: boolean;
   extra_bed_price?: number;
   kids_policy?: string;
@@ -248,6 +248,15 @@ type Transport = {
   shuttle_service?: string;
   car_rental_available: boolean;
 };
+type SurchargeWindow = "single" | "range";
+interface Surcharge {
+  windowType: SurchargeWindow;
+  singleDate: string; // for single date window
+  startDate: string;  // for date range
+  endDate: string;    // for date range
+  amount: string;
+  currency: string;
+}
 
 type EventsPricingModel = {
   model_type: string;
@@ -257,6 +266,7 @@ type EventsPricingModel = {
   notes?: string;
   description?: string;
   contact_email?: string;
+  surcharges?: Surcharge[];
 };
 
 type EventsConferences = {
@@ -398,6 +408,7 @@ const [checkOutTime, setCheckOutTime] = useState<Dayjs | null>(null);
     const [mediaGallery, setMediaGallery] = useState<MediaGallery>({
     room:[],
     lobby: [],
+    leisure_images:[],
     pool_area: [],
     restaurants: [],
     beach_view: [],
@@ -407,12 +418,13 @@ const [checkOutTime, setCheckOutTime] = useState<Dayjs | null>(null);
     const [previews, setPreviews] = useState({
     room:[],
     lobby: [],
+    leisure_images:[],
     pool_area: [],
     restaurants: [],
     beach_view: [],
     property_video_tour: "",
     });
-  const [awards, setAwards] = useState<Award[]>([{ award_name: "", year: new Date().getFullYear() }]);
+  const [awards, setAwards] = useState<Award[]>([{ award_name: "" }]);
 const [rooms, setRooms] = useState<Room[]>([
   {
     room_id: "",
@@ -517,7 +529,7 @@ const [dinings, setDinings] = useState<Dining[]>([
   airport_pickup: false,
   airport_pickup_price: undefined,
   shuttle_service: "",
-  car_rental_available: false,
+  car_rental_available: true,
 });
 
 const [eventsConferences, setEventsConferences] = useState<EventsConferences>({
@@ -534,6 +546,7 @@ const [eventsConferences, setEventsConferences] = useState<EventsConferences>({
       notes: "",
       description: "",
       contact_email: "",
+       surcharges: [],
     },
   ],
 });
@@ -651,6 +664,7 @@ useEffect(() => {
   setPreviews({
       room: hotel.media_gallery?.room || [],
       lobby: hotel.media_gallery?.lobby || [],
+      leisure_images: hotel.media_gallery?.leisure_images || [],
       pool_area: hotel.media_gallery?.pool_area || [],
       restaurants: hotel.media_gallery?.restaurants || [],
       beach_view: hotel.media_gallery?.beach_view || [],
@@ -660,6 +674,7 @@ useEffect(() => {
     setMediaGallery({
       room: hotel.media_gallery?.room || [],
       lobby: hotel.media_gallery?.lobby || [],
+      leisure_images: hotel.media_gallery?.leisure_images || [],
       pool_area: hotel.media_gallery?.pool_area || [],
       restaurants: hotel.media_gallery?.restaurants || [],
       beach_view: hotel.media_gallery?.beach_view || [],
@@ -669,7 +684,7 @@ useEffect(() => {
     setAwards(
       hotel.awards_and_recognition?.length
         ? hotel.awards_and_recognition
-        : [{ award_name: "", year: new Date().getFullYear() }]
+        : [{ award_name: "" }]
     );
      setRooms(
       hotel.rooms?.length
@@ -743,6 +758,8 @@ useEffect(() => {
           notes: "",
           description: "",
           contact_email: "",
+        surcharges: [],
+
         },
       ],
     });
@@ -838,7 +855,7 @@ const handleStationChange = (
     setAmenities(updated);
   };
 
-    const handleAddAward = () => setAwards([...awards, { award_name: "", year: new Date().getFullYear() }]);
+    const handleAddAward = () => setAwards([...awards, { award_name: "" }]);
   const handleRemoveAward = (index: number) =>
     setAwards(awards.filter((_, i) => i !== index));
     const handleAwardChange = <K extends keyof Award>(
@@ -1262,7 +1279,7 @@ const removeImage = (type: keyof MediaGallery, index: number) => {
     if (awards.length) {
       formData.append(
         "awards_and_recognition",
-        JSON.stringify(awards.filter(a => a.award_name && a.year))
+        JSON.stringify(awards.filter(a => a.award_name))
       );
     }
 
@@ -1281,6 +1298,7 @@ const removeImage = (type: keyof MediaGallery, index: number) => {
 
     appendMedia("media_gallery[room]", mediaGallery?.room || []);
     appendMedia("media_gallery[lobby]", mediaGallery?.lobby || []);
+    appendMedia("media_gallery[leisure_images]", mediaGallery?.leisure_images || []);
     appendMedia("media_gallery[pool_area]", mediaGallery?.pool_area || []);
     appendMedia("media_gallery[restaurants]", mediaGallery?.restaurants || []);
     appendMedia("media_gallery[beach_view]", mediaGallery?.beach_view || []);
@@ -1301,6 +1319,7 @@ const removeImage = (type: keyof MediaGallery, index: number) => {
         occupancy_min: room.occupancy_min,
         occupancy_max: room.occupancy_max,
         bed_type: room.bed_type,
+        total_room: room.total_room,
         view_type: room.view_type,
         smoking_policy: room.smoking_policy,
         extra_bed_availability: room.extra_bed_availability,
@@ -1582,6 +1601,61 @@ const guardedSubmit: React.FormEventHandler<HTMLFormElement> = (e) => {
     return;
   }
   handleSubmit(e);
+};
+
+const addSurcharge = (modelIdx: number) => {
+  setEventsConferences(prev => {
+    const pricing_models = [...prev.pricing_models];
+    const model = { ...pricing_models[modelIdx] };
+    const surcharges = model.surcharges ? [...model.surcharges] : [];
+
+    surcharges.push({
+      windowType: "single",
+      singleDate: "",
+      startDate: "",
+      endDate: "",
+      amount: "",
+      currency: "INR",
+    });
+
+    model.surcharges = surcharges;
+    pricing_models[modelIdx] = model;
+    return { ...prev, pricing_models };
+  });
+};
+
+const removeSurcharge = (modelIdx: number, surchargeIdx: number) => {
+  setEventsConferences(prev => {
+    const pricing_models = [...prev.pricing_models];
+    const model = { ...pricing_models[modelIdx] };
+    const surcharges = model.surcharges ? [...model.surcharges] : [];
+
+    surcharges.splice(surchargeIdx, 1);
+    model.surcharges = surcharges;
+    pricing_models[modelIdx] = model;
+    return { ...prev, pricing_models };
+  });
+};
+
+const updateSurcharge = (
+  modelIdx: number,
+  surchargeIdx: number,
+  updates: Partial<Surcharge>
+) => {
+  setEventsConferences(prev => {
+    const pricing_models = [...prev.pricing_models];
+    const model = { ...pricing_models[modelIdx] };
+    const surcharges = model.surcharges ? [...model.surcharges] : [];
+
+    surcharges[surchargeIdx] = {
+      ...surcharges[surchargeIdx],
+      ...updates,
+    };
+
+    model.surcharges = surcharges;
+    pricing_models[modelIdx] = model;
+    return { ...prev, pricing_models };
+  });
 };
 
 
@@ -2329,6 +2403,40 @@ useEffect(() => {
     </div>
   </div>
 
+  <div>
+    <label className="block text-sm font-medium text-gray-700">Leisure Images</label>
+    <div className="inline-block mb-2">
+      <label className="flex items-center gap-2 cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+        <span className="text-sm font-medium">+ Upload</span>
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={(e) => handleImageUpload("leisure_images", e.target.files)}
+          className="hidden"
+        />
+      </label>
+    </div>
+    <div className="flex gap-2 flex-wrap">
+      {previews.leisure_images?.map((url, i) => (
+        <div key={i} className="relative">
+          <img
+            src={url}
+            alt="leisure_images"
+            className="h-20 w-20 rounded object-cover border"
+          />
+          <button
+            type="button"
+            onClick={() => removeImage("leisure_images", i)}
+            className="absolute top-0 right-0 bg-red-600 text-white rounded-full p-1 hover:bg-red-700"
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+  </div>
+
   {/* ===== Pool Area Images ===== */}
   <div>
     <label className="block text-sm font-medium text-gray-700">Pool Area Images</label>
@@ -2483,16 +2591,7 @@ useEffect(() => {
               value={award.award_name}
               onChange={(e) => handleAwardChange(idx, "award_name", e.target.value)}
               className="border rounded px-3 py-2"
-            />
-            <select
-              value={award.year}
-              onChange={(e) => handleAwardChange(idx, "year", Number(e.target.value))}
-              className="border rounded px-3 py-2"
-            >
-              {yearOptions.map((year) => (
-                <option key={year} value={year}>{year}</option>
-              ))}
-            </select>
+            />  
             <button
               type="button"
               onClick={() => handleRemoveAward(idx)}
@@ -2525,7 +2624,7 @@ useEffect(() => {
         {/* Header */}
         <div className="flex justify-between items-center">
           <h3 className="text-lg font-semibold text-gray-700">
-            Room {idx + 1}
+            Room Type {idx + 1}
           </h3>
           <button
             type="button"
@@ -2546,9 +2645,7 @@ useEffect(() => {
               type="text"
               placeholder="Room ID"
               value={room.room_id}
-              onChange={(e) =>
-                handleRoomChange(idx, "room_id", e.target.value)
-              }
+              readOnly
               className="input-field"
             />
             <input
@@ -2636,8 +2733,8 @@ useEffect(() => {
     <input
       type="number"
       placeholder="Total Rooms"
-      value={room.total_rooms || ""}
-      onChange={(e) => handleRoomChange(idx, "total_rooms", e.target.value)}
+      value={room.total_room || ""}
+      onChange={(e) => handleRoomChange(idx, "total_room", e.target.value)}
       className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
     />
   </div>
@@ -2906,7 +3003,7 @@ useEffect(() => {
               ? "bg-blue-600 text-white"
               : "bg-gray-200 text-gray-800 hover:bg-gray-300"}`}
         >
-          Room {idx + 1}
+          Room Type {idx + 1}
         </button>
       ))}
     </div>
@@ -2917,7 +3014,7 @@ useEffect(() => {
         <div key={idx} className="space-y-6">
           {/* Room Header */}
           <h3 className="text-lg font-semibold text-gray-700">
-            Room {idx + 1} Availability *
+            Room Type {idx + 1} Availability *
           </h3>
 
           {/* Availability Section */}
@@ -3252,7 +3349,7 @@ useEffect(() => {
               ? "bg-blue-600 text-white"
               : "bg-gray-200 text-gray-800 hover:bg-gray-300"}`}
         >
-          Room {idx + 1}
+          Room Type {idx + 1}
         </button>
       ))}
     </div>
@@ -3263,7 +3360,7 @@ useEffect(() => {
         <div key={idx} className="space-y-6">
           {/* Room Header */}
           <h3 className="text-lg font-semibold text-gray-700">
-            Room {idx + 1} Pricing *
+            Room Type{idx + 1} Pricing *
           </h3>
 
           {/* Pricing Section */}
@@ -4236,6 +4333,169 @@ useEffect(() => {
             setEventsConferences({ ...eventsConferences, pricing_models: updated });
           }}
         />
+      </div>
+      <div className="mt-4 p-3 sm:p-4 border rounded-lg bg-amber-50/60">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-900">Surcharge Charges</h3>
+          <button
+            type="button"
+            onClick={() => addSurcharge(idx)}
+            disabled={isMutating || Loader}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+          >
+            <Plus className="size-3.5" />
+            Add surge
+          </button>
+        </div>
+      
+        <div className="space-y-4">
+          {(model.surcharges || []).map((s, sIdx) => (
+            <div
+              key={sIdx}
+              className="rounded-xl border border-amber-200 bg-amber-50 p-3 sm:p-4"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-amber-900">
+                  Surge #{sIdx + 1}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => removeSurcharge(idx, sIdx)}
+                  disabled={isMutating || Loader}
+                  className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-60"
+                >
+                  <X className="size-3.5" />
+                  Remove
+                </button>
+              </div>
+      
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Surge window type + dates */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-700 mb-1.5">
+                    Surge window
+                  </p>
+                  <div className="flex items-center gap-4 text-xs mb-3">
+                    <label className="inline-flex items-center gap-1.5">
+                      <input
+                        type="radio"
+                        name={`surcharge-window-${idx}-${sIdx}`}
+                        className="size-3"
+                        checked={s.windowType === "single"}
+                        onChange={() =>
+                          updateSurcharge(idx, sIdx, {
+                            windowType: "single",
+                            startDate: "",
+                            endDate: "",
+                          })
+                        }
+                        disabled={isMutating || Loader}
+                      />
+                      <span>Single date</span>
+                    </label>
+                    <label className="inline-flex items-center gap-1.5">
+                      <input
+                        type="radio"
+                        name={`surcharge-window-${idx}-${sIdx}`}
+                        className="size-3"
+                        checked={s.windowType === "range"}
+                        onChange={() =>
+                          updateSurcharge(idx, sIdx, {
+                            windowType: "range",
+                            singleDate: "",
+                          })
+                        }
+                        disabled={isMutating || Loader}
+                      />
+                      <span>Date range</span>
+                    </label>
+                  </div>
+      
+                  {s.windowType === "single" ? (
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-gray-700">
+                        Date
+                      </label>
+                      <input
+                        type="date"
+                        className="input w-full"
+                        value={s.singleDate}
+                        onChange={(e) =>
+                          updateSurcharge(idx, sIdx, { singleDate: e.target.value })
+                        }
+                        disabled={isMutating || Loader}
+                      />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-gray-700">
+                          Start date
+                        </label>
+                        <input
+                          type="date"
+                          className="input w-full"
+                          value={s.startDate}
+                          onChange={(e) =>
+                            updateSurcharge(idx, sIdx, { startDate: e.target.value })
+                          }
+                          disabled={isMutating || Loader}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-gray-700">
+                          End date
+                        </label>
+                        <input
+                          type="date"
+                          className="input w-full"
+                          value={s.endDate}
+                          onChange={(e) =>
+                            updateSurcharge(idx, sIdx, { endDate: e.target.value })
+                          }
+                          disabled={isMutating || Loader}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+      
+                {/* Surge amount */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-gray-700">
+                    Surge amount
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      inputMode="decimal"
+                      className="input flex-1"
+                      value={s.amount}
+                      onChange={(e) =>
+                        updateSurcharge(idx, sIdx, { amount: e.target.value })
+                      }
+                      placeholder="enter amount"
+                      disabled={isMutating || Loader}
+                    />
+                    <select
+                      className="input w-24"
+                      value={s.currency}
+                      onChange={(e) =>
+                        updateSurcharge(idx, sIdx, { currency: e.target.value })
+                      }
+                      disabled={isMutating || Loader}
+                    >
+                      <option value="INR">INR</option>
+                      <option value="USD">USD</option>
+                      <option value="AED">AED</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   ))}

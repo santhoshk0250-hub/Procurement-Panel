@@ -28,8 +28,7 @@ import {
   Select,
   FormControl,
   InputLabel,
-  Switch,
-  FormControlLabel,
+  Rating,
 } from "@mui/material";
 import {
   Search,
@@ -37,67 +36,146 @@ import {
   People as PeopleIcon,
   AccessTime as AccessTimeIcon,
   Category as CategoryIcon,
-  ContentCopy as ContentCopyIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   CurrencyRupee as RupeeIcon,
   LocalOffer as OfferIcon,
-  CheckCircleOutline as ActiveIcon,
-  CancelOutlined as InactiveIcon,
+  LocationOn as LocationIcon,
+  Star as StarIcon,
 } from "@mui/icons-material";
 import { useSightseeingPackageStore } from "@/store/usesightpackages";
 
 /* ================== Types ================== */
 export type IDType = string | { $oid: string } | undefined;
-export type FAQ = { q: string; a: string };
+
+export interface TimeBlock {
+  time: string;
+  title: string;
+  description: string;
+}
+
+export interface WhyChooseBlock {
+  title: string;
+  description: string;
+  icon?: string;
+}
+
+export interface ExpectBlock {
+  title: string;
+  description: string;
+}
+
+export interface PriceBreakdown {
+  basePrice?: number;
+  serviceCharges?: number;
+  taxes?: number;
+  totalPrice?: number;
+}
+
+export interface PlaceToVisit {
+  name: string;
+  placeId?: IDType;
+}
 
 export interface SightseeingPackage {
   _id?: IDType;
-  tour_name: string;
+  id?: string;
+
+  // Old + new naming
+  tour_name?: string;
+  title?: string;
+  destination?: string;
   vehicle_type?: string;
+  vehicleType?: string;
+
   min_pax?: number;
   max_pax?: number;
   duration_hours?: number;
+
   regular_timings?: string;
   alternative_timings?: string;
+  regularTimings?: string;
+  alternativeTimings?: string;
+
+  category?: string[];
+  description?: string;
+  thumbnail?: string;
+  images?: string[];
+
   places_to_visit_names?: string[];
-  place_ids?: (string | { $oid: string })[];
+  placesToVisit?: PlaceToVisit[];
+  place_ids?: IDType[];
+
+
+  whyChoose?: WhyChooseBlock[];
+  itinerary?: TimeBlock[];
+  operationProcess?: TimeBlock[];
+  whatToExpect?: ExpectBlock[];
+
   inclusions?: string[];
   exclusions?: string[];
-  llm_chips?: FAQ[];
+
+  pickupType?: string;
+  pickupAreas?: string[];
+  meetingTime?: string;
+
+  operatingHours?: string;
+  bestTimeToVisit?: string;
+  seasonalAvailability?: string;
+  groupSize?: string;
+  minParticipants?: number;
+  maxParticipants?: number;
+  accessibility?: string;
+  fitnessLevel?: string;
+
+  priceBreakdown?: PriceBreakdown;
+  vendor_charge?: number;
+  seller_charge?: number;
   price_regular?: number;
-  price_block_out?: number;
-  price_block_out_special?: number;
-  service_charge?: number;
+
+  voucherInfo?: string[];
+  languages?: string[];
+
+  rating?: number;
+  reviewCount?: number;
+  bookedCount?: number;
+  instantConfirmation?: boolean;
+  freeCancellation?: boolean;
+  operatedBy?: string;
+
   special_mentions?: string | null;
   notes?: string | null;
+
+  images_gallery?: string[];
+  guestImages?: string[];
+  galleryImages?: string[];
+
   is_active?: boolean;
-  [key: string]: any; // dynamic
+  [key: string]: any;
 }
 
 /* ================== Helpers ================== */
-const unwrapId = (id?: IDType) => (typeof id === "string" ? id : (id as any)?.$oid ?? "");
+const unwrapId = (id?: IDType) =>
+  typeof id === "string" ? id : (id as any)?.$oid ?? "";
 
 const money = (n?: number) =>
-  typeof n === "number" && !isNaN(n) ? new Intl.NumberFormat("en-IN").format(n) : "—";
+  typeof n === "number" && !isNaN(n)
+    ? new Intl.NumberFormat("en-IN").format(n)
+    : "—";
 
-/* ================== Helpers ================== */
 const FALLBACK_IMG =
   "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=1600&auto=format&fit=crop";
 
-// Derive the hero image for a package: prefer first image from place_ids[].images
-// Fallbacks: p.images[0] or a generic photo
+// Prefer thumbnail → images → galleryImages → guestImages → fallback
 const heroImageFromPackage = (p: SightseeingPackage): string => {
-  try {
-    const arr: any[] = Array.isArray(p.place_ids) ? (p.place_ids as any[]) : [];
-    for (const it of arr) {
-      const imgs: string[] = Array.isArray(it?.images) ? it.images : [];
-      if (imgs.length) return imgs[0];
-    }
-    const ownImgs: string[] = Array.isArray((p as any).images) ? (p as any).images : [];
-    if (ownImgs.length) return ownImgs[0];
-  } catch {}
-  return FALLBACK_IMG;
+  const sources = [
+    p.thumbnail,
+    ...(Array.isArray(p.images) ? p.images : []),
+    ...(Array.isArray(p.galleryImages) ? p.galleryImages : []),
+    ...(Array.isArray(p.guestImages) ? p.guestImages : []),
+  ].filter(Boolean) as string[];
+
+  return sources[0] || FALLBACK_IMG;
 };
 
 /* ================== Component ================== */
@@ -124,8 +202,11 @@ const SightseeingPackagesDashboard: React.FC = () => {
       const url = `${process.env.NEXT_PUBLIC_API_BASE}packages/fetch?${params.toString()}`;
       const res = await axios.get(url);
 
-      const fetched: SightseeingPackage[] = res.data.items || res.data.data || [];
+      // your new API sample is a bare array, but keep fallbacks
+      const fetched: SightseeingPackage[] =
+        res.data.items || res.data.data || res.data || [];
       const totalPages = res.data.totalPages ?? res.data.pagination?.pages ?? 1;
+
       setItems(Array.isArray(fetched) ? fetched : []);
       setPages(Number(totalPages) || 1);
     } catch (e) {
@@ -140,7 +221,6 @@ const SightseeingPackagesDashboard: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  // requery when filters change
   useEffect(() => {
     setPage(1);
     fetchPackages(1);
@@ -150,19 +230,44 @@ const SightseeingPackagesDashboard: React.FC = () => {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     if (!q) return items;
+
     return items.filter((p) => {
+      const title = p.tour_name || p.title || "";
+      const veh = p.vehicle_type || p.vehicleType || "";
+      const regTime = p.regular_timings || p.regularTimings || "";
+      const altTime = p.alternative_timings || p.alternativeTimings || "";
+      const dest = p.destination || "";
+      const cats = (p.category || []).join(" ");
+      const why = (p.whyChoose || [])
+        .map((w) => `${w.title} ${w.description}`)
+        .join(" ");
+      const expect = (p.whatToExpect || [])
+        .map((w) => `${w.title} ${w.description}`)
+        .join(" ");
+      const mentions = p.special_mentions || "";
+      const notes = p.notes || "";
+      const placesNames =
+        (p.placesToVisit || []).map((x) => x.name).join(" ") ||
+        (p.places_to_visit_names || []).join(" ");
+
       const hay = [
-        p.tour_name,
-        p.vehicle_type,
-        p.regular_timings,
-        p.alternative_timings,
-        p.special_mentions,
-        p.notes,
-        ...(p.places_to_visit_names || []),
+        title,
+        dest,
+        veh,
+        regTime,
+        altTime,
+        cats,
+        p.description || "",
+        why,
+        expect,
+        mentions,
+        notes,
+        placesNames,
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
+
       return hay.includes(q);
     });
   }, [search, items]);
@@ -170,8 +275,14 @@ const SightseeingPackagesDashboard: React.FC = () => {
   const handleDelete = async () => {
     if (!selected) return;
     try {
-      await axios.delete(`${process.env.NEXT_PUBLIC_API_BASE}packages/packages/${unwrapId(selected._id)}`);
-      setItems((prev) => prev.filter((x) => unwrapId(x._id) !== unwrapId(selected._id)));
+      await axios.delete(
+        `${process.env.NEXT_PUBLIC_API_BASE}packages/packages/${unwrapId(
+          selected._id
+        )}`
+      );
+      setItems((prev) =>
+        prev.filter((x) => unwrapId(x._id) !== unwrapId(selected._id))
+      );
       setSelected(null);
     } catch (e) {
       console.error("Delete failed:", e);
@@ -179,20 +290,24 @@ const SightseeingPackagesDashboard: React.FC = () => {
     }
   };
 
-  const copyId = async (id?: string) => {
-    try {
-      if (id) await navigator.clipboard.writeText(id);
-    } catch {}
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const handleEdit = (p: SightseeingPackage) => {
+    setPackage(p as any);
   };
 
-  /* ------- Delete dialog ------- */
-  const [confirmOpen, setConfirmOpen] = useState(false);
-    const handleEdit = (p: SightseeingPackage) => {
-      setPackage(p as any);
-    };
+  // collect unique vehicle types from both fields for filter options
+  const vehicleOptions = useMemo(() => {
+    const set = new Set<string>();
+    items.forEach((p) => {
+      if (p.vehicleType) set.add(p.vehicleType);
+      if (p.vehicle_type) set.add(p.vehicle_type);
+    });
+    return Array.from(set);
+  }, [items]);
 
   return (
-    <Box sx={{ p: 3, backgroundColor: "white", minHeight: "70vh" }}>
+    <Box sx={{ p: 3, backgroundColor: "#f5f7fb", minHeight: "70vh" }}>
       {/* Top bar */}
       <Box
         sx={{
@@ -206,7 +321,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
       >
         <TextField
           size="small"
-          placeholder="Search packages…"
+          placeholder="Search by title, destination, highlights…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           InputProps={{
@@ -219,7 +334,11 @@ const SightseeingPackagesDashboard: React.FC = () => {
           sx={{ width: { xs: "100%", sm: 360 } }}
         />
 
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ xs: "stretch", sm: "center" }}>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={2}
+          alignItems={{ xs: "stretch", sm: "center" }}
+        >
           <FormControl size="small" sx={{ minWidth: 180 }}>
             <InputLabel>Vehicle Type</InputLabel>
             <Select
@@ -228,20 +347,20 @@ const SightseeingPackagesDashboard: React.FC = () => {
               onChange={(e) => setVehicleType(e.target.value)}
             >
               <MenuItem value="">All</MenuItem>
-              <MenuItem value="4 Seater">4 Seater</MenuItem>
-              <MenuItem value="7 Seater">7 Seater</MenuItem>
-              <MenuItem value="13 SEATER">13 SEATER</MenuItem>
-              <MenuItem value="17-20 SEATER">17-20 SEATER</MenuItem>
-              <MenuItem value="20-30 SEATER">20-30 SEATER</MenuItem>
-              <MenuItem value="30-40 SEATER">30-40 SEATER</MenuItem>
+              {vehicleOptions.map((v) => (
+                <MenuItem key={v} value={v}>
+                  {v}
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
-           <Button
+
+          <Button
             href="/dashboard/services?type=sightseeing"
             component={Link as any}
             fullWidth
             sx={{ width: { xs: "100%", sm: "auto" } as any }}
-            variant="contained"
+            variant="outlined"
           >
             Add Services
           </Button>
@@ -259,103 +378,336 @@ const SightseeingPackagesDashboard: React.FC = () => {
 
       {/* Loader / Empty */}
       {loading ? (
-        <Box sx={{ minHeight: "50vh", display: "grid", placeItems: "center", textAlign: "center", gap: 2 }}>
+        <Box
+          sx={{
+            minHeight: "50vh",
+            display: "grid",
+            placeItems: "center",
+            textAlign: "center",
+            gap: 2,
+          }}
+        >
           <CircularProgress size={50} />
-          <Typography variant="body1" color="text.secondary">Loading packages…</Typography>
+          <Typography variant="body1" color="text.secondary">
+            Loading packages…
+          </Typography>
         </Box>
       ) : filtered.length === 0 ? (
-        <Box sx={{ minHeight: "40vh", display: "grid", placeItems: "center", textAlign: "center", gap: 1 }}>
+        <Box
+          sx={{
+            minHeight: "40vh",
+            display: "grid",
+            placeItems: "center",
+            textAlign: "center",
+            gap: 1,
+          }}
+        >
           <Typography variant="h6">No packages found</Typography>
-          <Typography variant="body2" color="text.secondary">Try a different search or add a new package.</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Try a different search or add a new package.
+          </Typography>
         </Box>
       ) : (
         <>
-          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: {
+                xs: "1fr",
+                sm: "repeat(2, minmax(0, 1fr))",
+                lg: "repeat(3, minmax(0, 1fr))",
+              },
+              gap: 3,
+            }}
+          >
             {filtered.map((p) => {
-              const id = unwrapId(p._id);
-              const pax = `${p.min_pax ?? 1}-${p.max_pax ?? 1}`;
-              const places = p.places_to_visit_names || [];
-              const active = !!p.is_active;
+              const id = unwrapId(p._id) || p.id;
+              const title = p.tour_name || p.title || "Untitled package";
+              const destination = p.destination || "Goa";
+              const veh = p.vehicle_type || p.vehicleType;
+              const pax =
+                (p.min_pax ?? p.minParticipants ?? 1) +
+                " - " +
+                (p.max_pax ?? p.maxParticipants ?? 1);
+              const duration = p.duration_hours;
+              const places =
+                (p.placesToVisit || []).map((x) => x.name) ||
+                p.places_to_visit_names ||
+                [];
+              const categories = p.category || [];
+              const price =
+                p.priceBreakdown?.totalPrice ??
+                p.priceBreakdown?.basePrice ??
+                p.price_regular;
+              const rating = p.rating ?? 0;
+              const reviews = p.reviewCount ?? 0;
+              const booked = p.bookedCount ?? 0;
 
               return (
-                <Card key={id || p.tour_name || Math.random()} sx={{ width: 360 }}>
+                <Card
+                  key={id || title}
+                  sx={{
+                    borderRadius: 3,
+                    overflow: "hidden",
+                    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
+                    display: "flex",
+                    flexDirection: "column",
+                    bgColor: "background.paper",
+                  }}
+                >
                   <Box sx={{ position: "relative" }}>
                     <CardMedia
                       component="img"
                       image={heroImageFromPackage(p)}
-                      alt={p.tour_name || "Package"}
-                      sx={{ objectFit: "cover", width: "100%", height: 160, borderRadius: 1 }}
+                      alt={title}
+                      sx={{
+                        objectFit: "cover",
+                        width: "100%",
+                        height: 190,
+                      }}
                     />
-                  </Box>
-
-                  <CardContent sx={{ pb: 1 }}>
-                    <Stack direction="row" alignItems="center" justifyContent="space-between">
-                      <Typography variant="h6" noWrap title={p.tour_name}>
-                        {p.tour_name}
-                      </Typography>
-                    </Stack>
-
-                    <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-                      {p.vehicle_type && (
-                        <Chip size="small" color="primary" icon={<CarIcon fontSize="small" />} label={p.vehicle_type} />
-                      )}
-                      <Chip size="small" icon={<PeopleIcon fontSize="small" />} label={`${pax} pax`} />
-                      {typeof p.duration_hours === "number" && (
-                        <Chip size="small" icon={<AccessTimeIcon fontSize="small" />} label={`${p.duration_hours} hrs`} />
-                      )}
-                    </Stack>
-
-                    <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-                      {typeof p.price_block_out === "number" && p.price_block_out > 0 && (
-                        <Chip size="small" icon={<OfferIcon fontSize="small" />} label={`Block-out: ₹${money(p.price_block_out)}`} />
-                      )}
-                      {typeof p.price_block_out_special === "number" && p.price_block_out_special > 0 && (
-                        <Chip size="small" icon={<OfferIcon fontSize="small" />} label={`Special: ₹${money(p.price_block_out_special)}`} />
-                      )}
-                      {typeof p.service_charge === "number" && p.service_charge > 0 && (
-                        <Chip size="small" icon={<RupeeIcon fontSize="small" />} label={`Service: ₹${money(p.service_charge)}`} />
-                      )}
-                    </Stack>
-
-                    {/* Places preview */}
-                    {places.length > 0 && (
-                      <Stack direction="row" spacing={0.5} mt={1} sx={{ maxWidth: "100%", overflow: "hidden" }}>
-                        {places.slice(0, 3).map((nm) => (
-                          <Chip key={nm} size="small" icon={<CategoryIcon fontSize="small" />} label={nm} sx={{ maxWidth: 200 }} />
+                    {/* Overlay gradient */}
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        inset: 0,
+                        background:
+                          "linear-gradient(to top, rgba(0,0,0,0.65), transparent 50%)",
+                      }}
+                    />
+                    {/* Top-left destination + category */}
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        left: 12,
+                        bottom: 12,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 0.5,
+                      }}
+                    >
+                      <Chip
+                        size="small"
+                        icon={
+                          <LocationIcon
+                            sx={{ color: "inherit" }}
+                            fontSize="small"
+                          />
+                        }
+                        label={destination}
+                        sx={{
+                          color: "white",
+                          borderColor: "rgba(255,255,255,0.7)",
+                          borderWidth: 1,
+                          borderStyle: "solid",
+                          bgcolor: "rgba(15,23,42,0.4)",
+                        }}
+                      />
+                      <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                        {categories.slice(0, 2).map((c) => (
+                          <Chip
+                            key={c}
+                            size="small"
+                            label={c}
+                            sx={{
+                              color: "white",
+                              bgcolor: "rgba(15,23,42,0.6)",
+                            }}
+                          />
                         ))}
-                        {places.length > 3 && (
-                          <Chip size="small" label={`+${places.length - 3} more`} />
+                        {categories.length > 2 && (
+                          <Chip
+                            size="small"
+                            label={`+${categories.length - 2}`}
+                            sx={{
+                              color: "white",
+                              bgcolor: "rgba(15,23,42,0.6)",
+                            }}
+                          />
                         )}
                       </Stack>
+                    </Box>
+                    {/* Rating badge */}
+                    {rating > 0 && (
+                      <Box
+                        sx={{
+                          position: "absolute",
+                          top: 10,
+                          right: 10,
+                          px: 1,
+                          py: 0.5,
+                          borderRadius: 999,
+                          bgcolor: "rgba(15,23,42,0.8)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 0.5,
+                          color: "white",
+                        }}
+                      >
+                        <StarIcon fontSize="small" />
+                        <Typography variant="body2" fontWeight={600}>
+                          {rating.toFixed(1)}
+                        </Typography>
+                        {reviews > 0 && (
+                          <Typography
+                            variant="caption"
+                            sx={{ opacity: 0.8 }}
+                          >
+                            ({reviews})
+                          </Typography>
+                        )}
+                      </Box>
                     )}
+                  </Box>
 
-                    {/* Timings */}
-                    <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-                      {p.regular_timings && (
-                        <Chip size="small" icon={<AccessTimeIcon fontSize="small" />} label={p.regular_timings} />
-                      )}
-                      {p.alternative_timings && (
-                        <Chip size="small" icon={<AccessTimeIcon fontSize="small" />} label={p.alternative_timings} />
+                  <CardContent sx={{ pb: 1, flexGrow: 1 }}>
+                    {/* Title + operator */}
+                    <Stack spacing={0.5}>
+                      <Typography
+                        variant="h6"
+                        noWrap
+                        title={title}
+                        sx={{ fontWeight: 700 }}
+                      >
+                        {title}
+                      </Typography>
+                      {p.operatedBy && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          noWrap
+                        >
+                          Operated by {p.operatedBy}
+                        </Typography>
                       )}
                     </Stack>
 
-                    {/* Mentions / Notes */}
-                    {(p.special_mentions || p.notes) && (
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        mt={1}
-                        sx={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
-                      >
-                        {p.special_mentions || p.notes}
-                      </Typography>
+                    {/* Meta row */}
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      mt={1}
+                      flexWrap="wrap"
+                      alignItems="center"
+                    >
+                      {veh && (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          icon={<CarIcon fontSize="small" />}
+                          label={veh}
+                        />
+                      )}
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        icon={<PeopleIcon fontSize="small" />}
+                        label={`${pax} pax`}
+                      />
+                      {typeof duration === "number" && (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          icon={<AccessTimeIcon fontSize="small" />}
+                          label={`${duration} hrs`}
+                        />
+                      )}
+                    </Stack>
+
+                    {/* Price + booking stats */}
+                    <Stack
+                      direction="row"
+                      justifyContent="space-between"
+                      alignItems="center"
+                      mt={1.5}
+                    >
+                      <Stack spacing={0.2}>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ textTransform: "uppercase" }}
+                        >
+                          From
+                        </Typography>
+                        <Stack direction="row" alignItems="baseline" gap={0.5}>
+                          <RupeeIcon fontSize="small" />
+                          <Typography variant="h6" fontWeight={700}>
+                            {money(price)}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                          >
+                            per person
+                          </Typography>
+                        </Stack>
+                      </Stack>
+                      <Stack spacing={0.2} alignItems="flex-end">
+                        {booked > 0 && (
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                          >
+                            {booked.toLocaleString()}+ booked
+                          </Typography>
+                        )}
+                        <Rating
+                          size="small"
+                          precision={0.1}
+                          value={rating}
+                          readOnly
+                        />
+                      </Stack>
+                    </Stack>
+
+
+                    {/* Places preview */}
+                    {Array.isArray(places) && places.length > 0 && (
+                      <Stack spacing={0.5} mt={1.5}>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ textTransform: "uppercase", fontWeight: 600 }}
+                        >
+                          Key Stops
+                        </Typography>
+                        <Stack
+                          direction="row"
+                          spacing={0.5}
+                          flexWrap="wrap"
+                          sx={{ maxHeight: 72, overflow: "hidden" }}
+                        >
+                          {places.slice(0, 3).map((nm) => (
+                            <Chip
+                              key={nm}
+                              size="small"
+                              icon={<CategoryIcon fontSize="small" />}
+                              label={nm}
+                              sx={{ maxWidth: 200 }}
+                            />
+                          ))}
+                          {places.length > 3 && (
+                            <Chip
+                              size="small"
+                              label={`+${places.length - 3} more`}
+                            />
+                          )}
+                        </Stack>
+                      </Stack>
                     )}
                   </CardContent>
 
-                  <CardActions sx={{ justifyContent: "space-between", px: 2, pb: 2, pt: 0.5 }}>
+                  <CardActions
+                    sx={{
+                      justifyContent: "space-between",
+                      px: 2,
+                      pb: 2,
+                      pt: 0.5,
+                    }}
+                  >
                     <Stack direction="row" spacing={1}>
                       <Button
-                         key="edit"
+                        key="edit"
                         component={Link as any}
                         href={`/dashboard/Sightseeing/packages/editpackage`}
                         onClick={() => handleEdit(p)}
@@ -368,11 +720,20 @@ const SightseeingPackagesDashboard: React.FC = () => {
                         color="error"
                         size="small"
                         startIcon={<DeleteIcon />}
-                        onClick={() => { setSelected(p); setConfirmOpen(true); }}
+                        onClick={() => {
+                          setSelected(p);
+                          setConfirmOpen(true);
+                        }}
                       >
                         Delete
                       </Button>
                     </Stack>
+
+                    {p.meetingTime && (
+                      <Typography variant="caption" color="text.secondary">
+                        Meeting: {p.meetingTime}
+                      </Typography>
+                    )}
                   </CardActions>
                 </Card>
               );
@@ -380,7 +741,12 @@ const SightseeingPackagesDashboard: React.FC = () => {
           </Box>
 
           <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
-            <Pagination count={pages} page={page} onChange={(e, value) => setPage(value)} color="primary" />
+            <Pagination
+              count={pages}
+              page={page}
+              onChange={(e, value) => setPage(value)}
+              color="primary"
+            />
           </Box>
         </>
       )}
@@ -390,11 +756,15 @@ const SightseeingPackagesDashboard: React.FC = () => {
         <DialogTitle>Delete Package</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete <strong>{selected?.tour_name || "this package"}</strong>? This action cannot be undone.
+            Delete{" "}
+            <strong>{selected?.tour_name || selected?.title || "this package"}</strong>? This action
+            cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirmOpen(false)} color="inherit">Cancel</Button>
+          <Button onClick={() => setConfirmOpen(false)} color="inherit">
+            Cancel
+          </Button>
           <Button
             onClick={async () => {
               await handleDelete();

@@ -1,4 +1,5 @@
 "use client";
+
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
   CheckCircle2,
@@ -14,6 +15,9 @@ import {
   Search,
   Trash2,
   HelpCircle,
+  Image as ImageIcon,
+  Users,
+
 } from "lucide-react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
@@ -75,9 +79,8 @@ interface SightseeingPackageUI {
   tour_name: string; // maps to title
   vehicle_type: string;
 
-  // Id/code & destination
-  code: string; // maps to "id" (e.g., SIGHT003)
   destination: string;
+  category: string;
 
   // Pax & duration
   min_pax: number | "";
@@ -103,8 +106,7 @@ interface SightseeingPackageUI {
   // Multi surcharges
   blockout_surcharges: BlockoutSurcharge[];
 
-  // Extended content / meta (from sample docs)
-  category: string[];
+  
   description: string;
   thumbnail: string;
   images: string[];
@@ -152,6 +154,12 @@ interface SightseeingPackageUI {
   // Notes
   special_mentions: string;
   notes: string;
+
+  // Frontend-only media fields
+  thumbnailFile?: File | null;
+  guestImagesFiles?: File[];
+  galleryImagesFiles?: File[];
+  videoFiles?: File[];
 }
 
 /* =========================
@@ -167,6 +175,31 @@ const VEHICLE_TYPES = [
   "20–30 Seater",
   "30–40 Seater",
 ] as const;
+
+const CATEGORY_OPTIONS = [
+  "family",
+  "friends",
+  "bachelor's",
+  "couple",
+] as const;
+
+const getSelectedCategories = (category: string) =>
+  category
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+const toggleCategory = (
+  currentValue: string,
+  cat: string
+): string => {
+  const selected = getSelectedCategories(currentValue);
+  const exists = selected.includes(cat);
+  const next = exists
+    ? selected.filter((c) => c !== cat)
+    : [...selected, cat];
+  return next.join(", ");
+};
 
 const VEHICLE_PAX_PRESETS: Record<string, { min: number; max: number }> = {
   "4 Seater": { min: 1, max: 4 },
@@ -214,8 +247,8 @@ const BLANK: SightseeingPackageUI = {
   // core
   tour_name: "",
   vehicle_type: "",
-  code: "",
   destination: "",
+  category: "",
 
   // pax & duration
   min_pax: "",
@@ -238,7 +271,6 @@ const BLANK: SightseeingPackageUI = {
   blockout_surcharges: [],
 
   // extended content
-  category: [],
   description: "",
   thumbnail: "",
   images: [],
@@ -286,6 +318,12 @@ const BLANK: SightseeingPackageUI = {
   llm_chips: [],
   special_mentions: "",
   notes: "",
+
+  // media files
+  thumbnailFile: null,
+  guestImagesFiles: [],
+  galleryImagesFiles: [],
+  videoFiles: [],
 };
 
 function uid() {
@@ -296,8 +334,10 @@ function uid() {
 const STEPS = [
   { key: "details", label: "Details", icon: <FileText className="size-4" /> },
   { key: "llmChips", label: "LLM Chips", icon: <HelpCircle className="size-4" /> },
+  { key: "experience", label: "Experience", icon: <Users className="size-4" /> },
   { key: "schedule", label: "Timings & Places", icon: <Clock className="size-4" /> },
   { key: "commerce", label: "Inclusions & Pricing", icon: <ListChecks className="size-4" /> },
+  { key: "media", label: "Media", icon: <ImageIcon className="size-4" /> },
 ] as const;
 
 type StepKey = (typeof STEPS)[number]["key"];
@@ -328,6 +368,84 @@ function numOrNull(v: number | "" | null) {
 
 function emptyToNull(v: string) {
   return v === "" ? null : Number(v);
+}
+
+function TagComposer({
+  label,
+  values,
+  onAdd,
+  onRemove,
+  placeholder,
+  disabled,
+}: {
+  label: string;
+  values: string[];
+  onAdd: (v: string) => void;
+  onRemove: (idx: number) => void;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const [draft, setDraft] = useState("");
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-sm font-medium text-gray-700">{label}</span>
+        <span className="text-[11px] text-gray-400">{values.length} added</span>
+      </div>
+      <div className="flex gap-2">
+        <input
+          className="input flex-1"
+          placeholder={placeholder || "Type & press Enter"}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              const v = draft.trim();
+              if (!v) return;
+              onAdd(v);
+              setDraft("");
+            }
+          }}
+          disabled={disabled}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            const v = draft.trim();
+            if (!v) return;
+            onAdd(v);
+            setDraft("");
+          }}
+          disabled={disabled}
+          className="px-3 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 disabled:bg-blue-300"
+        >
+          Add
+        </button>
+      </div>
+      {values.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {values.map((v, i) => (
+            <span
+              key={`${v}-${i}`}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-full border border-gray-300 bg-gray-50"
+            >
+              {v}
+              <button
+                type="button"
+                className="ml-1 rounded-full p-0.5 hover:bg-gray-200"
+                onClick={() => onRemove(i)}
+                disabled={disabled}
+                aria-label={`Remove ${v}`}
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* =========================
@@ -370,6 +488,22 @@ export default function AddSightseeingPackageMobile() {
     )
   );
 
+   const addStrItem =
+    (key: keyof SightseeingPackageUI) =>
+    (v: string) =>
+      setForm((p) => ({
+        ...p,
+        [key]: [...(p[key] as string[]), v],
+      }));
+
+  const remStrItem =
+    (key: keyof SightseeingPackageUI) =>
+    (i: number) =>
+      setForm((p) => ({
+        ...p,
+        [key]: (p[key] as string[]).filter((_, idx) => idx !== i),
+      }));
+
   const addLlmChip = () => {
     setLlmChips((p) => [...p, { q: "", a: "" }]);
     setLlmChipEditors((p) => [...p, EditorState.createEmpty()]);
@@ -394,7 +528,7 @@ export default function AddSightseeingPackageMobile() {
       try {
         const base = process.env.NEXT_PUBLIC_API_BASE || "/";
         const fetchPlaces = async (pageNum: number) => {
-          const res = await axios.get(`${base}sightseeing/fetch?page=${pageNum}`);
+          const res = await axios.get(`${base}sightseeing-places/fetch?page=${pageNum}`);
           const fetched: any[] = res.data.items || res.data.data || [];
           const totalPages = res.data.totalPages ?? res.data.pagination?.pages ?? 1;
           return { items: fetched as PlaceLite[], pages: Number(totalPages) || 1 };
@@ -470,6 +604,11 @@ export default function AddSightseeingPackageMobile() {
   const canGoNext = isStepValid(step.key);
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
 
+  const canSubmit =
+    stepIndex === LAST_INDEX &&
+    STEPS.every((s) => isStepValid(s.key)) &&
+    !!form.tour_name.trim();
+
   /* ---------- Nav ---------- */
   const goNext = () => {
     if (submitting || !canGoNext) return;
@@ -496,7 +635,6 @@ export default function AddSightseeingPackageMobile() {
       | "inclusions"
       | "exclusions"
       | "places_to_visit_names"
-      | "category"
       | "highlights"
       | "pickupAreas"
       | "goodToKnow"
@@ -518,7 +656,6 @@ export default function AddSightseeingPackageMobile() {
       | "inclusions"
       | "exclusions"
       | "places_to_visit_names"
-      | "category"
       | "highlights"
       | "pickupAreas"
       | "goodToKnow"
@@ -540,6 +677,47 @@ export default function AddSightseeingPackageMobile() {
       .filter((p) => ids.includes(p._id))
       .map((p) => p.name);
     set({ place_ids: ids, places_to_visit_names: names });
+  };
+
+  /* ---------- Media handlers ---------- */
+
+  const handleGalleryImagesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    set({
+      galleryImagesFiles: [...(form.galleryImagesFiles || []), ...files],
+    });
+  };
+
+  const removeGalleryImage = (idx: number) => {
+    const next = [...(form.galleryImagesFiles || [])];
+    next.splice(idx, 1);
+    set({ galleryImagesFiles: next });
+  };
+
+  const handleGuestImagesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    set({
+      guestImagesFiles: [...(form.guestImagesFiles || []), ...files],
+    });
+  };
+
+  const removeGuestImage = (idx: number) => {
+    const next = [...(form.guestImagesFiles || [])];
+    next.splice(idx, 1);
+    set({ guestImagesFiles: next });
+  };
+
+  const handleVideosChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    set({
+      videoFiles: [...(form.videoFiles || []), ...files],
+    });
+  };
+
+  const removeVideo = (idx: number) => {
+    const next = [...(form.videoFiles || [])];
+    next.splice(idx, 1);
+    set({ videoFiles: next });
   };
 
   /* ---------- Submit ---------- */
@@ -567,6 +745,7 @@ export default function AddSightseeingPackageMobile() {
         vehicle_type: form.vehicle_type.trim(),
         min_pax: numOrDefault(form.min_pax, 1),
         max_pax: numOrDefault(form.max_pax, 1),
+        category: getSelectedCategories(form.category),
         duration_hours: numOrDefault(form.duration_hours, 1),
         regular_timings: form.regular_timings.trim(),
         alternative_timings: form.alternative_timings.trim(),
@@ -601,15 +780,12 @@ export default function AddSightseeingPackageMobile() {
         special_mentions: form.special_mentions.trim(),
         notes: form.notes.trim(),
 
-        // fields matching your sample docs
-        id: form.code.trim(), // SIGHT00X
         title: form.tour_name.trim(),
         destination: form.destination.trim(),
         vehicleType: form.vehicle_type.trim(),
         duration: numOrDefault(form.duration_hours, 1),
         regularTimings: form.regular_timings.trim(),
         alternativeTimings: form.alternative_timings.trim(),
-        category: form.category,
         description: form.description.trim(),
         thumbnail: form.thumbnail.trim(),
         images: form.images,
@@ -679,6 +855,23 @@ export default function AddSightseeingPackageMobile() {
       const fd = new FormData();
       fd.append("payload", JSON.stringify({ ...cooked }));
 
+      // Attach media files
+      if (form.thumbnailFile) {
+        fd.append("thumbnail", form.thumbnailFile);
+      }
+
+      (form.guestImagesFiles || []).forEach((file) => {
+        fd.append("guestImages", file);
+      });
+
+      (form.galleryImagesFiles || []).forEach((file) => {
+        fd.append("galleryImages", file);
+      });
+
+      (form.videoFiles || []).forEach((file) => {
+        fd.append("videos", file);
+      });
+
       const base = process.env.NEXT_PUBLIC_API_BASE || "/";
       const url = `${base.replace(/\/$/, "")}/packages/packages/create`;
       const res = await fetch(url, { method: "POST", body: fd });
@@ -699,7 +892,7 @@ export default function AddSightseeingPackageMobile() {
      ========================= */
 
   return (
-    <form className="min-h-screen bg-gray-50" onSubmit={handleSubmit}>
+    <form className="min-h-screen bg-gray-50" >
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-gray-200">
         <div className="px-4 py-3 sm:px-6 max-w-3xl mx-auto">
@@ -778,7 +971,7 @@ export default function AddSightseeingPackageMobile() {
       </header>
 
       {/* Content */}
-      <main className="max-w-3xl mx-auto p-4 sm:p-6 pb-36">
+      <main className="max-w-3xl mx-auto p-4 sm:p-6 pb-36 lg:pb-64">
         {/* DETAILS STEP */}
         {step.key === "details" && (
           <>
@@ -801,16 +994,7 @@ export default function AddSightseeingPackageMobile() {
                     />
                   </Field>
 
-                  <Field label="Internal Code (ID)">
-                    <input
-                      type="text"
-                      className="input"
-                      value={form.code}
-                      onChange={(e) => set({ code: e.target.value })}
-                      placeholder='e.g., "SIGHT002"'
-                      disabled={submitting}
-                    />
-                  </Field>
+              
 
                   <Field label="Destination">
                     <input
@@ -901,19 +1085,49 @@ export default function AddSightseeingPackageMobile() {
 
             <SectionCard
               title="Product Meta & Content"
-              subtitle="Destination, categories, description, and media."
+              subtitle="Destination, categories, description, and highlights."
               icon={<FileText className="size-5 text-blue-600" />}
             >
               <div className="space-y-4">
-                <Field label="Categories">
-                  <ChipInput
-                    value={form.category}
-                    placeholder='Type and press Enter (e.g., "heritage", "family")'
-                    disabled={submitting}
-                    onAdd={(v) => addChip("category", v)}
-                    onRemove={(idx) => removeChip("category", idx)}
-                  />
-                </Field>
+              <Field label="Category" required>
+                            <div className="flex flex-wrap gap-2">
+                              {CATEGORY_OPTIONS.map((cat) => {
+                                const selected = getSelectedCategories(form.category).includes(cat);
+              
+                                return (
+                                  <label
+                                    key={cat}
+                                    className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs cursor-pointer ${
+                                      selected
+                                        ? "bg-blue-600 border-blue-600 text-white"
+                                        : "bg-white border-gray-300 text-gray-700"
+                                    }`}
+                                  >
+                                  <input
+                                      type="checkbox"
+                                      className="sr-only"
+                                      checked={selected}
+                                      onChange={() =>
+                                        set({
+                                          category: toggleCategory(form.category, cat),
+                                        })
+                                      }
+                                      disabled={submitting}
+                                    />
+
+                                    <span className="inline-flex items-center justify-center">
+                                      {selected ? (
+                                        <Check className="size-3.5" />
+                                      ) : (
+                                        <span className="size-3.5 rounded border border-current" />
+                                      )}
+                                    </span>
+                                    <span className="uppercase">{cat}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </Field>
 
                 <Field label="Description">
                   <textarea
@@ -926,38 +1140,6 @@ export default function AddSightseeingPackageMobile() {
                   />
                 </Field>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field label="Thumbnail URL">
-                    <input
-                      type="text"
-                      className="input"
-                      value={form.thumbnail}
-                      onChange={(e) => set({ thumbnail: e.target.value })}
-                      placeholder="https://…"
-                      disabled={submitting}
-                    />
-                  </Field>
-
-                  <Field label="Images URLs">
-                    <ChipInput
-                      value={form.images}
-                      placeholder="Paste image URL and press Enter"
-                      disabled={submitting}
-                      onAdd={(v) => addChip("images", v)}
-                      onRemove={(idx) => removeChip("images", idx)}
-                    />
-                  </Field>
-                </div>
-
-                <Field label="Highlights">
-                  <ChipInput
-                    value={form.highlights}
-                    placeholder='e.g., "UNESCO Heritage Monuments"'
-                    disabled={submitting}
-                    onAdd={(v) => addChip("highlights", v)}
-                    onRemove={(idx) => removeChip("highlights", idx)}
-                  />
-                </Field>
               </div>
             </SectionCard>
           </>
@@ -1152,27 +1334,6 @@ export default function AddSightseeingPackageMobile() {
               icon={<ListChecks className="size-5 text-emerald-600" />}
             >
               <div className="rounded-xl border border-gray-200 p-4 space-y-6">
-                {/* Inclusions / Exclusions */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field label="Inclusions">
-                    <ChipInput
-                      value={form.inclusions}
-                      placeholder='Type and press Enter (e.g., "AC coach")'
-                      disabled={submitting}
-                      onAdd={(v) => addChip("inclusions", v)}
-                      onRemove={(i) => removeChip("inclusions", i)}
-                    />
-                  </Field>
-                  <Field label="Exclusions">
-                    <ChipInput
-                      value={form.exclusions}
-                      placeholder='Type and press Enter (e.g., "Lunch")'
-                      disabled={submitting}
-                      onAdd={(v) => addChip("exclusions", v)}
-                      onRemove={(i) => removeChip("exclusions", i)}
-                    />
-                  </Field>
-                </div>
 
                 {/* Base charges */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1425,36 +1586,6 @@ export default function AddSightseeingPackageMobile() {
                     />
                   </Field>
                 </div>
-
-                <Field label="Pickup Areas">
-                  <ChipInput
-                    value={form.pickupAreas}
-                    placeholder='e.g., "Old Goa Church Complex"'
-                    disabled={submitting}
-                    onAdd={(v) => addChip("pickupAreas", v)}
-                    onRemove={(idx) => removeChip("pickupAreas", idx)}
-                  />
-                </Field>
-
-                <Field label="Good to Know">
-                  <ChipInput
-                    value={form.goodToKnow}
-                    placeholder='e.g., "Wear comfortable walking shoes"'
-                    disabled={submitting}
-                    onAdd={(v) => addChip("goodToKnow", v)}
-                    onRemove={(idx) => removeChip("goodToKnow", idx)}
-                  />
-                </Field>
-
-                <Field label="What to Bring">
-                  <ChipInput
-                    value={form.whatToBring}
-                    placeholder='e.g., "Water bottle", "Cap/Hat"'
-                    disabled={submitting}
-                    onAdd={(v) => addChip("whatToBring", v)}
-                    onRemove={(idx) => removeChip("whatToBring", idx)}
-                  />
-                </Field>
               </div>
             </SectionCard>
 
@@ -1800,10 +1931,7 @@ export default function AddSightseeingPackageMobile() {
                       type="button"
                       onClick={() =>
                         set({
-                          itinerary: [
-                            ...form.itinerary,
-                            { time: "", title: "", description: "" },
-                          ],
+                          itinerary: [...form.itinerary, { time: "", title: "", description: "" }],
                         })
                       }
                       disabled={submitting}
@@ -1981,27 +2109,6 @@ export default function AddSightseeingPackageMobile() {
                   </div>
                 </div>
 
-                {/* Vouchers, languages & cancellation */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field label="Voucher Info">
-                    <ChipInput
-                      value={form.voucherInfo}
-                      placeholder='e.g., "Mobile voucher accepted"'
-                      disabled={submitting}
-                      onAdd={(v) => addChip("voucherInfo", v)}
-                      onRemove={(idx) => removeChip("voucherInfo", idx)}
-                    />
-                  </Field>
-                  <Field label="Languages">
-                    <ChipInput
-                      value={form.languages}
-                      placeholder='e.g., "English", "Hindi"'
-                      disabled={submitting}
-                      onAdd={(v) => addChip("languages", v)}
-                      onRemove={(idx) => removeChip("languages", idx)}
-                    />
-                  </Field>
-                </div>
 
                 <Field label="Short Cancellation Policy">
                   <input
@@ -2121,20 +2228,329 @@ export default function AddSightseeingPackageMobile() {
             </SectionCard>
           </>
         )}
+
+        {step.key === "experience" && (
+          <SectionCard
+            title="Experience Content"
+            subtitle="Highlights, inclusions, expectations and important notes."
+            icon={<Users className="size-5 text-blue-600" />}
+          >
+            <div className="space-y-6">
+              <TagComposer
+                label="Highlights"
+                values={form.highlights}
+                onAdd={addStrItem("highlights")}
+                onRemove={remStrItem("highlights")}
+                placeholder="e.g., Jeep ride through jungle trails"
+                disabled={submitting}
+              />
+
+              <TagComposer
+                label="Languages"
+                values={form.languages}
+                onAdd={addStrItem("languages")}
+                onRemove={remStrItem("languages")}
+                placeholder="e.g., English, Hindi"
+                disabled={submitting}
+              />
+
+              <TagComposer
+                label="Inclusions"
+                values={form.inclusions}
+                onAdd={addStrItem("inclusions")}
+                onRemove={remStrItem("inclusions")}
+                placeholder="e.g., Jeep Safari, Forest Entry Fee"
+                disabled={submitting}
+              />
+
+              <TagComposer
+                label="Exclusions"
+                values={form.exclusions}
+                onAdd={addStrItem("exclusions")}
+                onRemove={remStrItem("exclusions")}
+                placeholder="e.g., Meals, Personal Expenses"
+                disabled={submitting}
+              />
+
+              <TagComposer
+                label="What to bring"
+                values={form.whatToBring}
+                onAdd={addStrItem("whatToBring")}
+                onRemove={remStrItem("whatToBring")}
+                placeholder="e.g., Water bottle, Towel, Swimwear"
+                disabled={submitting}
+              />
+
+              <TagComposer
+                label="Good to know"
+                values={form.goodToKnow}
+                onAdd={addStrItem("goodToKnow")}
+                onRemove={remStrItem("goodToKnow")}
+                placeholder="e.g., Wear comfortable shoes"
+                disabled={submitting}
+              />
+              <TagComposer
+                label="Voucher info"
+                values={form.voucherInfo}
+                onAdd={addStrItem("voucherInfo")}
+                onRemove={remStrItem("voucherInfo")}
+                placeholder="e.g., Mobile voucher accepted"
+                disabled={submitting}
+              />   
+              <TagComposer
+                label="Pickup areas"
+                values={form.pickupAreas}
+                onAdd={addStrItem("pickupAreas")}
+                onRemove={remStrItem("pickupAreas")}
+                placeholder="e.g., Calangute, Candolim, Baga"
+                disabled={submitting}
+              />
+               <TagComposer
+                label="cancellation Details"
+                values={form.cancellationDetails}
+                onAdd={addStrItem("cancellationDetails")}
+                onRemove={remStrItem("cancellationDetails")}
+                placeholder="e.g., write cancellation Details"
+                disabled={submitting}
+              />  
+                
+            </div>
+          </SectionCard>
+        )}
+
+        {/* MEDIA STEP (last tab) */}
+        {step.key === "media" && (
+          <SectionCard
+            title="Media"
+            subtitle="Thumbnail, gallery, guest images and videos."
+            icon={<ImageIcon className="size-5 text-purple-600" />}
+          >
+            <div className="space-y-6">
+              {/* Thumbnail (required) */}
+              <div className="rounded-xl border border-gray-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">
+                      Thumbnail (required)
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Main image shown in cards and listings.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,220px)]">
+                  <label className="relative flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-300 rounded-xl py-6 px-4 text-center cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/40 transition">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                      onChange={(e) => {
+                        const files = e.target.files ? Array.from(e.target.files) : [];
+                        set({ thumbnailFile: files[0] ?? null });
+                      }}
+                      disabled={submitting}
+                    />
+                    <Plus className="size-5 text-gray-500" />
+                    <span className="text-xs font-medium text-gray-700">
+                      {form.thumbnailFile ? "Change thumbnail" : "Add Thumbnail"}
+                    </span>
+                    <span className="text-[11px] text-gray-400">
+                      JPG / PNG, recommended 1280×720
+                    </span>
+                  </label>
+
+                  {form.thumbnailFile && (
+                    <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="size-10 rounded-md overflow-hidden bg-gray-200 flex items-center justify-center text-[10px] text-gray-500">
+                          <img
+                            src={URL.createObjectURL(form.thumbnailFile)}
+                            alt="Thumbnail preview"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <p className="text-xs text-gray-700 truncate">
+                          {form.thumbnailFile.name}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => set({ thumbnailFile: null })}
+                        className="text-[11px] text-red-600 hover:underline"
+                        disabled={submitting}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Main gallery images */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 mb-2">
+                  Gallery images
+                </h3>
+                <div className="mb-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {(form.galleryImagesFiles || []).map((file, idx) => (
+                    <div
+                      key={`${file.name}-${idx}`}
+                      className="relative aspect-square rounded-xl overflow-hidden border border-gray-300 bg-gray-50 shadow-sm"
+                    >
+                      <img
+                        src={URL.createObjectURL(file)}
+                        alt={file.name}
+                        className="w-full h-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeGalleryImage(idx)}
+                        className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                        title="Remove image"
+                        aria-label="Remove image"
+                        disabled={submitting}
+                      >
+                        <X className="size-4" strokeWidth={3} />
+                      </button>
+                    </div>
+                  ))}
+
+                  <label className="block aspect-square">
+                    <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-gray-50">
+                      <ImageIcon className="size-6 text-gray-400" />
+                      <p className="mt-1 text-sm font-medium text-gray-700">
+                        Add Image
+                      </p>
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleGalleryImagesChange}
+                      className="hidden"
+                      disabled={submitting}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Guest images */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 mb-2">
+                  Guest images
+                </h3>
+                <div className="mb-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {(form.guestImagesFiles || []).map((file, idx) => (
+                    <div
+                      key={`${file.name}-${idx}`}
+                      className="relative aspect-square rounded-xl overflow-hidden border border-gray-300 bg-gray-50 shadow-sm"
+                    >
+                      <img
+                        src={URL.createObjectURL(file)}
+                        alt={file.name}
+                        className="w-full h-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeGuestImage(idx)}
+                        className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                        title="Remove guest image"
+                        aria-label="Remove guest image"
+                        disabled={submitting}
+                      >
+                        <X className="size-4" strokeWidth={3} />
+                      </button>
+                    </div>
+                  ))}
+
+                  <label className="block aspect-square">
+                    <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-gray-50">
+                      <ImageIcon className="size-6 text-gray-400" />
+                      <p className="mt-1 text-sm font-medium text-gray-700">
+                        Add Guest Image
+                      </p>
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleGuestImagesChange}
+                      className="hidden"
+                      disabled={submitting}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Videos */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 mb-2">Videos</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {(form.videoFiles || []).map((file, idx) => (
+                    <div
+                      key={`${file.name}-${idx}`}
+                      className="relative rounded-xl overflow-hidden border border-gray-300 bg-black"
+                    >
+                      <video
+                        src={URL.createObjectURL(file)}
+                        className="w-full h-full"
+                        controls
+                        preload="metadata"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeVideo(idx)}
+                        className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                        title="Remove video"
+                        aria-label="Remove video"
+                        disabled={submitting}
+                      >
+                        <X className="size-4" strokeWidth={3} />
+                      </button>
+                    </div>
+                  ))}
+
+                  <label className="block">
+                    <div className="flex flex-col items-center justify-center w-full h-full min-h-[120px] px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-gray-50">
+                      <ImageIcon className="size-6 text-gray-400" />
+                      <p className="mt-1 text-sm font-medium text-gray-700">
+                        Add Video
+                      </p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        MP4 / MOV / WEBM
+                      </p>
+                    </div>
+                    <input
+                      type="file"
+                      accept="video/*"
+                      multiple
+                      onChange={handleVideosChange}
+                      className="hidden"
+                      disabled={submitting}
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+          </SectionCard>
+        )}
       </main>
 
-      {/* Sticky step nav */}
-      <div className="fixed inset-x-0 bottom-0 z-40 bg-gray-50/95 backdrop-blur safe-bottom pt-2">
+      {/* Bottom bar */}
+      <div className="fixed bottom-0 right-0 left-0 lg:left-64 z-40 bg-gray-50/95 backdrop-blur safe-bottom pt-2">
         <div className="mx-auto max-w-3xl px-4 sm:px-6 pb-2">
           <div className="rounded-2xl border border-gray-200 bg-white shadow-xl shadow-gray-900/5">
             <div className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
               <span className="inline-flex items-center gap-2 text-xs text-gray-600 bg-gray-100 rounded-full px-3 py-1.5 font-semibold self-start sm:self-auto">
                 <span
                   className={`size-2 rounded-full ${
-                    isStepValid(step.key) ? "bg-green-500" : "bg-amber-500"
+                    isStepValid(step.key as StepKey) ? "bg-green-500" : "bg-amber-500"
                   }`}
                 />
-                {isStepValid(step.key) ? "Looks good" : "Complete required fields"}
+                {isStepValid(step.key as StepKey)
+                  ? "Looks good"
+                  : "Complete required fields"}
               </span>
 
               <div className="flex w-full sm:w-auto gap-2 sm:ml-auto">
@@ -2151,28 +2567,41 @@ export default function AddSightseeingPackageMobile() {
                   Back
                 </button>
 
-                <button
-                  type="button"
-                  onClick={goNext}
-                  disabled={!canGoNext || submitting}
-                  className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
-                    !canGoNext || submitting
-                      ? "bg-emerald-300 cursor-not-allowed"
-                      : "bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800"
-                  }`}
-                  aria-busy={submitting ? "true" : "false"}
-                >
-                  {stepIndex < LAST_INDEX ? (
-                    "Continue"
-                  ) : (
+                {stepIndex < LAST_INDEX ? (
+                  <button
+                    type="button"
+                    onClick={goNext}
+                    disabled={!isStepValid(step.key as StepKey) || submitting}
+                    className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
+                      !isStepValid(step.key as StepKey) || submitting
+                        ? "bg-blue-300 cursor-not-allowed"
+                        : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
+                    }`}
+                  >
+                    Continue
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleSubmit()}
+                    disabled={!canSubmit || submitting}
+                    className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
+                      !canSubmit || submitting
+                        ? "bg-blue-300"
+                        : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
+                    }`}
+                  >
                     <span className="inline-flex items-center gap-2">
                       {submitting && (
-                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                        <Loader2
+                          className="size-4 animate-spin"
+                          aria-hidden="true"
+                        />
                       )}
-                      {submitting ? "Creating..." : "Create Package"}
+                      {submitting ? "Saving..." : "Save Changes"}
                     </span>
-                  )}
-                </button>
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -2182,11 +2611,11 @@ export default function AddSightseeingPackageMobile() {
       {/* Local styles */}
       <style jsx>{`
         .input {
-          @apply w-full h-12 px-4 py-3 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-[16px] leading-none placeholder:text-gray-400 transition-all;
+          @apply w-full h-12 px-4 py-3 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-[16px] leading-none placeholder:text-gray-400 transition-all;
           -webkit-tap-highlight-color: transparent;
         }
         .textarea {
-          @apply w-full min-h-[120px] px-4 py-3 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-[16px] placeholder:text-gray-400 transition-all resize-y;
+          @apply w-full min-h-[112px] px-4 py-3 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-[16px] placeholder:text-gray-400 transition-all resize-y;
         }
         .no-scrollbar::-webkit-scrollbar {
           display: none;
@@ -2203,9 +2632,7 @@ export default function AddSightseeingPackageMobile() {
   );
 }
 
-/* =========================
-   Reusable components
-   ========================= */
+/* ------------------------------ Reusables ------------------------------ */
 
 function SectionCard({
   title,
@@ -2225,12 +2652,14 @@ function SectionCard({
       <div className="bg-white rounded-xl border border-gray-200 shadow-md overflow-visible">
         <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="size-8 grid place-items-center bg-emerald-50 rounded-lg">
+            <div className="size-8 grid place-items-center bg-blue-50 rounded-lg">
               {icon}
             </div>
             <div>
               <h2 className="text-base font-bold text-gray-900">{title}</h2>
-              {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+              {subtitle && (
+                <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
+              )}
             </div>
           </div>
           {requiredHint && (
@@ -2271,6 +2700,8 @@ function Field({
   );
 }
 
+/* ------------------------------ ChipInput ------------------------------ */
+
 function ChipInput({
   value,
   placeholder,
@@ -2281,202 +2712,153 @@ function ChipInput({
   value: string[];
   placeholder?: string;
   disabled?: boolean;
-  onAdd: (val: string) => void;
+  onAdd: (v: string) => void;
   onRemove: (idx: number) => void;
 }) {
-  const [draft, setDraft] = useState("");
+  const [input, setInput] = useState("");
 
-  const submit = () => {
-    const v = draft.trim();
-    if (!v) return;
-    onAdd(v);
-    setDraft("");
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (disabled) return;
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      const v = input.trim();
+      if (v) {
+        onAdd(v);
+        setInput("");
+      }
+    } else if (e.key === "Backspace" && !input && value.length > 0) {
+      onRemove(value.length - 1);
+    }
   };
 
   return (
-    <div>
-      <div className="flex flex-wrap gap-2 mb-2">
-        {value.map((v, i) => (
-          <span
-            key={`${v}-${i}`}
-            className="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-1 rounded-lg"
-          >
-            {v}
-            <button
-              type="button"
-              onClick={() => onRemove(i)}
-              className="ml-1 p-0.5 rounded-md hover:bg-emerald-100"
-              aria-label={`Remove ${v}`}
-              disabled={disabled}
-            >
-              <X className="size-3" />
-            </button>
-          </span>
-        ))}
-      </div>
-
-      <div className="flex items-stretch gap-2">
-        <input
-          type="text"
-          className="input flex-1"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          placeholder={placeholder}
-          disabled={disabled}
-        />
-        <button
-          type="button"
-          onClick={submit}
-          disabled={disabled || !draft.trim()}
-          className={`size-12 grid place-items-center rounded-xl text-white transition ${
-            disabled || !draft.trim()
-              ? "bg-green-300 cursor-not-allowed"
-              : "bg-green-600 hover:bg-green-700 active:bg-green-800"
-          }`}
-          title="Add"
-          aria-label="Add chip"
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-300 bg-white px-3 py-2">
+      {value.map((chip, idx) => (
+        <span
+          key={`${chip}-${idx}`}
+          className="inline-flex items-center gap-1.5 text-xs bg-gray-100 text-gray-800 px-2.5 py-1 rounded-full"
         >
-          <Plus className="size-5" />
-        </button>
-      </div>
+          {chip}
+          <button
+            type="button"
+            onClick={() => onRemove(idx)}
+            disabled={disabled}
+            className="hover:text-red-600"
+          >
+            <X className="size-3" />
+          </button>
+        </span>
+      ))}
+      <input
+        type="text"
+        className="flex-1 min-w-[80px] border-none outline-none text-sm py-1"
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
     </div>
   );
 }
 
-/* =========================
-   MultiSelectDropdown
-   ========================= */
+/* ------------------------------ MultiSelectDropdown ------------------------------ */
+
+interface MultiSelectOption {
+  value: string;
+  label: string;
+}
 
 function MultiSelectDropdown({
   options,
   selected,
   onChange,
-  placeholder = "Select",
-  disabled = false,
+  placeholder,
+  disabled,
 }: {
-  options: { value: string; label: string }[];
+  options: MultiSelectOption[];
   selected: string[];
-  onChange: (ids: string[]) => void;
+  onChange: (values: string[]) => void;
   placeholder?: string;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [q, setQ] = useState("");
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    function onDocClick(e: MouseEvent) {
-      if (!rootRef.current) return;
-      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
+    const handler = (e: MouseEvent) => {
+      if (!ref.current) return;
+      if (!ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const filtered = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    if (!s) return options;
-    return options.filter((o) => o.label.toLowerCase().includes(s));
-  }, [q, options]);
+  const filtered = options.filter((opt) =>
+    opt.label.toLowerCase().includes(query.toLowerCase())
+  );
 
-  const toggle = (id: string) => {
-    const setSel = new Set(selected);
-    if (setSel.has(id)) setSel.delete(id);
-    else setSel.add(id);
-    onChange(Array.from(setSel));
+  const toggleValue = (v: string) => {
+    if (selected.includes(v)) {
+      onChange(selected.filter((x) => x !== v));
+    } else {
+      onChange([...selected, v]);
+    }
   };
 
+  const labelSummary =
+    selected.length === 0
+      ? placeholder || "Select"
+      : selected.length === 1
+      ? options.find((o) => o.value === selected[0])?.label ?? placeholder
+      : `${selected.length} selected`;
+
   return (
-    <div className="relative" ref={rootRef}>
+    <div className="relative" ref={ref}>
       <button
         type="button"
+        className="input !h-10 flex items-center justify-between text-left"
+        onClick={() => !disabled && setOpen((o) => !o)}
         disabled={disabled}
-        onClick={() => setOpen((v) => !v)}
-        className={`input flex items-center justify-between ${
-          disabled ? "cursor-not-allowed" : ""
-        }`}
       >
-        <span className="truncate text-left">
-          {selected.length === 0 ? (
-            <span className="text-gray-400">{placeholder}</span>
-          ) : (
-            `${selected.length} selected`
-          )}
+        <span className={selected.length === 0 ? "text-gray-400" : ""}>
+          {labelSummary}
         </span>
-        <ChevronDown className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown className="size-4 text-gray-400 shrink-0" />
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-2 w-full rounded-xl border border-gray-200 bg-white shadow-lg">
-          <div className="p-2 border-b border-gray-100">
-            {selected.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="mb-2 px-3 py-1.5 text-xs rounded-lg bg-emerald-100 text-emerald-700 font-medium hover:bg-emerald-200"
-              >
-                {selected.length} selected ✓
-              </button>
-            )}
-
-            <div className="relative">
-              <input
-                type="search"
-                className="input h-10 pr-8"
-                placeholder="Search places…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-              <Search className="size-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            </div>
-            <div className="mt-2 flex gap-2">
-              <button
-                type="button"
-                className="px-2.5 py-1 text-xs rounded-lg border border-gray-300 hover:bg-gray-50"
-                onClick={() => onChange(filtered.map((o) => o.value))}
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                className="px-2.5 py-1 text-xs rounded-lg border border-gray-300 hover:bg-gray-50"
-                onClick={() => onChange([])}
-              >
-                Clear
-              </button>
-            </div>
+        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-64 overflow-hidden">
+          <div className="p-2 border-b border-gray-100 flex items-center gap-1">
+            <Search className="size-4 text-gray-400 shrink-0" />
+            <input
+              type="text"
+              className="w-full text-xs outline-none border-none"
+              placeholder="Search…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
           </div>
-          <div className="max-h-64 overflow-y-auto p-2">
+          <div className="max-h-52 overflow-y-auto text-sm">
             {filtered.length === 0 ? (
-              <div className="text-sm text-gray-500 p-2">No matches</div>
+              <div className="px-3 py-2 text-xs text-gray-500">No options</div>
             ) : (
-              filtered.map((o) => {
-                const active = selected.includes(o.value);
+              filtered.map((opt) => {
+                const active = selected.includes(opt.value);
                 return (
                   <button
-                    key={o.value}
+                    key={opt.value}
                     type="button"
-                    onClick={() => toggle(o.value)}
-                    className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-left ${
-                      active ? "bg-emerald-50 text-emerald-900" : "hover:bg-gray-50"
+                    onClick={() => toggleValue(opt.value)}
+                    className={`w-full flex items-center justify-between px-3 py-2 text-left text-xs ${
+                      active ? "bg-emerald-50 text-emerald-700" : "hover:bg-gray-50"
                     }`}
                   >
-                    <span className="text-sm">{o.label}</span>
-                    <span
-                      className={`size-5 rounded border ${
-                        active
-                          ? "bg-emerald-600 border-emerald-600 text-white"
-                          : "border-gray-300 text-transparent"
-                      } grid place-items-center`}
-                    >
-                      <Check className="size-4" />
-                    </span>
+                    <span>{opt.label}</span>
+                    {active && <Check className="size-3.5" />}
                   </button>
                 );
               })

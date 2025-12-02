@@ -38,61 +38,120 @@ import {
   Delete as DeleteIcon,
   Edit as EditIcon,
 } from "@mui/icons-material";
-import { useNightlifeStore } from "@/store/usenightlifeStore";
+import { useNightlifePackageStore } from "@/store/usenightlifeStore";
 
 // ===== Types =====
 type OID = { $oid: string } | string | undefined;
 
-// Shape your UI uses internally (unchanged)
+// This matches your new API structure (NIGHT005-style)
 type NightlifeDoc = {
-  _id?: OID;
-  name: string;
-  type: string;
-  hours?: string;
-  estimated_duration?: string;
-  desc?: string; // HTML or plain text
-  price?: string;
-  price_source?: string;
-  thumbnail?: string;
-  images?: string[];
-  age_restriction?: string;
-  music_type?: string[];
-  amenities?: string[];
-  createdAt?: { $date: string } | string;
-  updatedAt?: { $date: string } | string;
-};
-
-// Actual shape coming from the API you pasted (NIGHT001–NIGHT004)
-type ApiNightlifeDoc = {
   _id?: OID;
   id: string;
   title: string;
+  description: string; // HTML
+  descriptionShort?: string;
+  descriptionLong?: string;
   destination: string;
-  duration: number;
-  price: number;
-  serviceCharges?: number;
-  location: {
-    address: string;
-    city: string;
-    state: string;
-    country: string;
-  };
-  description: string;
-  extendedDescription?: string;
-  category: string;
-  timeSlots?: string[];
+  type: string; // "pubcrawl" etc.
+
+  guest_images?: string[];
   thumbnail?: string;
   images?: string[];
   videos?: string[];
-  inclusions?: string[];
-  exclusions?: string[];
-  operatingHours?: string;
+
+  price: number;
+  vendorPrice?: number;
+  basePrice?: number;
+  serviceCharges?: number;
+  serviceCharge?: number;
   priceBreakdown?: {
     basePrice: number;
     serviceCharges: number;
     taxes: number;
     totalPrice: number;
   };
+  taxRate?: number;
+  tax?: number;
+  taxIncluded?: boolean;
+  extraCharges?: Record<string, number>;
+  surcharges?: {
+    windowType: string;
+    singleDate?: string;
+    amount: number;
+    currency: string;
+  }[];
+
+  operatingDays?: string[];
+  openTime?: string;
+  closeTime?: string;
+  duration?: number;
+  durationType?: string; // "hrs" etc.
+  timeSlots?: string[];
+  operatingHours?: string;
+  timing?: string;
+
+  dateAvailable?: string;
+  bestTimeToVisit?: string;
+  seasonalAvailability?: string;
+
+  pickupType?: string;
+  pickupAreas?: string[];
+  meetupLocation?: string;
+  meetupAddress?: string;
+  meetingTime?: string;
+  address?: string;
+
+  groupSize?: string;
+  minParticipants?: number;
+  maxParticipants?: number;
+  ageLimit?: string;
+  capacity?: number;
+  genderRatioRule?: string;
+  accessibility?: string;
+  fitnessLevel?: string;
+  healthRestrictions?: string;
+
+  extendedDescription?: string;
+  highlights?: string[];
+  whyChoose?: { title: string; description: string }[];
+  itinerary?: { time: string; title: string; description: string }[];
+  operationProcess?: { time: string; title: string; description: string }[];
+  whatToExpect?: { title: string; description: string }[];
+
+  inclusions?: string[];
+  includes?: string[];
+  exclusions?: string[];
+  excludes?: string[];
+  safetyRequirements?: string[];
+  goodToKnow?: string[];
+  whatToBring?: string[];
+  voucherInfo?: string[];
+
+  languages?: string[];
+  eventCategory?: string[];
+  musicType?: string[];
+  bestFor?: string[];
+  generalInstructions?: string[];
+  dressCode?: string;
+  amenities?: string[];
+
+  cancellationPolicyShort?: string;
+  cancellationDetails?: string[];
+
+  rating?: number;
+  reviewCount?: number;
+  ratingCount?: number;
+  bookedCount?: number;
+  instantConfirmation?: boolean;
+  freeCancellation?: boolean;
+  operatedBy?: string;
+  review_count?: number;
+
+  llm_chips?: { q: string; a: string }[];
+  faqs?: any[];
+  priceNote?: string;
+  isComplete?: boolean;
+
   createdAt?: { $date: string } | string;
   updatedAt?: { $date: string } | string;
   [key: string]: any;
@@ -104,8 +163,9 @@ const unwrapId = (id?: OID) =>
 
 const mainImage = (v: NightlifeDoc) =>
   v.thumbnail ||
-  (v.images?.[0] ??
-    "https://images.unsplash.com/photo-1550950614-95d64d0d193e?q=80&w=1600&auto=format&fit=crop");
+  v.images?.[0] ||
+  v.guest_images?.[0] ||
+  "https://images.unsplash.com/photo-1550950614-95d64d0d193e?q=80&w=1600&auto=format&fit=crop";
 
 const stripHtml = (html?: string) =>
   (html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -113,35 +173,52 @@ const stripHtml = (html?: string) =>
 const when = (d?: { $date: string } | string) =>
   typeof d === "string" ? d : d?.$date;
 
-// Adapt API shape → internal NightlifeDoc shape
-const adaptFromApi = (raw: ApiNightlifeDoc): NightlifeDoc => {
-  const totalPrice =
-    raw.priceBreakdown?.totalPrice ?? raw.price ?? undefined;
-
-  return {
-    _id: raw._id,
-    name: raw.title, // title → name
-    type: raw.category, // category → type
-    hours: raw.operatingHours, // operatingHours → hours
-    estimated_duration: raw.duration
-      ? `${raw.duration} hrs`
-      : undefined, // duration → estimated_duration
-    desc: raw.extendedDescription || raw.description,
-    price:
-      typeof totalPrice === "number"
-        ? `₹${totalPrice.toLocaleString("en-IN")}`
-        : undefined,
-    price_source: "per person",
-    thumbnail: raw.thumbnail,
-    images: raw.images,
-    // optional extras if you want them later:
-    age_restriction: undefined,
-    music_type: raw.category ? [raw.category] : [],
-    amenities: raw.inclusions || [],
-    createdAt: raw.createdAt,
-    updatedAt: raw.updatedAt,
-  };
+const getOperatingHours = (v: NightlifeDoc): string | undefined => {
+  if (v.operatingHours) return v.operatingHours;
+  if (v.openTime && v.closeTime) return `${v.openTime} – ${v.closeTime}`;
+  return undefined;
 };
+
+const getDurationLabel = (v: NightlifeDoc): string | undefined => {
+  if (v.duration && v.durationType)
+    return `${v.duration} ${v.durationType}`;
+  if (v.duration) return `${v.duration} hrs`;
+  if (v.timing) return v.timing;
+  return undefined;
+};
+
+const getDescHtml = (v: NightlifeDoc): string =>
+  v.descriptionLong ||
+  v.extendedDescription ||
+  v.description ||
+  v.descriptionShort ||
+  "";
+
+const getDisplayPrice = (v: NightlifeDoc): string | undefined => {
+  let total: number | undefined =
+    v.priceBreakdown?.totalPrice ?? undefined;
+
+  if (total == null) {
+    if (
+      v.basePrice != null ||
+      v.serviceCharges != null ||
+      v.tax != null
+    ) {
+      total =
+        (v.basePrice ?? 0) +
+        (v.serviceCharges ?? 0) +
+        (v.tax ?? 0);
+    } else if (typeof v.price === "number") {
+      total = v.price;
+    }
+  }
+
+  if (total == null) return undefined;
+  return `₹${total.toLocaleString("en-IN")}`;
+};
+
+const getPriceSource = (_v: NightlifeDoc): string | undefined =>
+  "per person";
 
 // ===== Component =====
 const NightlifeDashboard: React.FC = () => {
@@ -154,7 +231,7 @@ const NightlifeDashboard: React.FC = () => {
   const [page, setPage] = useState<number>(1);
   const [pages, setPages] = useState<number>(1);
 
-  const { setData } = useNightlifeStore(); // put full record into edit-draft
+  const { setNightlife } = useNightlifePackageStore(); // store full record for edit
 
   const fetchVenues = async (pageNum: number) => {
     setLoading(true);
@@ -163,17 +240,13 @@ const NightlifeDashboard: React.FC = () => {
         `${process.env.NEXT_PUBLIC_API_BASE}nightlife-places/getall?page=${pageNum}`
       );
 
-      // The API returns the NIGHT001–NIGHT004 shape
-      const list: ApiNightlifeDoc[] =
+      const list: NightlifeDoc[] =
         res.data.items || res.data.data || res.data || [];
 
-      const totalPages = res.data.totalPages ?? res.data.pagination?.pages ?? 1;
+      const totalPages =
+        res.data.totalPages ?? res.data.pagination?.pages ?? 1;
 
-      const mapped: NightlifeDoc[] = Array.isArray(list)
-        ? list.map(adaptFromApi)
-        : [];
-
-      setVenues(mapped);
+      setVenues(Array.isArray(list) ? list : []);
       setPages(Number(totalPages) || 1);
     } catch (e) {
       console.error("Error fetching nightlife:", e);
@@ -192,22 +265,24 @@ const NightlifeDashboard: React.FC = () => {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     if (!q) return venues;
+
     return venues.filter((v) => {
       const hay = [
-        v.name,
+        v.title,
         v.type,
-        v.hours,
-        v.estimated_duration,
-        v.price,
-        v.price_source,
-        v.age_restriction,
-        (v.music_type || []).join(" "),
+        getOperatingHours(v),
+        getDurationLabel(v),
+        getDisplayPrice(v),
+        getPriceSource(v),
+        v.ageLimit,
+        (v.musicType || []).join(" "),
         (v.amenities || []).join(" "),
-        stripHtml(v.desc),
+        stripHtml(getDescHtml(v)),
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
+
       return hay.includes(q);
     });
   }, [search, venues]);
@@ -215,11 +290,13 @@ const NightlifeDashboard: React.FC = () => {
   const copyId = async (id?: string) => {
     try {
       if (id) await navigator.clipboard.writeText(id);
-    } catch {}
+    } catch {
+      // ignore
+    }
   };
 
   const onEdit = (v: NightlifeDoc) => {
-    setData(v as any);
+    setNightlife(v as any);
   };
 
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -329,14 +406,20 @@ const NightlifeDashboard: React.FC = () => {
             {filtered.map((v) => {
               const id = unwrapId(v._id);
               const img = mainImage(v);
-              const descText = stripHtml(v.desc).slice(0, 140);
+              const displayPrice = getDisplayPrice(v);
+              const priceSource = getPriceSource(v);
+              const descHtml = getDescHtml(v);
+              const descText = stripHtml(descHtml).slice(0, 140);
+              const operatingHours = getOperatingHours(v);
+              const durationLabel = getDurationLabel(v);
+
               return (
-                <Card key={id || v.name} sx={{ width: 340 }}>
+                <Card key={id || v.id || v.title} sx={{ width: 340 }}>
                   <Box sx={{ position: "relative" }}>
                     <CardMedia
                       component="img"
                       image={img}
-                      alt={v.name}
+                      alt={v.title}
                       sx={{
                         objectFit: "cover",
                         width: "100%",
@@ -354,15 +437,15 @@ const NightlifeDashboard: React.FC = () => {
                         flexWrap: "wrap",
                       }}
                     >
-                      {!!v.price && (
+                      {!!displayPrice && (
                         <Chip
                           size="small"
                           color="primary"
                           icon={<LocalOffer />}
                           label={
-                            v.price_source
-                              ? `${v.price} — ${v.price_source}`
-                              : v.price
+                            priceSource
+                              ? `${displayPrice} — ${priceSource}`
+                              : displayPrice
                           }
                           sx={{
                             bgcolor: "primary.main",
@@ -383,10 +466,10 @@ const NightlifeDashboard: React.FC = () => {
                       <Typography
                         variant="h6"
                         noWrap
-                        title={v.name}
+                        title={v.title}
                         sx={{ maxWidth: "70%" }}
                       >
-                        {v.name}
+                        {v.title}
                       </Typography>
                       {v.type && (
                         <Chip
@@ -399,27 +482,19 @@ const NightlifeDashboard: React.FC = () => {
                     </Stack>
 
                     <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-                      {v.hours && (
+                      {operatingHours && (
                         <Chip
                           size="small"
                           icon={<AccessTime fontSize="small" />}
-                          label={v.hours}
+                          label={operatingHours}
                         />
                       )}
-                      {v.age_restriction && (
+                      {v.ageLimit && (
                         <Chip
                           size="small"
                           icon={<BadgeIcon fontSize="small" />}
-                          label={`Age ${v.age_restriction}+`}
+                          label={`Age ${v.ageLimit}`}
                           color="warning"
-                          variant="outlined"
-                        />
-                      )}
-                      {v.estimated_duration && (
-                        <Chip
-                          size="small"
-                          icon={<PlaceIcon fontSize="small" />}
-                          label={v.estimated_duration}
                           variant="outlined"
                         />
                       )}
@@ -436,14 +511,14 @@ const NightlifeDashboard: React.FC = () => {
                           WebkitBoxOrient: "vertical",
                           overflow: "hidden",
                         }}
-                        title={stripHtml(v.desc)}
+                        title={stripHtml(descHtml)}
                       >
                         {descText}…
                       </Typography>
                     )}
 
                     <Stack direction="row" spacing={0.5} mt={1} flexWrap="wrap">
-                      {(v.music_type || []).slice(0, 3).map((m, i) => (
+                      {(v.musicType || []).slice(0, 3).map((m, i) => (
                         <Chip
                           key={`${id}-m-${i}`}
                           size="small"
@@ -452,8 +527,11 @@ const NightlifeDashboard: React.FC = () => {
                           variant="outlined"
                         />
                       ))}
-                      {Array.isArray(v.music_type) && v.music_type.length > 3 && (
-                        <Chip size="small" label={`+${v.music_type.length - 3}`} />
+                      {Array.isArray(v.musicType) && v.musicType.length > 3 && (
+                        <Chip
+                          size="small"
+                          label={`+${v.musicType.length - 3}`}
+                        />
                       )}
                     </Stack>
                   </CardContent>
@@ -525,7 +603,7 @@ const NightlifeDashboard: React.FC = () => {
         <DialogTitle>Delete Nightlife Venue</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete <strong>{selected?.name || "this venue"}</strong>? This
+            Delete <strong>{selected?.title || "this venue"}</strong>? This
             action cannot be undone.
           </DialogContentText>
         </DialogContent>

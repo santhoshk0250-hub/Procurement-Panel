@@ -197,7 +197,7 @@ const LeisureActivityDashboard: React.FC = () => {
             Add Services
           </Button>
           <Button
-            href="/dashboard/Activities/addactivities"
+            href="/dashboard/leisure-activity/add-leisure-activity"
             component={Link as any}
             fullWidth
             variant="contained"

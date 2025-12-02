@@ -1,377 +1,532 @@
-// store/useNightlifeStore.ts
+// store/useNightlifePackageStore.ts
+
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-/* =========================
- * Types (UI / Server)
- * ========================= */
+/* ==========================================================
+   1) Shared helper types
+   ========================================================== */
 
-export type NightVenueType =
-  | "Bar & Club"
-  | "Nightclub"
-  | "Bar Street"
-  | "Lounge"
-  | "Pub"
-  | (string & {});
+export type MongoDate = string | { $date: string };
+export type IDType = string | { $oid: string };
 
-export type NightAmenity = { name: string; details?: string };
-export type Music = { name: string; details?: string };
-export interface FAQ {
+export interface TimeBlock {
+  time: string;
+  title: string;
+  description: string;
+  duration?: string;
+}
+
+export interface WhyChooseBlock {
+  title: string;
+  description: string;
+  icon?: string;
+}
+
+export interface ExpectBlock {
+  title: string;
+  description: string;
+}
+
+export interface PriceBreakdown {
+  basePrice?: number;
+  serviceCharges?: number;
+  taxes?: number;
+  totalPrice?: number;
+}
+
+export interface NightlifeSurcharge {
+  windowType: "single" | "range" | (string & {});
+  amount: number;
+  currency: string;
+  singleDate?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface ExtraChargeItem {
+  label: string;
+  amount: number;
+}
+
+export interface NightlifeLLMChip {
   q: string;
-  a: string; // HTML (rich text) answer
+  a: string; // HTML
 }
-/** UI shape kept in Zustand (form state) */
-export interface NightlifeUI {
-  // Core
-  _id?: string;
-  name: string;
-  type: NightVenueType | "";
-  hours: string;
-  estimated_duration: string;
-  desc: string; // HTML
-  price: string;
-  price_source: string;
-  age_restriction?: string;
 
-  // Lists
-  music_type: string[];
-  amenities: NightAmenity[];
+export interface NightlifeFAQ {
+  q: string;
+  a: string; // HTML
+}
 
-  // Media (UI-specific)
-  existingImages?: string[]; // server images already stored (URLs)
-  newImages: Array<{ file: File; preview: string }>;
+/* ==========================================================
+   2) Main NightlifePackage interface
+   ========================================================== */
 
-  existingThumbnail?: string; // server thumbnail URL
-  newThumbnail?: { file: File; preview: string } | null;
- llm_chips?: FAQ[];
-  // Optional server metadata (kept for convenience)
-  createdAt?: string;
-  updatedAt?: string;
+export interface NightlifePackage {
+  _id?: IDType;
+  id?: string;
+
+  // Core identity
+  title: string;
+  destination: string;
+  type?: string; // club, pubcrawl, etc.
+
+  // Descriptions
+  description: string; // rich HTML
+  descriptionShort: string; // card short description
+  descriptionLong: string; // long plain description
+  extendedDescription: string;
+
+  // Pricing & tax
+  vendorPrice?: number;
+  price?: number;
+  taxRate?: number;
+  taxIncluded: boolean;
+  serviceCharges?: number;
+  priceBreakdown?: PriceBreakdown;
+  extraCharges?: Record<string, number>; // vipTable -> amount etc.
+
+  // Schedule & timings
+  openTime: string;
+  closeTime: string;
+  duration?: number;
+  durationType: "min" | "hrs";
+  operatingDays: ("Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun")[];
+  operatingHours?: string; // "openTime – closeTime"
+  timeSlots: string[];
+  timing?: string; // human readable
+  dateAvailable?: string;
+
+  // Logistics / pickup
+  pickupType: "hotel" | "meetup" | "self";
+  pickupAreas: string[];
+  meetupLocation?: string;
+  meetupAddress?: string;
+  meetingTime?: string;
+
+  // Capacity & participants
+  groupSize: string;
+  minParticipants?: number;
+  maxParticipants?: number;
+  ageLimit: string;
+  capacity?: number;
+  genderRatioRule: string;
+
+  // Location
+  address: string; // listing address
+  location: {
+    address: string;
+    city: string;
+    state: string;
+    country: string;
+  };
+
+  // Tags / content
+  highlights: string[];
+  languages: string[];
+  inclusions: string[];
+  exclusions: string[];
+  goodToKnow: string[];
+  whatToBring: string[];
+  safetyRequirements: string[];
+  voucherInfo: string[];
+  eventCategory: string[];
+  musicType: string[];
+  bestFor: string[];
+  generalInstructions: string[];
+  dressCode: string;
+
+  // Experience blocks
+  whatToExpect: ExpectBlock[];
+  whyChoose: WhyChooseBlock[];
+
+  fitnessLevel: string;
+  healthRestrictions: string;
+  bestTimeToVisit: string;
+  seasonalAvailability: string;
+  accessibility: string;
+  priceNote: string;
+
+  // Itinerary & ops
+  itinerary: TimeBlock[];
+  operationProcess: TimeBlock[];
+
+  // Cancellation
+  cancellationPolicyShort: string;
+  cancellationDetails: string[];
+
+  // Ratings & stats
+  rating: number | null;
+  reviewCount: number | null;
+  bookedCount: number | null;
+  instantConfirmation: boolean;
+  freeCancellation: boolean;
+  operatedBy: string;
+
+  // LLM chips & FAQs
+  llm_chips: NightlifeLLMChip[];
+  faqs: NightlifeFAQ[];
+
+  // Surcharges
+  surcharges: NightlifeSurcharge[];
+
+  // Media
+  thumbnail: string;
+  images: string[];       // main gallery
+  guestImages: string[];
+  videos: string[];
+
+  // Misc
+  special_mentions?: string | null;
+  notes?: string | null;
+
+  // Timestamps / internal
+  createdAt?: MongoDate;
+  updatedAt?: MongoDate;
   __v?: number;
 }
 
-/** Server payload shape (what your API returns/accepts) */
-export type NightlifeDoc = {
-  _id?: string;
-  name: string;
-  type: string;
-  hours: string;
-  estimated_duration: string;
-  desc: string;
-  price: string;
-  price_source: string;
-  age_restriction?: string;
-  music_type?: string[];
-  amenities?: string[]; // on server, amenities are plain strings
-  images?: string[]; // server images
-    llm_chips?: FAQ[];
-  thumbnail?: string; // server thumbnail
-  createdAt?: string;
-  updatedAt?: string;
-  __v?: number;
-};
+/* ==========================================================
+   3) Initial object (good FE defaults)
+   ========================================================== */
 
-/* =========================
- * Mappers
- * ========================= */
+export const NIGHTLIFE_PACKAGE_INITIAL: NightlifePackage = {
+  _id: undefined,
+  id: "",
 
-/** Normalize anything weird into a clean string[] */
-function normalizeStringArray(val: unknown): string[] {
-  if (Array.isArray(val)) return val.map(String);
-  if (typeof val === "string" && val.trim().length) return [val];
-  return [];
-}
-
-/** Map server -> UI form */
-export function toFormData(doc: NightlifeDoc): NightlifeUI {
-  const music_type = normalizeStringArray(doc.music_type);
-  const amenitiesStrings = normalizeStringArray(doc.amenities);
-  const images = normalizeStringArray(doc.images);
-
-  const llmChips: FAQ[] = Array.isArray(doc.llm_chips)
-    ? doc.llm_chips.map((c) => ({
-        q: (c.q ?? "").toString(),
-        a: (c.a ?? "").toString(),
-      }))
-    : [];
-  return {
-    _id: doc._id,
-    name: doc.name ?? "",
-    type: (doc.type as NightVenueType) ?? "",
-    hours: doc.hours ?? "",
-    estimated_duration: doc.estimated_duration ?? "",
-    desc: doc.desc ?? "",
-    price: doc.price ?? "",
-    price_source: doc.price_source ?? "",
-    age_restriction: doc.age_restriction ?? "",
-
-    music_type,
-    amenities: amenitiesStrings.map((n) => ({ name: n })),
-
-    existingImages: images,
-    newImages: [],
-llm_chips: llmChips,
-    existingThumbnail: doc.thumbnail ?? "",
-    newThumbnail: null,
-
-    createdAt: doc.createdAt,
-    updatedAt: doc.updatedAt,
-    __v: doc.__v,
-  };
-}
-
-/**
- * Map UI form -> server payload.
- * - Pass in any URLs you got after uploading `newImages`.
- * - If you uploaded a new thumbnail, pass its URL via `newThumbnailUrl`.
- */
-export function toServerPayload(
-  data: NightlifeUI,
-  uploadedImageUrls: string[] = [],
-  newThumbnailUrl?: string
-): NightlifeDoc {
-  const mergedImages = [
-    ...(data.existingImages ?? []),
-    ...(uploadedImageUrls ?? []),
-  ];
-
-  return {
-    _id: data._id,
-    name: data.name,
-    type: data.type,
-    hours: data.hours,
-    estimated_duration: data.estimated_duration,
-    desc: data.desc,
-    price: data.price,
-    price_source: data.price_source,
-    age_restriction: data.age_restriction,
-    music_type: data.music_type,
-    amenities: data.amenities.map((a) => a.name),
-    images: mergedImages,
-    thumbnail: newThumbnailUrl
-      ? newThumbnailUrl
-      : (data.existingThumbnail ?? ""),
-    llm_chips: (data.llm_chips ?? []).map((c) => ({
-      q: (c.q ?? "").toString(),
-      a: (c.a ?? "").toString(),
-    })),
-  };
-}
-
-/* =========================
- * Blank form state
- * ========================= */
-
-const BLANK: NightlifeUI = {
-  name: "",
+  title: "",
+  destination: "",
   type: "",
-  hours: "",
-  estimated_duration: "",
-  desc: "",
-  price: "",
-  price_source: "",
-  age_restriction: "",
-  music_type: [],
-  amenities: [],
-  existingImages: [],
-  newImages: [],
-  existingThumbnail: "",
-  newThumbnail: null,
+
+  description: "",
+  descriptionShort: "",
+  descriptionLong: "",
+  extendedDescription: "",
+
+  vendorPrice: undefined,
+  price: undefined,
+  taxRate: undefined,
+  taxIncluded: false,
+  serviceCharges: undefined,
+  priceBreakdown: {
+    basePrice: undefined,
+    serviceCharges: undefined,
+    taxes: undefined,
+    totalPrice: undefined,
+  },
+  extraCharges: {},
+
+  openTime: "",
+  closeTime: "",
+  duration: undefined,
+  durationType: "hrs",
+  operatingDays: [],
+  operatingHours: "",
+  timeSlots: [],
+  timing: "",
+  dateAvailable: "",
+
+  pickupType: "meetup",
+  pickupAreas: [],
+  meetupLocation: "",
+  meetupAddress: "",
+  meetingTime: "",
+
+  groupSize: "",
+  minParticipants: undefined,
+  maxParticipants: undefined,
+  ageLimit: "",
+  capacity: undefined,
+  genderRatioRule: "",
+
+  address: "",
+  location: {
+    address: "",
+    city: "",
+    state: "",
+    country: "",
+  },
+
+  highlights: [],
+  languages: [],
+  inclusions: [],
+  exclusions: [],
+  goodToKnow: [],
+  whatToBring: [],
+  safetyRequirements: [],
+  voucherInfo: [],
+  eventCategory: [],
+  musicType: [],
+  bestFor: [],
+  generalInstructions: [],
+  dressCode: "",
+
+  whatToExpect: [],
+  whyChoose: [],
+
+  fitnessLevel: "",
+  healthRestrictions: "",
+  bestTimeToVisit: "",
+  seasonalAvailability: "",
+  accessibility: "",
+  priceNote: "",
+
+  itinerary: [],
+  operationProcess: [],
+
+  cancellationPolicyShort: "Full refund up to 48 hours before Night life",
+  cancellationDetails: [],
+
+  rating: null,
+  reviewCount: null,
+  bookedCount: null,
+  instantConfirmation: false,
+  freeCancellation: false,
+  operatedBy: "",
+
   llm_chips: [],
+  faqs: [],
+
+  surcharges: [],
+
+  thumbnail: "",
+  images: [],
+  guestImages: [],
+  videos: [],
+
+  special_mentions: "",
+  notes: "",
+
+  createdAt: undefined,
+  updatedAt: undefined,
+  __v: undefined,
 };
 
-/* =========================
- * Store
- * ========================= */
+/* ==========================================================
+   4) Store shape
+   ========================================================== */
 
-type NightlifeStore = {
-  data: NightlifeUI;
+interface NightlifePackageStoreState {
+  nightlife: NightlifePackage;
 
-  // hydration & updates
-  hydrateFromServer: (doc: NightlifeDoc) => void;
-  setData: (next: Partial<NightlifeUI>) => void;
-  reset: () => void;
+  // Replace entire package (load for edit)
+  setNightlife: (pkg: NightlifePackage) => void;
 
-  // media helpers
-  addNewImages: (files: File[]) => void;
-  removeNewImage: (index: number) => void;
-  removeExistingImage: (index: number) => void;
-  setNewThumbnail: (file: File | null) => void;
-  clearExistingThumbnail: () => void;
+  // Alias to keep API similar to sightseeing
+  setPackage: (pkg: NightlifePackage) => void;
 
-  // amenities & music
-  addAmenity: (name: string) => void;
-  removeAmenity: (index: number) => void;
-  addMusic: (name: string) => void;
-  removeMusic: (index: number) => void;
+  // Shallow patch (top-level only)
+  updateNightlife: (patch: Partial<NightlifePackage>) => void;
+  updatePackage: (patch: Partial<NightlifePackage>) => void;
 
-    setLlmChips: (chips: FAQ[]) => void;
-  addLlmChip: (chip: FAQ) => void;
-  updateLlmChipAt: (index: number, patch: Partial<FAQ>) => void;
-  removeLlmChipAt: (index: number) => void;
-};
+  // Media helpers
+  setThumbnail: (url: string) => void;
 
-export const useNightlifeStore = create<NightlifeStore>()(
-  persist(
-    (set, get) => ({
-      data: { ...BLANK },
+  addImage: (url: string) => void;
+  removeImageAt: (index: number) => void;
+  setImages: (images: string[]) => void;
 
-      /** Use this when you load a doc from your API */
-      hydrateFromServer: (doc) =>
-        set(() => ({
-          // overwrite to avoid stray keys (like server `images`) lingering
-          data: { ...BLANK, ...toFormData(doc) },
-        })),
+  addGuestImage: (url: string) => void;
+  removeGuestImageAt: (index: number) => void;
+  setGuestImages: (images: string[]) => void;
 
-      /** Use this for local, partial form updates */
-      setData: (next) =>
-        set((s) => ({ data: { ...s.data, ...next } })),
+  addVideo: (url: string) => void;
+  removeVideoAt: (index: number) => void;
+  setVideos: (videos: string[]) => void;
 
-      reset: () => {
-        const { data } = get();
-        // Revoke previews to avoid leaks
-        data.newImages.forEach((i) => i.preview && URL.revokeObjectURL(i.preview));
-        if (data.newThumbnail?.preview) URL.revokeObjectURL(data.newThumbnail.preview);
-        set({ data: { ...BLANK } });
-      },
+  // Array helpers
+  setInclusions: (items: string[]) => void;
+  setExclusions: (items: string[]) => void;
+  setHighlights: (items: string[]) => void;
 
-      /* ---------- Media ---------- */
-      addNewImages: (files) =>
-        set((s) => ({
-          data: {
-            ...s.data,
-            newImages: [
-              ...s.data.newImages,
-              ...files.map((f) => ({ file: f, preview: URL.createObjectURL(f) })),
-            ],
-          },
-        })),
+  setLLMChips: (chips: NightlifeLLMChip[] ) => void;
 
-      removeNewImage: (index) =>
-        set((s) => {
-          const item = s.data.newImages[index];
-          if (item?.preview) URL.revokeObjectURL(item.preview);
-          const next = s.data.newImages.filter((_, i) => i !== index);
-          return { data: { ...s.data, newImages: next } };
-        }),
+  // Reset
+  clearNightlife: () => void;
+  clearPackage: () => void;
+}
 
-      removeExistingImage: (index) =>
-        set((s) => ({
-          data: {
-            ...s.data,
-            existingImages: (s.data.existingImages || []).filter((_, i) => i !== index),
-          },
-        })),
+/* ==========================================================
+   5) Zustand store (persisted)
+   ========================================================== */
 
-      setNewThumbnail: (file) =>
-        set((s) => {
-          // cleanup old preview
-          if (s.data.newThumbnail?.preview) URL.revokeObjectURL(s.data.newThumbnail.preview);
-          if (!file) return { data: { ...s.data, newThumbnail: null } };
-          return {
-            data: {
-              ...s.data,
-              newThumbnail: { file, preview: URL.createObjectURL(file) },
+export const useNightlifePackageStore =
+  create<NightlifePackageStoreState>()(
+    persist(
+      (set, get) => ({
+        nightlife: { ...NIGHTLIFE_PACKAGE_INITIAL },
+
+        setNightlife: (pkg) =>
+          set({
+            nightlife: {
+              ...NIGHTLIFE_PACKAGE_INITIAL,
+              ...pkg,
             },
-          };
-        }),
+          }),
 
-      clearExistingThumbnail: () =>
-        set((s) => ({ data: { ...s.data, existingThumbnail: "" } })),
+        setPackage: (pkg) =>
+          set({
+            nightlife: {
+              ...NIGHTLIFE_PACKAGE_INITIAL,
+              ...pkg,
+            },
+          }),
 
-      /* ---------- Amenities ---------- */
-      addAmenity: (name) =>
-        set((s) => ({
-          data: {
-            ...s.data,
-            amenities: [...s.data.amenities, { name: name.trim() }],
-          },
-        })),
+        updateNightlife: (patch) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              ...patch,
+            },
+          }),
 
-      removeAmenity: (index) =>
-        set((s) => {
-          const next = [...s.data.amenities];
-          next.splice(index, 1);
-          return { data: { ...s.data, amenities: next } };
-        }),
+        updatePackage: (patch) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              ...patch,
+            },
+          }),
 
-      /* ---------- Music ---------- */
-      addMusic: (name) =>
-        set((s) => ({
-          data: {
-            ...s.data,
-            music_type: [...s.data.music_type, name.trim()],
-          },
-        })),
+        // Media helpers
+        setThumbnail: (url) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              thumbnail: url,
+            },
+          }),
 
-      removeMusic: (index) =>
-        set((s) => {
-          const next = [...s.data.music_type];
-          next.splice(index, 1);
-          return { data: { ...s.data, music_type: next } };
-        }),
-         /* ---------- LLM chips ---------- */
-      setLlmChips: (chips) =>
-        set((s) => ({
-          data: {
-            ...s.data,
-            llm_chips: chips.map((c) => ({
-              q: (c.q ?? "").toString(),
-              a: (c.a ?? "").toString(),
-            })),
-          },
-        })),
+        addImage: (url) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              images: [...(get().nightlife.images || []), url],
+            },
+          }),
 
-      addLlmChip: (chip) =>
-        set((s) => ({
-          data: {
-            ...s.data,
-            llm_chips: [
-              ...(s.data.llm_chips || []),
-              {
-                q: (chip.q ?? "").toString(),
-                a: (chip.a ?? "").toString(),
-              },
-            ],
-          },
-        })),
+        removeImageAt: (index) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              images: (get().nightlife.images || []).filter(
+                (_, i) => i !== index
+              ),
+            },
+          }),
 
-      updateLlmChipAt: (index, patch) =>
-        set((s) => ({
-          data: {
-            ...s.data,
-            llm_chips: (s.data.llm_chips || []).map((c, i) =>
-              i === index
-                ? {
-                    q:
-                      patch.q !== undefined
-                        ? patch.q.toString()
-                        : c.q,
-                    a:
-                      patch.a !== undefined
-                        ? patch.a.toString()
-                        : c.a,
-                  }
-                : c
-            ),
-          },
-        })),
+        setImages: (images) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              images,
+            },
+          }),
 
-      removeLlmChipAt: (index) =>
-        set((s) => ({
-          data: {
-            ...s.data,
-            llm_chips: (s.data.llm_chips || []).filter((_, i) => i !== index),
-          },
-        })),
-    }),
-    {
-      name: "nightlife-draft", // keeps draft across navigation/refresh
-      partialize: (state) => ({ data: state.data }), // only persist form data
-      version: 1,
-    }
-  )
-);
+        addGuestImage: (url) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              guestImages: [
+                ...(get().nightlife.guestImages || []),
+                url,
+              ],
+            },
+          }),
 
+        removeGuestImageAt: (index) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              guestImages: (get().nightlife.guestImages || []).filter(
+                (_, i) => i !== index
+              ),
+            },
+          }),
 
+        setGuestImages: (images) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              guestImages: images,
+            },
+          }),
 
+        addVideo: (url) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              videos: [...(get().nightlife.videos || []), url],
+            },
+          }),
+
+        removeVideoAt: (index) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              videos: (get().nightlife.videos || []).filter(
+                (_, i) => i !== index
+              ),
+            },
+          }),
+
+        setVideos: (videos) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              videos,
+            },
+          }),
+
+        setInclusions: (items) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              inclusions: items,
+            },
+          }),
+
+        setExclusions: (items) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              exclusions: items,
+            },
+          }),
+
+        setHighlights: (items) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              highlights: items,
+            },
+          }),
+
+        setLLMChips: (chips) =>
+          set({
+            nightlife: {
+              ...get().nightlife,
+              llm_chips: chips,
+            },
+          }),
+
+        clearNightlife: () =>
+          set({ nightlife: { ...NIGHTLIFE_PACKAGE_INITIAL } }),
+
+        clearPackage: () =>
+          set({ nightlife: { ...NIGHTLIFE_PACKAGE_INITIAL } }),
+      }),
+      {
+        name: "nightlife-package-storage",
+        version: 1,
+      }
+    )
+  );
+
+/* ==========================================================
+   6) Example usage
+   ========================================================== */
+// const nightlife = useNightlifePackageStore((s) => s.nightlife);
+// const setPackage = useNightlifePackageStore((s) => s.setPackage);
+// const updateNightlife = useNightlifePackageStore((s) => s.updateNightlife);

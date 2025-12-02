@@ -1,4 +1,3 @@
-// app/dashboard/activities/AddActivityFormMobile.tsx
 "use client";
 
 import { useMemo, useRef, useState } from "react";
@@ -63,45 +62,59 @@ interface whyChooseItem {
   description: string;
 }
 
+interface ExtraChargeItem {
+  label: string;
+  amount: string;
+}
+
 interface NightlifeFormData {
+  // core identity
   title: string;
   description: string; // html
+  descriptionShort: string; // card short description
+  descriptionLong: string; // long plain description
   destination: string;
-  category: string;
+  type: string; // e.g. club, pubcrawl, beachparty, silentdisco
+
   vendorPrice: string;
   price: string;
-  childPrice: string;
-  seniorPrice: string;
-  infantPrice: string;
   taxRate: string;
   taxIncluded: boolean;
   serviceCharges: string;
 
+  // schedule
   openTime: string;
   closeTime: string;
   duration: string;
   durationType: DurationType;
   operatingDays: OperatingDay[];
   timeSlots: string[];
+  timing: string; // human readable "9:00 PM – 2:00 AM"
+  dateAvailable: string; // e.g. "All Days", "Nov – Mar"
 
-  pickupLocation: string;
-  dropLocation: string;
+  // logistics
   pickupType: PickupType;
   pickupAreas: string[];
   meetupLocation: string;
   meetupAddress: string;
   meetingTime: string;
 
+  // capacity & participants
   groupSize: string;
   minParticipants: string;
   maxParticipants: string;
+  ageLimit: string;
+  capacity: string;
+  genderRatioRule: string;
 
   // location (schema: location: { address, city, state, country })
+  address: string; // top-level listing address
   locationAddress: string;
   locationCity: string;
   locationState: string;
   locationCountry: string;
 
+  // content & tags
   highlights: string[];
   languages: string[];
   inclusions: string[];
@@ -111,11 +124,17 @@ interface NightlifeFormData {
   safetyRequirements: string[];
   voucherInfo: string[];
 
+  eventCategory: string[]; // ["Party", "Nightlife"]
+  musicType: string[]; // ["Bollywood", "EDM"]
+  bestFor: string[]; // ["Couples", "Groups"]
+  generalInstructions: string[]; // from JSON generalInstructions[]
+  dressCode: string;
+
   extendedDescription: string;
 
   // new schema fields
   whatToExpect: WhatToExpectItem[];
-  whyChoose:whyChooseItem[];
+  whyChoose: whyChooseItem[];
   fitnessLevel: string;
   healthRestrictions: string;
   bestTimeToVisit: string;
@@ -140,6 +159,8 @@ interface NightlifeFormData {
   llm_chips: FAQ[];
   faqs: FAQ[];
   surcharges: Surcharge[];
+
+  extraCharges: ExtraChargeItem[]; // maps to JSON.extraCharges object
 }
 
 interface ImageFile {
@@ -157,7 +178,6 @@ const sanitizeHtml = (html: string) =>
 
 const formatOperatingHours = (openTime: string, closeTime: string) => {
   if (!openTime || !closeTime) return "";
-  // simple string join; you can later pretty-format AM/PM if needed
   return `${openTime} – ${closeTime}`;
 };
 
@@ -184,13 +204,12 @@ const DEFAULT_SURCHARGE: Surcharge = {
 const BLANK: NightlifeFormData = {
   title: "",
   description: "",
+  descriptionShort: "",
+  descriptionLong: "",
   destination: "",
-  category: "",
+  type: "",
   vendorPrice: "",
   price: "",
-  childPrice: "",
-  seniorPrice: "",
-  infantPrice: "",
   taxRate: "",
   taxIncluded: false,
   serviceCharges: "",
@@ -201,9 +220,9 @@ const BLANK: NightlifeFormData = {
   durationType: "hrs",
   operatingDays: [],
   timeSlots: [],
+  timing: "",
+  dateAvailable: "",
 
-  pickupLocation: "",
-  dropLocation: "",
   pickupType: "meetup",
   pickupAreas: [],
   meetupLocation: "",
@@ -213,7 +232,11 @@ const BLANK: NightlifeFormData = {
   groupSize: "",
   minParticipants: "",
   maxParticipants: "",
+  ageLimit: "",
+  capacity: "",
+  genderRatioRule: "",
 
+  address: "",
   locationAddress: "",
   locationCity: "",
   locationState: "",
@@ -227,6 +250,12 @@ const BLANK: NightlifeFormData = {
   whatToBring: [],
   safetyRequirements: [],
   voucherInfo: [],
+
+  eventCategory: [],
+  musicType: [],
+  bestFor: [],
+  generalInstructions: [],
+  dressCode: "",
 
   extendedDescription: "",
 
@@ -242,7 +271,7 @@ const BLANK: NightlifeFormData = {
   itinerary: [{ time: "", title: "", description: "", duration: "" }],
   operationProcess: [{ time: "", title: "", description: "", duration: "" }],
 
-  cancellationPolicyShort: "Full refund up to 48 hours before activity",
+  cancellationPolicyShort: "Full refund up to 48 hours before Night life",
   cancellationDetails: [],
 
   rating: "",
@@ -254,6 +283,8 @@ const BLANK: NightlifeFormData = {
   surcharges: [DEFAULT_SURCHARGE],
   llm_chips: [{ q: "", a: "" }],
   faqs: [{ q: "", a: "" }],
+
+  extraCharges: [{ label: "", amount: "" }],
 };
 
 const STEPS = [
@@ -434,6 +465,32 @@ export default function AddNightlifeFormMobile() {
       ),
     }));
 
+  // Extra charges handlers
+  const addExtraCharge = () =>
+    setData((p) => ({
+      ...p,
+      extraCharges: [...p.extraCharges, { label: "", amount: "" }],
+    }));
+
+  const removeExtraCharge = (idx: number) =>
+    setData((p) => {
+      if (p.extraCharges.length <= 1) {
+        return { ...p, extraCharges: [{ label: "", amount: "" }] };
+      }
+      return {
+        ...p,
+        extraCharges: p.extraCharges.filter((_, i) => i !== idx),
+      };
+    });
+
+  const updateExtraCharge = (idx: number, next: Partial<ExtraChargeItem>) =>
+    setData((p) => ({
+      ...p,
+      extraCharges: p.extraCharges.map((it, i) =>
+        i === idx ? { ...it, ...next } : it
+      ),
+    }));
+
   // LLM chips + FAQs rich text
   const [llmChips, setLlmChips] = useState<FAQ[]>(BLANK.llm_chips);
   const [llmChipEditors, setLlmChipEditors] = useState<EditorState[]>(() =>
@@ -504,8 +561,7 @@ export default function AddNightlifeFormMobile() {
       ),
     }));
 
-
-      // whychoose handlers
+  // whychoose handlers
   const addwhychooseItem = () =>
     setData((p) => ({
       ...p,
@@ -607,7 +663,6 @@ export default function AddNightlifeFormMobile() {
       return (
         data.title.trim().length > 0 &&
         data.destination.trim().length > 0 &&
-        data.category.trim().length > 0 &&
         isFiniteNum(nn(data.price)) &&
         nn(data.price) >= 0 &&
         isFiniteNum(nn(data.vendorPrice)) &&
@@ -692,7 +747,7 @@ export default function AddNightlifeFormMobile() {
 
   const handleGuestImagesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
-    if (!files.length) return;
+       if (!files.length) return;
     const mapped = files.map((file) => ({
       file,
       preview: URL.createObjectURL(file),
@@ -757,16 +812,26 @@ export default function AddNightlifeFormMobile() {
       const taxes = taxRate ? Math.round((price * taxRate) / 100) : 0;
       const totalPrice = price + serviceCharges + taxes;
 
+      const extraCharges: Record<string, number> = {};
+      data.extraCharges.forEach((ch) => {
+        const name = (ch.label || "").trim();
+        const amt =
+          ch.amount === "" || ch.amount == null ? NaN : Number(ch.amount);
+        if (name && !Number.isNaN(amt) && amt > 0) {
+          extraCharges[name] = amt;
+        }
+      });
+
       const payload: any = {
         title: data.title.trim(),
         description: data.description.trim(),
+        descriptionShort: data.descriptionShort.trim() || undefined,
+        descriptionLong: data.descriptionLong.trim() || undefined,
         destination: data.destination.trim(),
-        category: data.category.trim(),
+        type: data.type.trim() || undefined,
+
         vendorPrice,
         price,
-        childPrice: data.childPrice ? Number(data.childPrice) : undefined,
-        seniorPrice: data.seniorPrice ? Number(data.seniorPrice) : undefined,
-        infantPrice: data.infantPrice ? Number(data.infantPrice) : undefined,
         taxRate,
         taxIncluded: !!data.taxIncluded,
         serviceCharges,
@@ -778,9 +843,9 @@ export default function AddNightlifeFormMobile() {
         operatingDays: data.operatingDays,
         operatingHours: formatOperatingHours(data.openTime, data.closeTime),
         timeSlots: data.timeSlots.map((s) => s.trim()).filter(Boolean),
+        timing: data.timing.trim() || undefined,
+        dateAvailable: data.dateAvailable.trim() || undefined,
 
-        pickupLocation: data.pickupLocation.trim(),
-        dropLocation: data.dropLocation.trim(),
         pickupType: data.pickupType,
         pickupAreas: data.pickupAreas.map((s) => s.trim()).filter(Boolean),
         meetupLocation: data.meetupLocation.trim() || undefined,
@@ -795,6 +860,13 @@ export default function AddNightlifeFormMobile() {
           ? Number(data.maxParticipants)
           : undefined,
 
+        ageLimit: data.ageLimit.trim() || undefined,
+        capacity: data.capacity
+          ? Number(data.capacity)
+          : undefined,
+        genderRatioRule: data.genderRatioRule.trim() || undefined,
+
+        address: data.address.trim() || undefined,
         location: {
           address: data.locationAddress.trim(),
           city: data.locationCity.trim(),
@@ -813,6 +885,14 @@ export default function AddNightlifeFormMobile() {
           .filter(Boolean),
         voucherInfo: data.voucherInfo.map((s) => s.trim()).filter(Boolean),
 
+        eventCategory: data.eventCategory.map((s) => s.trim()).filter(Boolean),
+        musicType: data.musicType.map((s) => s.trim()).filter(Boolean),
+        bestFor: data.bestFor.map((s) => s.trim()).filter(Boolean),
+        generalInstructions: data.generalInstructions
+          .map((s) => s.trim())
+          .filter(Boolean),
+        dressCode: data.dressCode.trim() || undefined,
+
         extendedDescription: data.extendedDescription.trim(),
 
         whatToExpect: data.whatToExpect
@@ -821,13 +901,12 @@ export default function AddNightlifeFormMobile() {
             description: (w.description || "").trim(),
           }))
           .filter((w) => w.title || w.description),
-           whyChoose: data.whyChoose
+        whyChoose: data.whyChoose
           .map((w) => ({
             title: (w.title || "").trim(),
             description: (w.description || "").trim(),
           }))
           .filter((w) => w.title || w.description),
-          
 
         fitnessLevel: data.fitnessLevel.trim() || undefined,
         healthRestrictions: data.healthRestrictions.trim() || undefined,
@@ -925,6 +1004,20 @@ export default function AddNightlifeFormMobile() {
           .filter((s) => s.amount > 0),
       };
 
+      // JSON compatibility aliases / derived fields
+      payload.includes = payload.inclusions;
+      payload.excludes = payload.exclusions;
+      payload.ratingCount = payload.reviewCount;
+
+      if (Object.keys(extraCharges).length) {
+        payload.extraCharges = extraCharges;
+      }
+
+      // top-level price fields (for NIGHT004-style docs)
+      payload.basePrice = price;
+      payload.serviceCharge = serviceCharges;
+      payload.tax = taxes;
+
       const form = new FormData();
       form.append("data", JSON.stringify(payload));
 
@@ -959,13 +1052,12 @@ export default function AddNightlifeFormMobile() {
         })
       );
 
-      // TODO: adjust backend route to match your API
-      const url = `${process.env.NEXT_PUBLIC_API_BASE}activity/create`;
+      const url = `${process.env.NEXT_PUBLIC_API_BASE}nightlife-places/create`;
       const res = await fetch(url, { method: "POST", body: form });
 
       if (res.ok) {
-        alert("Activity created successfully! 🎉");
-        router.push("/dashboard/Activities");
+        alert("Night Life created successfully! 🎉");
+        router.push("/dashboard/Nightlife");
       } else {
         const text = await res.text();
         console.error("Create failed:", text);
@@ -1022,7 +1114,7 @@ export default function AddNightlifeFormMobile() {
             </div>
             <div className="flex-1 min-w-0">
               <h1 className="text-base font-semibold text-gray-900 truncate">
-                Add Activity — {data.title || "New"}
+                Add Night Life — {data.title || "New"}
               </h1>
               <p className="text-[11px] text-gray-500 truncate">
                 Fill required sections and submit
@@ -1102,13 +1194,14 @@ export default function AddNightlifeFormMobile() {
             requiredHint
           >
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
               <Field label="Title" required>
                 <input
                   type="text"
                   className="input"
                   value={data.title}
                   onChange={(e) => onText("title", e.target.value)}
-                  placeholder="Dudhsagar Waterfall Jeep Safari"
+                  placeholder="Goa Premium Club Entry"
                   disabled={submitting}
                 />
               </Field>
@@ -1119,23 +1212,24 @@ export default function AddNightlifeFormMobile() {
                   className="input"
                   value={data.destination}
                   onChange={(e) => onText("destination", e.target.value)}
-                  placeholder="Goa, India"
+                  placeholder="Baga Beach, Goa"
                   disabled={submitting}
                 />
               </Field>
 
-              <Field label="Category" required>
+              <Field label="Night Life type">
                 <select
                   className="input"
-                  value={data.category}
-                  onChange={(e) => onText("category", e.target.value)}
+                  value={data.type}
+                  onChange={(e) => onText("type", e.target.value)}
                   disabled={submitting}
                 >
-                  <option value="">Select category</option>
-                  <option value="adventure">ADVENTURE SPORTS</option>
-                  <option value="water_activity">WATER ACTIVITY</option>
-                  <option value="water_sports">WATER SPORTS</option>
-                  <option value="entertainment">ENTERTAINMENT</option>
+                  <option value="">Select type</option>
+                  <option value="club">Club</option>
+                  <option value="pubcrawl">Pub crawl</option>
+                  <option value="beachparty">Beach party</option>
+                  <option value="silentdisco">Silent disco</option>
+                  <option value="other">Other</option>
                 </select>
               </Field>
 
@@ -1160,7 +1254,7 @@ export default function AddNightlifeFormMobile() {
                   className="input"
                   value={data.price}
                   onChange={(e) => onText("price", e.target.value)}
-                  placeholder="1599"
+                  placeholder="1999"
                   disabled={submitting}
                 />
               </Field>
@@ -1174,45 +1268,6 @@ export default function AddNightlifeFormMobile() {
                   value={data.serviceCharges}
                   onChange={(e) => onText("serviceCharges", e.target.value)}
                   placeholder="40"
-                  disabled={submitting}
-                />
-              </Field>
-
-              <Field label="Child price">
-                <input
-                  type="number"
-                  min={0}
-                  inputMode="decimal"
-                  className="input"
-                  value={data.childPrice}
-                  onChange={(e) => onText("childPrice", e.target.value)}
-                  placeholder="899"
-                  disabled={submitting}
-                />
-              </Field>
-
-              <Field label="Senior price">
-                <input
-                  type="number"
-                  min={0}
-                  inputMode="decimal"
-                  className="input"
-                  value={data.seniorPrice}
-                  onChange={(e) => onText("seniorPrice", e.target.value)}
-                  placeholder="1299"
-                  disabled={submitting}
-                />
-              </Field>
-
-              <Field label="Infant price">
-                <input
-                  type="number"
-                  min={0}
-                  inputMode="decimal"
-                  className="input"
-                  value={data.infantPrice}
-                  onChange={(e) => onText("infantPrice", e.target.value)}
-                  placeholder="0"
                   disabled={submitting}
                 />
               </Field>
@@ -1325,7 +1380,7 @@ export default function AddNightlifeFormMobile() {
               </div>
 
               <div className="mt-4 max-w-sm">
-                <Field label="Duration of activity" required>
+                <Field label="Duration of night life" required>
                   <div className="flex gap-2">
                     <div className="flex-1 relative">
                       <input
@@ -1335,7 +1390,7 @@ export default function AddNightlifeFormMobile() {
                         className="input pr-14"
                         value={data.duration}
                         onChange={(e) => onText("duration", e.target.value)}
-                        placeholder="6"
+                        placeholder="5"
                         disabled={submitting}
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 inline-flex items-center gap-1">
@@ -1364,15 +1419,38 @@ export default function AddNightlifeFormMobile() {
                   values={data.timeSlots}
                   onAdd={addStrItem("timeSlots")}
                   onRemove={remStrItem("timeSlots")}
-                  placeholder='e.g., 7:00 AM, 9:00 AM'
+                  placeholder='e.g., 7:00 PM, 9:00 PM'
                   disabled={submitting}
                 />
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Display timing (optional)">
+                  <input
+                    type="text"
+                    className="input"
+                    value={data.timing}
+                    onChange={(e) => onText("timing", e.target.value)}
+                    placeholder="9:00 PM – 2:00 AM"
+                    disabled={submitting}
+                  />
+                </Field>
+                <Field label="Date availability">
+                  <input
+                    type="text"
+                    className="input"
+                    value={data.dateAvailable}
+                    onChange={(e) => onText("dateAvailable", e.target.value)}
+                    placeholder="All Days / Nov – Mar"
+                    disabled={submitting}
+                  />
+                </Field>
               </div>
             </div>
 
             {/* Description */}
             <div className="mt-6">
-              <Field label="Short description">
+              <Field label="Short description (rich)">
                 <div className="rounded-xl border border-gray-300 bg-white">
                   <Editor
                     editorState={descEditor}
@@ -1390,6 +1468,32 @@ export default function AddNightlifeFormMobile() {
                   />
                 </div>
               </Field>
+
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Card short description (plain)">
+                  <input
+                    type="text"
+                    className="input"
+                    value={data.descriptionShort}
+                    onChange={(e) =>
+                      onText("descriptionShort", e.target.value)
+                    }
+                    placeholder="Exclusive VIP club entry with premium ambience..."
+                    disabled={submitting}
+                  />
+                </Field>
+                <Field label="Long description (plain)">
+                  <textarea
+                    className="textarea"
+                    value={data.descriptionLong}
+                    onChange={(e) =>
+                      onText("descriptionLong", e.target.value)
+                    }
+                    placeholder="Experience Goa’s top-rated premium nightclub with high-energy DJ music..."
+                    disabled={submitting}
+                  />
+                </Field>
+              </div>
             </div>
           </SectionCard>
         )}
@@ -1445,7 +1549,7 @@ export default function AddNightlifeFormMobile() {
                           className="input w-full"
                           value={c.q}
                           onChange={(e) => setLlmChip(i, { q: e.target.value })}
-                          placeholder="What does this activity include?"
+                          placeholder="What does this night life include?"
                           disabled={submitting}
                         />
                       </Field>
@@ -1578,76 +1682,21 @@ export default function AddNightlifeFormMobile() {
               {/* Location from schema.location */}
               <div className="border-b border-gray-100 pb-4">
                 <h3 className="text-sm font-semibold text-gray-900 mb-2">
-                  Activity location
+                  Night Life location
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field label="Address">
-                    <input
-                      type="text"
-                      className="input"
-                      value={data.locationAddress}
-                      onChange={(e) =>
-                        onText("locationAddress", e.target.value)
-                      }
-                      placeholder="Bhagwan Mahavir Wildlife Sanctuary, Mollem"
-                      disabled={submitting}
-                    />
-                  </Field>
-                  <Field label="City">
-                    <input
-                      type="text"
-                      className="input"
-                      value={data.locationCity}
-                      onChange={(e) => onText("locationCity", e.target.value)}
-                      placeholder="Goa"
-                      disabled={submitting}
-                    />
-                  </Field>
-                  <Field label="State">
-                    <input
-                      type="text"
-                      className="input"
-                      value={data.locationState}
-                      onChange={(e) => onText("locationState", e.target.value)}
-                      placeholder="Goa"
-                      disabled={submitting}
-                    />
-                  </Field>
-                  <Field label="Country">
-                    <input
-                      type="text"
-                      className="input"
-                      value={data.locationCountry}
-                      onChange={(e) => onText("locationCountry", e.target.value)}
-                      placeholder="India"
-                      disabled={submitting}
-                    />
+                  <Field label="Listing address (short)">
+                      <textarea
+                  className="textarea w-full"
+                  value={data.address}
+                  onChange={(e) => onText("address", e.target.value)}
+                  placeholder="Full address for meetup (if needed)"
+                  disabled={submitting}
+                /> 
                   </Field>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Pickup location" required>
-                  <input
-                    type="text"
-                    className="input"
-                    value={data.pickupLocation}
-                    onChange={(e) => onText("pickupLocation", e.target.value)}
-                    placeholder="From selected hotels / points"
-                    disabled={submitting}
-                  />
-                </Field>
-                <Field label="Drop location" required>
-                  <input
-                    type="text"
-                    className="input"
-                    value={data.dropLocation}
-                    onChange={(e) => onText("dropLocation", e.target.value)}
-                    placeholder="Hotel or central drop point"
-                    disabled={submitting}
-                  />
-                </Field>
-              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Pickup type">
@@ -1671,7 +1720,7 @@ export default function AddNightlifeFormMobile() {
                     className="input"
                     value={data.groupSize}
                     onChange={(e) => onText("groupSize", e.target.value)}
-                    placeholder="Up to 6 per jeep"
+                    placeholder="Up to 200 people"
                     disabled={submitting}
                   />
                 </Field>
@@ -1698,7 +1747,44 @@ export default function AddNightlifeFormMobile() {
                     className="input"
                     value={data.maxParticipants}
                     onChange={(e) => onText("maxParticipants", e.target.value)}
-                    placeholder="30"
+                    placeholder="200"
+                    disabled={submitting}
+                  />
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Field label="Age limit">
+                  <input
+                    type="text"
+                    className="input"
+                    value={data.ageLimit}
+                    onChange={(e) => onText("ageLimit", e.target.value)}
+                    placeholder="21+"
+                    disabled={submitting}
+                  />
+                </Field>
+                <Field label="Capacity">
+                  <input
+                    type="number"
+                    min={0}
+                    inputMode="decimal"
+                    className="input"
+                    value={data.capacity}
+                    onChange={(e) => onText("capacity", e.target.value)}
+                    placeholder="200"
+                    disabled={submitting}
+                  />
+                </Field>
+                <Field label="Gender ratio rule">
+                  <input
+                    type="text"
+                    className="input"
+                    value={data.genderRatioRule}
+                    onChange={(e) =>
+                      onText("genderRatioRule", e.target.value)
+                    }
+                    placeholder="Stag entry allowed with limited access"
                     disabled={submitting}
                   />
                 </Field>
@@ -1730,20 +1816,20 @@ export default function AddNightlifeFormMobile() {
                     className="input"
                     value={data.meetingTime}
                     onChange={(e) => onText("meetingTime", e.target.value)}
-                    placeholder="7:00 AM"
+                    placeholder="9:00 PM"
                     disabled={submitting}
                   />
                 </Field>
               </div>
 
               <Field label="Meetup address">
-                <textarea
+               <textarea
                   className="textarea w-full"
                   value={data.meetupAddress}
                   onChange={(e) => onText("meetupAddress", e.target.value)}
                   placeholder="Full address for meetup (if needed)"
                   disabled={submitting}
-                />
+                /> 
               </Field>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-gray-100 pt-4 mt-4">
@@ -1778,7 +1864,7 @@ export default function AddNightlifeFormMobile() {
                         e.target.value === "" ? "" : Number(e.target.value)
                       )
                     }
-                    placeholder="231"
+                    placeholder="350"
                     disabled={submitting}
                   />
                 </Field>
@@ -1795,7 +1881,7 @@ export default function AddNightlifeFormMobile() {
                         e.target.value === "" ? "" : Number(e.target.value)
                       )
                     }
-                    placeholder="1200"
+                    placeholder="5000"
                     disabled={submitting}
                   />
                 </Field>
@@ -1842,7 +1928,7 @@ export default function AddNightlifeFormMobile() {
                   className="input"
                   value={data.operatedBy}
                   onChange={(e) => onText("operatedBy", e.target.value)}
-                  placeholder="Goa Adventure Tours"
+                  placeholder="Goa Nightlife Events"
                   disabled={submitting}
                 />
               </Field>
@@ -1863,7 +1949,34 @@ export default function AddNightlifeFormMobile() {
                 values={data.highlights}
                 onAdd={addStrItem("highlights")}
                 onRemove={remStrItem("highlights")}
-                placeholder="e.g., Jeep ride through jungle trails"
+                placeholder="e.g., VIP priority entry"
+                disabled={submitting}
+              />
+
+              <TagComposer
+                label="Event categories"
+                values={data.eventCategory}
+                onAdd={addStrItem("eventCategory")}
+                onRemove={remStrItem("eventCategory")}
+                placeholder="e.g., Party, Nightlife"
+                disabled={submitting}
+              />
+
+              <TagComposer
+                label="Best for"
+                values={data.bestFor}
+                onAdd={addStrItem("bestFor")}
+                onRemove={remStrItem("bestFor")}
+                placeholder="e.g., Couples, Groups, Solo Travelers"
+                disabled={submitting}
+              />
+
+              <TagComposer
+                label="Music types"
+                values={data.musicType}
+                onAdd={addStrItem("musicType")}
+                onRemove={remStrItem("musicType")}
+                placeholder="e.g., Bollywood, EDM, Commercial"
                 disabled={submitting}
               />
 
@@ -1881,7 +1994,7 @@ export default function AddNightlifeFormMobile() {
                 values={data.inclusions}
                 onAdd={addStrItem("inclusions")}
                 onRemove={remStrItem("inclusions")}
-                placeholder="e.g., Jeep Safari, Forest Entry Fee"
+                placeholder="e.g., VIP entry, Welcome drink"
                 disabled={submitting}
               />
 
@@ -1890,7 +2003,7 @@ export default function AddNightlifeFormMobile() {
                 values={data.exclusions}
                 onAdd={addStrItem("exclusions")}
                 onRemove={remStrItem("exclusions")}
-                placeholder="e.g., Meals, Personal Expenses"
+                placeholder="e.g., Transport, Additional drinks"
                 disabled={submitting}
               />
 
@@ -1899,7 +2012,7 @@ export default function AddNightlifeFormMobile() {
                 values={data.whatToBring}
                 onAdd={addStrItem("whatToBring")}
                 onRemove={remStrItem("whatToBring")}
-                placeholder="e.g., Water bottle, Towel, Swimwear"
+                placeholder="e.g., ID proof, Comfortable shoes"
                 disabled={submitting}
               />
 
@@ -1908,7 +2021,16 @@ export default function AddNightlifeFormMobile() {
                 values={data.goodToKnow}
                 onAdd={addStrItem("goodToKnow")}
                 onRemove={remStrItem("goodToKnow")}
-                placeholder="e.g., Wear comfortable shoes"
+                placeholder="e.g., Outside food not allowed"
+                disabled={submitting}
+              />
+
+              <TagComposer
+                label="General instructions"
+                values={data.generalInstructions}
+                onAdd={addStrItem("generalInstructions")}
+                onRemove={remStrItem("generalInstructions")}
+                placeholder="e.g., Carry a valid government ID"
                 disabled={submitting}
               />
 
@@ -1917,7 +2039,7 @@ export default function AddNightlifeFormMobile() {
                 values={data.safetyRequirements}
                 onAdd={addStrItem("safetyRequirements")}
                 onRemove={remStrItem("safetyRequirements")}
-                placeholder="e.g., Follow guide instructions"
+                placeholder="e.g., Follow staff instructions"
                 disabled={submitting}
               />
 
@@ -1929,6 +2051,17 @@ export default function AddNightlifeFormMobile() {
                 placeholder="e.g., Mobile voucher accepted"
                 disabled={submitting}
               />
+
+              <Field label="Dress code">
+                <input
+                  type="text"
+                  className="input"
+                  value={data.dressCode}
+                  onChange={(e) => onText("dressCode", e.target.value)}
+                  placeholder="Smart casuals / Beach casuals"
+                  disabled={submitting}
+                />
+              </Field>
 
               {/* What to Expect (schema.whatToExpect) */}
               <div className="border-t border-gray-100 pt-4">
@@ -1977,7 +2110,7 @@ export default function AddNightlifeFormMobile() {
                                 title: e.target.value,
                               })
                             }
-                            placeholder="Adventure Ride"
+                            placeholder="High Energy Nightlife"
                             disabled={submitting}
                           />
                         </Field>
@@ -1990,7 +2123,7 @@ export default function AddNightlifeFormMobile() {
                                 description: e.target.value,
                               })
                             }
-                            placeholder="Expect some thrilling, bumpy off-road jungle tracks."
+                            placeholder="Premium clubbing experience with top DJs and luxury seating."
                             disabled={submitting}
                           />
                         </Field>
@@ -2047,7 +2180,7 @@ export default function AddNightlifeFormMobile() {
                                 title: e.target.value,
                               })
                             }
-                            placeholder="Adventure Ride"
+                            placeholder="Curated premium experience"
                             disabled={submitting}
                           />
                         </Field>
@@ -2060,7 +2193,7 @@ export default function AddNightlifeFormMobile() {
                                 description: e.target.value,
                               })
                             }
-                            placeholder="Expect some thrilling, bumpy off-road jungle tracks."
+                            placeholder="Handpicked venue with verified safety and service standards."
                             disabled={submitting}
                           />
                         </Field>
@@ -2069,8 +2202,6 @@ export default function AddNightlifeFormMobile() {
                   ))}
                 </div>
               </div>
-
-              
 
               {/* Extended description */}
               <Field label="Extended description">
@@ -2093,7 +2224,7 @@ export default function AddNightlifeFormMobile() {
                     className="input"
                     value={data.fitnessLevel}
                     onChange={(e) => onText("fitnessLevel", e.target.value)}
-                    placeholder="Moderate"
+                    placeholder="Suitable for all"
                     disabled={submitting}
                   />
                 </Field>
@@ -2116,7 +2247,7 @@ export default function AddNightlifeFormMobile() {
                   onChange={(e) =>
                     onText("healthRestrictions", e.target.value)
                   }
-                  placeholder="Not suitable for pregnant women / heart patients, etc."
+                  placeholder="Avoid if sensitive to loud music / alcohol, etc."
                   disabled={submitting}
                 />
               </Field>
@@ -2128,7 +2259,7 @@ export default function AddNightlifeFormMobile() {
                     className="input"
                     value={data.bestTimeToVisit}
                     onChange={(e) => onText("bestTimeToVisit", e.target.value)}
-                    placeholder="October to February"
+                    placeholder="Weekends / October to February"
                     disabled={submitting}
                   />
                 </Field>
@@ -2140,7 +2271,7 @@ export default function AddNightlifeFormMobile() {
                     onChange={(e) =>
                       onText("seasonalAvailability", e.target.value)
                     }
-                    placeholder="Available all year / Not available during monsoon"
+                    placeholder="All year / Not available during monsoon"
                     disabled={submitting}
                   />
                 </Field>
@@ -2152,10 +2283,79 @@ export default function AddNightlifeFormMobile() {
                   className="input w-full"
                   value={data.priceNote}
                   onChange={(e) => onText("priceNote", e.target.value)}
-                  placeholder="Infants travel free / Includes underwater photos"
+                  placeholder="Infants travel free / Includes welcome drink"
                   disabled={submitting}
                 />
               </Field>
+
+              {/* Extra charges */}
+              <div className="border-t border-gray-100 pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    Extra charges
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={addExtraCharge}
+                    disabled={submitting}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100"
+                  >
+                    <Plus className="size-3.5" />
+                    Add extra charge
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {data.extraCharges.map((ch, idx) => (
+                    <div
+                      key={idx}
+                      className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 sm:p-4"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold text-amber-900">
+                          Extra #{idx + 1}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => removeExtraCharge(idx)}
+                          disabled={submitting}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                        >
+                          <X className="size-3.5" />
+                          Remove
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <Field label="Label" className="sm:col-span-2">
+                          <input
+                            type="text"
+                            className="input"
+                            value={ch.label}
+                            onChange={(e) =>
+                              updateExtraCharge(idx, { label: e.target.value })
+                            }
+                            placeholder="vipTable / premiumDrinks / cloakRoom"
+                            disabled={submitting}
+                          />
+                        </Field>
+                        <Field label="Amount">
+                          <input
+                            type="number"
+                            min={0}
+                            inputMode="decimal"
+                            className="input"
+                            value={ch.amount}
+                            onChange={(e) =>
+                              updateExtraCharge(idx, { amount: e.target.value })
+                            }
+                            placeholder="2000"
+                            disabled={submitting}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
               {/* Itinerary */}
               <div className="border-t border-gray-100 pt-4">
@@ -2202,7 +2402,7 @@ export default function AddNightlifeFormMobile() {
                             onChange={(e) =>
                               updateItineraryItem(idx, { time: e.target.value })
                             }
-                            placeholder="7:00 AM"
+                            placeholder="9:00 PM"
                             disabled={submitting}
                           />
                         </Field>
@@ -2214,7 +2414,7 @@ export default function AddNightlifeFormMobile() {
                             onChange={(e) =>
                               updateItineraryItem(idx, { title: e.target.value })
                             }
-                            placeholder="Pickup from Hotel"
+                            placeholder="VIP Entry & Welcome Shot"
                             disabled={submitting}
                           />
                         </Field>
@@ -2229,7 +2429,7 @@ export default function AddNightlifeFormMobile() {
                                 description: e.target.value,
                               })
                             }
-                            placeholder="Guests are picked up from hotels near Calangute, Baga, Candolim."
+                            placeholder="Check-in using your voucher and receive your complimentary welcome drink."
                             disabled={submitting}
                           />
                         </Field>
@@ -2298,7 +2498,7 @@ export default function AddNightlifeFormMobile() {
                             onChange={(e) =>
                               updateOperationItem(idx, { time: e.target.value })
                             }
-                            placeholder="4:00 AM"
+                            placeholder="8:45 PM"
                             disabled={submitting}
                           />
                         </Field>
@@ -2312,7 +2512,7 @@ export default function AddNightlifeFormMobile() {
                                 title: e.target.value,
                               })
                             }
-                            placeholder="Meet the Guide"
+                            placeholder="VIP Check-in"
                             disabled={submitting}
                           />
                         </Field>
@@ -2327,7 +2527,7 @@ export default function AddNightlifeFormMobile() {
                                 description: e.target.value,
                               })
                             }
-                            placeholder="Meet your guide at the assigned location at 6:00 AM sharp."
+                            placeholder="Skip the queue and show your voucher for priority access."
                             disabled={submitting}
                           />
                         </Field>
@@ -2350,7 +2550,7 @@ export default function AddNightlifeFormMobile() {
                     onChange={(e) =>
                       onText("cancellationPolicyShort", e.target.value)
                     }
-                    placeholder="Full refund up to 24 hours before"
+                    placeholder="No cancellation allowed after booking / Free cancellation 24 hours before"
                     disabled={submitting}
                   />
                 </Field>
@@ -2360,7 +2560,7 @@ export default function AddNightlifeFormMobile() {
                     values={data.cancellationDetails}
                     onAdd={addStrItem("cancellationDetails")}
                     onRemove={remStrItem("cancellationDetails")}
-                    placeholder="e.g., No refund within 24 hours of travel"
+                    placeholder="e.g., Entry tickets are non-refundable / No refund after the crawl begins"
                     disabled={submitting}
                   />
                 </div>
@@ -2527,7 +2727,6 @@ export default function AddNightlifeFormMobile() {
             </div>
           </SectionCard>
         )}
-
         {/* MEDIA */}
         {step.key === "media" && (
           <SectionCard
@@ -2862,7 +3061,7 @@ export default function AddNightlifeFormMobile() {
                           aria-hidden="true"
                         />
                       )}
-                      {submitting ? "Creating..." : "Create Activity"}
+                      {submitting ? "Creating..." : "Create Night Life"}
                     </span>
                   </button>
                 )}
