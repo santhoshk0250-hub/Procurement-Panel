@@ -1695,30 +1695,28 @@ useEffect(() => {
 
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-100 px-4">
-      <div className="w-full max-w-6xl ml-auto rounded-2xl bg-white p-8 shadow-lg">
-
-        
-        <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">Edit Hotel</h1>
-     <div className="flex justify-between gap-2 mt-6">
-    <button
-      type="button"
-      onClick={goPrev}
-      disabled={currentIndex === 0}
-      className="px-4 py-2 rounded-lg bg-gray-200 text-gray-800 disabled:opacity-50"
-    >
-      Previous
-    </button>
-    <button
-      type="button"
-      onClick={goNext}
-      disabled={currentIndex === tabs.length - 1}
-      className="px-4 py-2 rounded-lg bg-gray-800 text-white disabled:opacity-50"
-    >
-      Next
-    </button>
-  </div>
-      <form onSubmit={guardedSubmit} className="p-6 bg-white rounded-2xl shadow-md space-y-6">
+    <div className="flex min-h-screen items-center justify-center bg-gray-100 px-0 sm:px-4 md:px-4">
+      <div className="w-full max-w-6xl ml-auto rounded-none sm:rounded-2xl bg-white p-4 sm:p-6 md:p-8 shadow-none sm:shadow-lg min-h-screen sm:min-h-0">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6 text-center">Edit Hotel</h1>
+        <div className="flex justify-between gap-2 mb-4 sm:mt-6">
+          <button
+            type="button"
+            onClick={goPrev}
+            disabled={currentIndex === 0}
+            className="px-3 sm:px-4 py-2 rounded-lg bg-gray-200 text-gray-800 disabled:opacity-50 text-sm sm:text-base touch-manipulation"
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            onClick={goNext}
+            disabled={currentIndex === tabs.length - 1}
+            className="px-3 sm:px-4 py-2 rounded-lg bg-gray-800 text-white disabled:opacity-50 text-sm sm:text-base touch-manipulation"
+          >
+            Next
+          </button>
+        </div>
+      <form onSubmit={guardedSubmit} className="bg-white rounded-none sm:rounded-2xl shadow-none sm:shadow-md space-y-4 sm:space-y-6">
   {/* ---------------- Tabs ---------------- */}
 <div className="relative">
       {/* Left Scroll Arrow */}

@@ -1594,13 +1594,13 @@ const handleSpecialBlackoutChange = (
 
 
   return (
-     <div className="flex min-h-screen items-center justify-center bg-gray-100 px-4">
-      <div className="w-full max-w-6xl ml-auto rounded-2xl bg-white p-8 shadow-lg">
+     <div className="flex min-h-screen items-center justify-center bg-gray-100 px-0 sm:px-4 md:px-4">
+      <div className="w-full max-w-6xl ml-auto rounded-none sm:rounded-2xl bg-white p-4 sm:p-6 md:p-8 shadow-none sm:shadow-lg min-h-screen sm:min-h-0">
 
         
-        <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">Add Hotel</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6 text-center">Add Hotel</h1>
 
-      <form onSubmit={handleSubmit} className="p-6 bg-white rounded-2xl shadow-md space-y-6">
+      <form onSubmit={handleSubmit} className="bg-white rounded-none sm:rounded-2xl shadow-none sm:shadow-md space-y-4 sm:space-y-6">
   {/* ---------------- Tabs ---------------- */}
 <div className="relative">
       {/* Left Scroll Arrow */}
@@ -1649,7 +1649,7 @@ const handleSpecialBlackoutChange = (
       )}
 
       {/* Tab Content */}
-      <div className="mt-4">
+      <div className="mt-3 sm:mt-4">
         {activeTab === "about"}
         {activeTab === "location"}
         {activeTab === "features"}
@@ -1667,7 +1667,7 @@ const handleSpecialBlackoutChange = (
 
   {/* ---------------- About Tab ---------------- */}
   {activeTab === "about" && (
-  <div className="space-y-6">
+  <div className="space-y-4 sm:space-y-6">
    
      {/* <div > */}
       {/*<div>
@@ -1676,7 +1676,7 @@ const handleSpecialBlackoutChange = (
           type="text"
           value={hotelId}
           onChange={(e) => setHotelId(e.target.value)}
-          className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+          className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
           required
         />
       </div> */}
@@ -1690,7 +1690,7 @@ const handleSpecialBlackoutChange = (
           type="text"
           value={propertyName}
           onChange={(e) => setPropertyName(e.target.value)}
-          className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+          className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
           required
         />
       </div>
@@ -1700,7 +1700,7 @@ const handleSpecialBlackoutChange = (
         type="text"
         value={chainBrand}
         onChange={(e) => setChainBrand(e.target.value)}
-        className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+        className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
       />
     </div>
     </div>
@@ -1713,7 +1713,7 @@ const handleSpecialBlackoutChange = (
           type="text"
           value={destinationId}
           onChange={(e) => setDestinationId(e.target.value)}
-          className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+          className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
         />
       </div>
       <div>
@@ -1722,7 +1722,7 @@ const handleSpecialBlackoutChange = (
           type="text"
           value={marketId}
           onChange={(e) => setMarketId(e.target.value)}
-          className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+          className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
         />
       </div>
     </div>
@@ -1736,7 +1736,7 @@ const handleSpecialBlackoutChange = (
       <select
         value={starCategory}
         onChange={(e) => setStarCategory(e.target.value)}
-        className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+        className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
       >
         <option value="">Select Category</option>
         {options.map((opt) => (
@@ -1754,7 +1754,7 @@ const handleSpecialBlackoutChange = (
           type="number"
           value={totalRooms}
           onChange={(e) => setTotalRooms(e.target.value ? Number(e.target.value) : "")}
-          className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+          className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
         />
       </div>
     </div>
@@ -1789,7 +1789,7 @@ const handleSpecialBlackoutChange = (
 
     {/* About This Space */}
 <div className="border-t pt-4">
-  <h2 className="text-lg font-semibold text-gray-700 mb-2">About this space</h2>
+  <h2 className="text-base sm:text-lg font-semibold text-gray-700 mb-2">About this space</h2>
   <div className="space-y-3">
     {description.map((point, index) => (
       <div key={index} className="flex items-start gap-2">
@@ -1837,7 +1837,7 @@ const handleSpecialBlackoutChange = (
 
     {/* Loyalty Program */}
     <div className="border-t pt-4">
-      <h2 className="text-lg font-semibold text-gray-700 mb-2">Loyalty Program</h2>
+      <h2 className="text-base sm:text-lg font-semibold text-gray-700 mb-2">Loyalty Program</h2>
       <input
         type="text"
         placeholder="Program Name"
@@ -1870,8 +1870,8 @@ const handleSpecialBlackoutChange = (
 )}
   {/* ---------------- Location Tab ---------------- */}
  {activeTab === "location" && (
-  <div className="space-y-6">
-    <h2 className="text-lg font-semibold text-gray-700">Location *</h2>
+  <div className="space-y-4 sm:space-y-6">
+    <h2 className="text-base sm:text-lg font-semibold text-gray-700">Location *</h2>
 
     {/* Address */}
     <div>
@@ -1880,7 +1880,7 @@ const handleSpecialBlackoutChange = (
         type="text"
         value={address}
         onChange={(e) => setAddress(e.target.value)}
-        className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+        className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
       />
     </div>
 
@@ -1892,7 +1892,7 @@ const handleSpecialBlackoutChange = (
           type="text"
           value={city}
           onChange={(e) => setCity(e.target.value)}
-          className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+          className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
         />
       </div>
       <div>
@@ -1901,7 +1901,7 @@ const handleSpecialBlackoutChange = (
           type="text"
           value={state}
           onChange={(e) => setState(e.target.value)}
-          className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+          className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
         />
       </div>
     </div>
@@ -1914,7 +1914,7 @@ const handleSpecialBlackoutChange = (
           type="text"
           value={country}
           onChange={(e) => setCountry(e.target.value)}
-          className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+          className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
         />
       </div>
       <div>
@@ -1923,7 +1923,7 @@ const handleSpecialBlackoutChange = (
           type="text"
           value={pincode}
           onChange={(e) => setPincode(e.target.value)}
-          className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+          className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
         />
       </div>
     </div>
@@ -1936,7 +1936,7 @@ const handleSpecialBlackoutChange = (
           type="number"
           value={latitude}
           onChange={(e) => setLatitude(e.target.value ? Number(e.target.value) : "")}
-          className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+          className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
         />
       </div>
       <div>
@@ -1945,7 +1945,7 @@ const handleSpecialBlackoutChange = (
           type="number"
           value={longitude}
           onChange={(e) => setLongitude(e.target.value ? Number(e.target.value) : "")}
-          className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+          className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
         />
       </div>
     </div>
@@ -1960,7 +1960,7 @@ const handleSpecialBlackoutChange = (
           type="number"
           value={airportDistance}
           onChange={(e) => setAirportDistance(e.target.value ? Number(e.target.value) : "")}
-          className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+          className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
         />
       </div>
       <div>
@@ -1971,7 +1971,7 @@ const handleSpecialBlackoutChange = (
           type="number"
           value={cityCenterDistance}
           onChange={(e) => setCityCenterDistance(e.target.value ? Number(e.target.value) : "")}
-          className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+          className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
         />
       </div>
     </div>
@@ -1984,7 +1984,7 @@ const handleSpecialBlackoutChange = (
         placeholder="Comma separated"
         value={landmarks}
         onChange={(e) => setLandmarks(e.target.value)}
-        className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+        className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
       />
     </div>
 
@@ -2034,7 +2034,7 @@ const handleSpecialBlackoutChange = (
   <div className="space-y-8">
     {/* Features */}
     <div>
-      <h2 className="text-lg font-semibold text-gray-700 mb-4">Features</h2>
+      <h2 className="text-base sm:text-lg font-semibold text-gray-700 mb-3 sm:mb-4">Features</h2>
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700">
@@ -2045,7 +2045,7 @@ const handleSpecialBlackoutChange = (
             placeholder="Comma separated"
             value={accessibilityFeatures}
             onChange={(e) => setAccessibilityFeatures(e.target.value)}
-            className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
           />
         </div>
 
@@ -2057,7 +2057,7 @@ const handleSpecialBlackoutChange = (
             type="text"
             value={parkingFacility}
             onChange={(e) => setParkingFacility(e.target.value)}
-            className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
           />
         </div>
 
@@ -2070,7 +2070,7 @@ const handleSpecialBlackoutChange = (
             placeholder="Comma separated"
             value={safetyFeatures}
             onChange={(e) => setSafetyFeatures(e.target.value)}
-            className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
           />
         </div>
       </div>
@@ -2086,7 +2086,7 @@ const handleSpecialBlackoutChange = (
             type="text"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
           />
         </div>
         <div>
@@ -2095,7 +2095,7 @@ const handleSpecialBlackoutChange = (
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
           />
         </div>
       </div>
@@ -2118,7 +2118,7 @@ const handleSpecialBlackoutChange = (
                 type="text"
                 value={amenity.name}
                 onChange={(e) => handleAmenityChange(idx, "name", e.target.value)}
-                className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+                className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
               />
             </div>
             <div>
@@ -2129,7 +2129,7 @@ const handleSpecialBlackoutChange = (
                 type="text"
                 value={amenity.details}
                 onChange={(e) => handleAmenityChange(idx, "details", e.target.value)}
-                className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+                className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
               />
             </div>
           </div>
@@ -4723,9 +4723,9 @@ const handleSpecialBlackoutChange = (
 <button
   type="submit"
   disabled={!isFormValid() || isMutating || Loader}
-  className="w-full rounded-lg bg-blue-600 py-2 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+  className="w-full rounded-lg bg-blue-600 py-2.5 sm:py-3 font-semibold text-white hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation text-sm sm:text-base transition-colors"
 >
-  {isMutating || Loader ? "Updating please wait..." : "Add Hotel"}
+  {isMutating || Loader ? "Adding Hotel, please wait..." : "Add Hotel"}
 </button>
         </form>
       </div>
