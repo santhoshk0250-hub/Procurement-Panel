@@ -48,6 +48,10 @@ export interface ExtraChargeItem {
   label: string;
   amount: number;
 }
+export interface ActivitySegregatedImageGroup {
+  category: string;
+  urls: string[]; // image URLs stored in DB
+}
 
 export interface NightlifeLLMChip {
   q: string;
@@ -176,6 +180,7 @@ export interface NightlifePackage {
   images: string[];       // main gallery
   guestImages: string[];
   videos: string[];
+    segregated_images?: ActivitySegregatedImageGroup[];
 
   // Misc
   special_mentions?: string | null;

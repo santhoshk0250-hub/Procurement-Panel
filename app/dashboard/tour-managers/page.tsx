@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, MouseEvent } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
+
 import {
   Box,
   Typography,
@@ -13,11 +14,8 @@ import {
   CardMedia,
   CardContent,
   CardActions,
-  IconButton,
   Chip,
   Tooltip,
-  Menu,
-  MenuItem,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -26,88 +24,82 @@ import {
   CircularProgress,
   Pagination,
   Stack,
+  IconButton,
 } from "@mui/material";
+
 import {
   Search,
-  MoreVert,
-  Edit,
-  Delete,
-  Add,
-  Person,
+  ContentCopy,
+  People,
   AccessTime,
-  AttachMoney,
-  Language,
+  CurrencyRupee,
+  Map,
+  AddCircleOutline,
+  WorkspacePremium,
+  CheckCircle,
+  Cancel,
 } from "@mui/icons-material";
+import { useTourManagerStore,type TourManager, } from "@/store/tourmanagerStore";
 
 /* ================== Types ================== */
-type MongoDate = string | { $date: string };
-type IDType = string | { $oid: string };
 
-interface TourManager {
-  _id: IDType;
-  managerId: string;
-  title: string;
-  description: string;
-  gallery?: Array<{ tag: string; url: string }>;
-  language?: string[][]; // Array of language combinations
-  general_info?: string;
-  price_breakdown?: {
-    basePrice: number;
-    serviceCharges: number;
-    taxes: number;
-    totalPrice: number;
-    priceNote: string;
-  };
-  operationProcess?: Array<{
-    time: string;
-    title: string;
-    description: string;
-  }>;
-  inclusions?: string[];
-  exclusions?: string[];
-  timings?: {
-    from: string;
-    to: string;
-  };
-  createdAt?: MongoDate;
-  updatedAt?: MongoDate;
-}
-
+type MongoId = string | { $oid: string };
 /* ================== Helpers ================== */
-const unwrapId = (id: IDType) => (typeof id === "string" ? id : id?.$oid ?? "");
+
+const unwrapId = (id?: MongoId): string =>
+  typeof id === "string" ? id : id?.$oid ?? "";
 
 const mainImage = (tm: TourManager) =>
-  tm.gallery?.[0]?.url ||
-  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=1200&auto=format&fit=crop";
+  tm.gallery?.[0]?.imageUrl ||
+  "https://images.unsplash.com/photo-1455587734955-081b22074882?q=80&w=1200&auto=format&fit=crop";
+
+const money = (n?: number) =>
+  typeof n === "number" && !Number.isNaN(n) ? `₹${n}` : "-";
+
+const stripHtml = (html?: string) =>
+  (html || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+const roleLabel = (tm: TourManager) => {
+  const slug = (tm.slug  || "").toLowerCase();
+  if (slug.includes("guide")) return "Tour Guide";
+  if (slug.includes("manager")) return "Tour Manager";
+  return "Tour Service";
+};
+
+const languagesToText = (lang?: string[][]) => {
+  if (!Array.isArray(lang) || !lang.length) return "";
+  return lang
+    .map((pair) => (pair || []).filter(Boolean).join(" - "))
+    .filter(Boolean)
+    .join(", ");
+};
 
 /* ================== Component ================== */
+
 const TourManagersDashboard: React.FC = () => {
   const [search, setSearch] = useState("");
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [selected, setSelected] = useState<TourManager | null>(null);
-  const [tourManagers, setTourManagers] = useState<TourManager[]>([]);
+  const [items, setItems] = useState<TourManager[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState<number>(1);
   const [pages, setPages] = useState<number>(1);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const open = Boolean(anchorEl);
+  const { setFromAPI } = useTourManagerStore();
+
+  const [selected, setSelected] = useState<TourManager | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const fetchTourManagers = async (pageNum: number) => {
     setLoading(true);
     try {
       const res = await axios.get(
-        `${process.env.NEXT_PUBLIC_API_BASE}tour-managers?page=${pageNum}`
+        `${process.env.NEXT_PUBLIC_API_BASE}tour-manager/fetch?page=${pageNum}`
       );
+      const data: TourManager[] = res.data.data || res.data.items || [];
+      const totalPages = res.data.pagination?.pages ?? res.data.totalPages ?? 1;
 
-      const fetchedManagers = res.data.data || [];
-      const totalPages = res.data.pagination?.pages ?? 1;
-
-      setTourManagers(fetchedManagers);
-      setPages(totalPages);
+      setItems(Array.isArray(data) ? data : []);
+      setPages(Number(totalPages) || 1);
     } catch (e) {
       console.error("Error fetching tour managers:", e);
-      setTourManagers([]);
     } finally {
       setLoading(false);
     }
@@ -120,62 +112,48 @@ const TourManagersDashboard: React.FC = () => {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
-    if (!q) return tourManagers;
-    return tourManagers.filter((tm) => {
+    if (!q) return items;
+
+    return items.filter((tm) => {
+      const id = unwrapId(tm._id);
+      const langs = languagesToText(tm.language);
       const hay = [
-        tm.title,
+        id,
         tm.managerId,
-        tm.description,
-        ...(tm.language || []).flat(), // Flatten language combinations
+        tm.title,
+        tm.slug,
+        stripHtml(tm.description),
+        stripHtml(tm.general_info),
+        langs,
+        (tm.inclusions || []).join(" "),
+        (tm.exclusions || []).join(" "),
+        (tm.gallery || []).map((g) => g.tag).join(" "),
+        (tm.tourManagerProfiles || []).map((p) => p.name).join(" "),
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
+
       return hay.includes(q);
     });
-  }, [tourManagers, search]);
+  }, [search, items]);
 
-  const handleMenuOpen = (event: MouseEvent<HTMLElement>, tm: TourManager) => {
-    setAnchorEl(event.currentTarget);
-    setSelected(tm);
-  };
-
-  const handleMenuClose = () => {
-    setAnchorEl(null);
-    setSelected(null);
-  };
-
-  const handleEdit = () => {
-    if (selected) {
-      window.location.href = `/dashboard/tour-managers/edit/${unwrapId(selected._id)}`;
-    }
-    handleMenuClose();
-  };
-
-  const handleDeleteClick = () => {
-    setDeleteDialogOpen(true);
-    handleMenuClose();
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!selected) return;
-    setDeleting(true);
+  const copyToClipboard = async (val?: string) => {
     try {
-      await axios.delete(`${process.env.NEXT_PUBLIC_API_BASE}tour-managers/${unwrapId(selected._id)}`);
-      await fetchTourManagers(page);
-      setDeleteDialogOpen(false);
-      setSelected(null);
-    } catch (e) {
-      console.error("Error deleting tour manager:", e);
-      alert("Failed to delete tour manager");
-    } finally {
-      setDeleting(false);
-    }
+      if (val) await navigator.clipboard.writeText(val);
+    } catch {}
   };
+
+  
+
+    const handleEdit = (apiItem: TourManager) => {
+      // Store full object so edit page has addonsFull
+      setFromAPI(apiItem);
+    };
 
   return (
-    <Box sx={{ p: { xs: 2, sm: 3 } }}>
-      {/* Header */}
+    <Box sx={{ p: 3, backgroundColor: "white", minHeight: "70vh" }}>
+      {/* Top bar */}
       <Box
         sx={{
           display: "flex",
@@ -186,213 +164,309 @@ const TourManagersDashboard: React.FC = () => {
           mb: 3,
         }}
       >
-        <Typography variant="h5" fontWeight="bold">
-          Tour Managers
-        </Typography>
-        <Button
-          component={Link}
-          href="/dashboard/tour-managers/add"
-          variant="contained"
-          startIcon={<Add />}
-          sx={{
-            width: { xs: "100%", sm: "auto" },
-            minHeight: "44px",
+        <TextField
+          size="small"
+          placeholder="Search tour managers, guides, languages…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search />
+              </InputAdornment>
+            ),
           }}
-        >
-          Add Tour Manager
-        </Button>
+          sx={{ width: { xs: "100%", sm: 420 } }}
+        />
+
+        <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" } }}>
+          <Button
+            href="/dashboard/services?type=tour-manager"
+            component={Link as any}
+            fullWidth
+            variant="outlined"
+            startIcon={<AddCircleOutline />}
+            sx={{ width: { xs: "100%", sm: "auto" } }}
+          >
+            Add Service
+          </Button>
+        </Box>
       </Box>
 
-      {/* Search */}
-      <TextField
-        fullWidth
-        placeholder="Search by title, manager ID, description, or language..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <Search />
-            </InputAdornment>
-          ),
-        }}
-        sx={{ mb: 3, "& .MuiInputBase-input": { fontSize: { xs: "16px", sm: "inherit" } } }}
-      />
-
-      {/* Loading */}
-      {loading && (
-        <Box display="flex" justifyContent="center" py={4}>
-          <CircularProgress />
-        </Box>
-      )}
-
-      {/* Grid */}
-      {!loading && filtered.length === 0 && (
-        <Box textAlign="center" py={4}>
+      {/* Loader / Empty states */}
+      {loading ? (
+        <Box
+          sx={{
+            minHeight: "50vh",
+            display: "grid",
+            placeItems: "center",
+            textAlign: "center",
+            gap: 2,
+          }}
+        >
+          <CircularProgress size={50} />
           <Typography variant="body1" color="text.secondary">
-            {search ? "No tour managers found matching your search." : "No tour managers found."}
+            Loading tour managers / guides…
           </Typography>
         </Box>
-      )}
-
-      {!loading && filtered.length > 0 && (
+      ) : filtered.length === 0 ? (
+        <Box
+          sx={{
+            minHeight: "40vh",
+            display: "grid",
+            placeItems: "center",
+            textAlign: "center",
+            gap: 1,
+          }}
+        >
+          <Typography variant="h6">No tour managers found</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Try a different search or add a new tour manager / guide.
+          </Typography>
+        </Box>
+      ) : (
         <>
+          {/* Cards grid */}
           <Box
             sx={{
               display: "grid",
               gridTemplateColumns: {
                 xs: "1fr",
-                sm: "repeat(2, 1fr)",
-                md: "repeat(3, 1fr)",
-                lg: "repeat(4, 1fr)",
+                sm: "repeat(auto-fill, minmax(340px, 1fr))",
+                md: "repeat(auto-fill, minmax(360px, 1fr))",
               },
-              gap: 2,
-              mb: 3,
+              gap: { xs: 2, sm: 2.5, md: 3 },
             }}
           >
-            {filtered.map((tm) => (
-              <Card
-                key={unwrapId(tm._id)}
-                sx={{
-                  display: "flex",
-                  flexDirection: "column",
-                  height: "100%",
-                  transition: "transform 0.2s, box-shadow 0.2s",
-                  "&:hover": {
-                    transform: "translateY(-4px)",
-                    boxShadow: 4,
-                  },
-                }}
-              >
-                <CardMedia
-                  component="img"
-                  height={{ xs: 180, sm: 200, md: 220 }}
-                  image={mainImage(tm)}
-                  alt={tm.title}
-                  sx={{ objectFit: "cover" }}
-                />
-                <CardContent sx={{ flexGrow: 1, p: 2 }}>
-                  <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
-                    <Typography variant="h6" fontWeight="bold" sx={{ fontSize: { xs: "1rem", sm: "1.25rem" } }}>
-                      {tm.title}
-                    </Typography>
-                    <IconButton
-                      size="small"
-                      onClick={(e) => handleMenuOpen(e, tm)}
-                      sx={{ ml: 1 }}
+            {filtered.map((tm) => {
+              const id = unwrapId(tm._id);
+              const price = money(tm.price_breakdown?.totalPrice);
+              const langs = languagesToText(tm.language);
+              const timeRange =
+                tm.timings?.from && tm.timings?.to
+                  ? `${tm.timings.from} – ${tm.timings.to}`
+                  : "";
+              const role = roleLabel(tm);
+
+              return (
+                <Card
+                  key={id || tm.managerId || tm.title}
+                  sx={{ width: "100%", maxWidth: 450, mx: "auto" }}
+                >
+                  <Box sx={{ position: "relative" }}>
+                    <CardMedia
+                      component="img"
+                      image={mainImage(tm)}
+                      alt={tm.title || "Tour manager"}
+                      sx={{
+                        objectFit: "cover",
+                        width: "100%",
+                        height: { xs: 200, sm: 180, md: 170 },
+                        borderRadius: 1,
+                      }}
+                    />
+
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        left: 8,
+                        top: 8,
+                        display: "flex",
+                        gap: 0.5,
+                        flexWrap: "wrap",
+                        maxWidth: "calc(100% - 16px)",
+                      }}
                     >
-                      <MoreVert />
-                    </IconButton>
+                      {tm.managerId && (
+                        <Chip
+                          size="small"
+                          color="primary"
+                          icon={<People />}
+                          label={tm.managerId}
+                          sx={{
+                            bgcolor: "primary.main",
+                            color: "primary.contrastText",
+                          }}
+                        />
+                      )}
+                      <Chip
+                        size="small"
+                        label={role}
+                        icon={<WorkspacePremium />}
+                        sx={{ bgcolor: "background.paper", opacity: 0.9 }}
+                      />
+                      {price !== "-" && (
+                        <Chip
+                          size="small"
+                          icon={<CurrencyRupee />}
+                          label={price}
+                          sx={{
+                            bgcolor: "success.light",
+                            color: "success.contrastText",
+                          }}
+                        />
+                      )}
+                    </Box>
                   </Box>
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
+
+                  <CardContent sx={{ pb: 1, px: { xs: 1.5, sm: 2 } }}>
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      justifyContent="space-between"
+                      spacing={1}
+                    >
+                      <Typography
+                        variant="h6"
+                        sx={{
+                          fontSize: { xs: "1rem", sm: "1.15rem" },
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          flex: 1,
+                        }}
+                        title={tm.title}
+                      >
+                        {tm.title}
+                      </Typography>
+
+                      {tm.rating && (
+                        <Chip
+                          size="small"
+                          color="success"
+                          icon={<WorkspacePremium />}
+                          label={Number(tm.rating).toFixed(1)}
+                        />
+                      )}
+                    </Stack>
+
+                    {/* Short description (HTML) */}
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      mt={1}
+                      sx={{
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                      }}
+                      title={stripHtml(tm.description)}
+                      dangerouslySetInnerHTML={{
+                        __html: tm.description ?? "",
+                      }}
+                    />
+
+                    <Stack spacing={1.2} mt={1.5}>
+                      {/* Languages */}
+                      {langs && (
+                        <Chip
+                          size="medium"
+                          icon={<People fontSize="small" />}
+                          label={langs}
+                          color="secondary"
+                          sx={{
+                            alignSelf: "flex-start",
+                            fontWeight: 600,
+                            px: { xs: 1.2, sm: 1.8 },
+                            borderRadius: 999,
+                            boxShadow: 1,
+                            fontSize: {
+                              xs: "0.75rem",
+                              sm: "0.8125rem",
+                            },
+                          }}
+                        />
+                      )}
+
+                      {/* Additional chips row */}
+                      <Stack
+                        direction="row"
+                        spacing={0.75}
+                        flexWrap="wrap"
+                        sx={{ gap: 0.75 }}
+                      >
+                        {timeRange && (
+                          <Chip
+                            size="small"
+                            icon={<AccessTime fontSize="small" />}
+                            label={timeRange}
+                          />
+                        )}
+
+                        {!!tm.inclusions?.length && (
+                          <Tooltip
+                            title={`Inclusions: ${tm.inclusions.join(", ")}`}
+                          >
+                            <Chip size="small" color="success" label="Includes" />
+                          </Tooltip>
+                        )}
+
+                        {!!tm.exclusions?.length && (
+                          <Tooltip
+                            title={`Exclusions: ${tm.exclusions.join(", ")}`}
+                          >
+                            <Chip size="small" color="warning" label="Excludes" />
+                          </Tooltip>
+                        )}
+
+                        {!!tm.tourManagerProfiles?.length && (
+                          <Chip
+                            size="small"
+                            icon={<People fontSize="small" />}
+                            label={`${tm.tourManagerProfiles.length} profile${
+                              tm.tourManagerProfiles.length > 1 ? "s" : ""
+                            }`}
+                          />
+                        )}
+                      </Stack>
+                    </Stack>
+                  </CardContent>
+
+                  <CardActions
                     sx={{
-                      mb: 1.5,
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
+                      justifyContent: "space-between",
+                      px: { xs: 1.5, sm: 2 },
+                      pb: { xs: 1.5, sm: 2 },
+                      pt: 0.5,
+                      flexDirection: { xs: "column", sm: "row" },
+                      alignItems: { xs: "stretch", sm: "center" },
+                      gap: { xs: 1, sm: 0 },
                     }}
                   >
-                    {tm.description || "No description"}
-                  </Typography>
-                  <Stack direction="row" spacing={1} flexWrap="wrap" gap={0.5}>
-                    {tm.managerId && (
-                      <Chip
-                        icon={<Person />}
-                        label={tm.managerId}
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      sx={{ width: { xs: "100%", sm: "auto" } }}
+                    >
+                      <Button
+                        key="edit"
+                        component={Link as any}
+                        href={`/dashboard/tour-managers/edit`}
                         size="small"
-                        variant="outlined"
-                      />
-                    )}
-                    {tm.price_breakdown?.totalPrice && (
-                      <Chip
-                        icon={<AttachMoney />}
-                        label={`₹${tm.price_breakdown.totalPrice}`}
-                        size="small"
-                        variant="outlined"
-                        color="primary"
-                      />
-                    )}
-                    {tm.timings && (
-                      <Chip
-                        icon={<AccessTime />}
-                        label={`${tm.timings.from} - ${tm.timings.to}`}
-                        size="small"
-                        variant="outlined"
-                      />
-                    )}
-                    {tm.language && tm.language.length > 0 && (
-                      <Chip
-                        icon={<Language />}
-                        label={tm.language[0]?.join(" + ") || "Languages"}
-                        size="small"
-                        variant="outlined"
-                        title={tm.language.map((combo) => combo.join(" + ")).join(", ")}
-                      />
-                    )}
-                  </Stack>
-                </CardContent>
-                <CardActions sx={{ p: 2, pt: 0 }}>
-                  <Button
-                    size="small"
-                    component={Link}
-                    href={`/dashboard/tour-managers/edit/${unwrapId(tm._id)}`}
-                    startIcon={<Edit />}
-                    sx={{ minHeight: "44px" }}
-                  >
-                    Edit
-                  </Button>
-                </CardActions>
-              </Card>
-            ))}
+                        onClick={() => handleEdit(tm)}
+                        sx={{ flex: { xs: 1, sm: "initial" } }}
+                      >
+                        Edit
+                      </Button>
+                    </Stack>
+                  </CardActions>
+                </Card>
+              );
+            })}
           </Box>
 
           {/* Pagination */}
-          {pages > 1 && (
-            <Box display="flex" justifyContent="center" mt={3}>
-              <Pagination
-                count={pages}
-                page={page}
-                onChange={(_, p) => setPage(p)}
-                color="primary"
-                size="large"
-              />
-            </Box>
-          )}
+          <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
+            <Pagination
+              count={pages}
+              page={page}
+              onChange={(e, value) => setPage(value)}
+              color="primary"
+            />
+          </Box>
         </>
       )}
-
-      {/* Menu */}
-      <Menu anchorEl={anchorEl} open={open} onClose={handleMenuClose}>
-        <MenuItem onClick={handleEdit}>
-          <Edit sx={{ mr: 1 }} />
-          Edit
-        </MenuItem>
-        <MenuItem onClick={handleDeleteClick}>
-          <Delete sx={{ mr: 1 }} />
-          Delete
-        </MenuItem>
-      </Menu>
-
-      {/* Delete Dialog */}
-      <Dialog open={deleteDialogOpen} onClose={() => !deleting && setDeleteDialogOpen(false)}>
-        <DialogTitle>Delete Tour Manager</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Are you sure you want to delete "{selected?.title}"? This action cannot be undone.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
-            Cancel
-          </Button>
-          <Button onClick={handleDeleteConfirm} color="error" disabled={deleting}>
-            {deleting ? <CircularProgress size={20} /> : "Delete"}
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 };

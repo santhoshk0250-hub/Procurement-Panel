@@ -2,10 +2,8 @@
 
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
-import { EditorState, ContentState, convertFromHTML } from "draft-js";
-import { stateToHTML } from "draft-js-export-html";
-import { Editor } from "react-draft-wysiwyg";
+import TinyMCETextEditor from "@/components/TinyMCETextEditor";
+
 
 interface Eligibility {
   user_type: string;
@@ -73,9 +71,6 @@ export default function CouponFormMobile() {
   const [segments, setSegments] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Editors
-  const [detailsEditor, setDetailsEditor] = useState<EditorState>(EditorState.createEmpty());
-  const [termsEditor, setTermsEditor] = useState<EditorState>(EditorState.createEmpty());
 
   // Tabs
   const tabs = ["Basics", "Eligibility", "Images"] as const;
@@ -86,35 +81,6 @@ export default function CouponFormMobile() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const router = useRouter();
-
-  // Initialize editors from existing HTML (if any)
-  useEffect(() => {
-    if (formData.details) {
-      try {
-        const blocks = convertFromHTML(formData.details);
-        const content = ContentState.createFromBlockArray(blocks.contentBlocks, blocks.entityMap);
-        setDetailsEditor(EditorState.createWithContent(content));
-      } catch {
-        setDetailsEditor(EditorState.createEmpty());
-      }
-    } else {
-      setDetailsEditor(EditorState.createEmpty());
-    }
-  }, [formData.details]);
-
-  useEffect(() => {
-    if (formData.terms_conditions) {
-      try {
-        const blocks = convertFromHTML(formData.terms_conditions);
-        const content = ContentState.createFromBlockArray(blocks.contentBlocks, blocks.entityMap);
-        setTermsEditor(EditorState.createWithContent(content));
-      } catch {
-        setTermsEditor(EditorState.createEmpty());
-      }
-    } else {
-      setTermsEditor(EditorState.createEmpty());
-    }
-  }, [formData.terms_conditions]);
 
   // ------- DERIVED -------
   const requiredOk = useMemo(() => {
@@ -176,8 +142,6 @@ export default function CouponFormMobile() {
     setStayDays("");
     setPropertyTags("");
     setSegments("");
-    setDetailsEditor(EditorState.createEmpty());
-    setTermsEditor(EditorState.createEmpty());
     setActiveTab("Basics");
     setFormData({
       seq: 0,
@@ -215,22 +179,18 @@ export default function CouponFormMobile() {
 
     setIsSubmitting(true);
     try {
-      const detailsHTML = stateToHTML(detailsEditor.getCurrentContent());
-      const termsHTML = stateToHTML(termsEditor.getCurrentContent());
+
 
       const processedData = {
-        ...formData,
-        details: detailsHTML,
-        terms_conditions: termsHTML,
-        eligibility: {
-          ...formData.eligibility,
-          stay_days: stayDays ? stayDays.split(",").map((s) => s.trim()).filter(Boolean) : [],
-          property_tags_required: propertyTags
-            ? propertyTags.split(",").map((s) => s.trim()).filter(Boolean)
-            : [],
-          segments: segments ? segments.split(",").map((s) => s.trim()).filter(Boolean) : [],
-        },
-      };
+  ...formData,
+  eligibility: {
+    ...formData.eligibility,
+    stay_days: stayDays ? stayDays.split(",").map((s) => s.trim()).filter(Boolean) : [],
+    property_tags_required: propertyTags ? propertyTags.split(",").map((s) => s.trim()).filter(Boolean) : [],
+    segments: segments ? segments.split(",").map((s) => s.trim()).filter(Boolean) : [],
+  },
+};
+
 
       const submitFormData = new FormData();
       submitFormData.append("data", JSON.stringify(processedData));
@@ -380,17 +340,12 @@ export default function CouponFormMobile() {
 
                 <Field label="Description">
                   <div className="border rounded-xl bg-white">
-                    <Editor
-                      editorState={detailsEditor}
-                      onEditorStateChange={setDetailsEditor}
-                      toolbar={{
-                        options: ["inline", "list","history"],
-                        inline: { options: ["bold", "italic", "underline", "monospace"] },
-                        list: { options: ["unordered", "ordered"] },
-                      }}
-                      editorClassName="px-3 py-2 min-h-[120px] text-[15px]"
-                      toolbarClassName="border-b"
-                    />
+                  <TinyMCETextEditor
+  value={formData.details || ""}
+  onChange={(html) => setFormData((p) => ({ ...p, details: html }))}
+  placeholder="Write coupon description..."
+/>
+
                   </div>
                   <p className="mt-1 text-xs text-gray-500">Saved as HTML.</p>
                 </Field>
@@ -424,17 +379,12 @@ export default function CouponFormMobile() {
     <div className="sm:col-span-2">
       <Field label="Terms & Conditions">
         <div className="border rounded-xl bg-white">
-          <Editor
-            editorState={termsEditor}
-            onEditorStateChange={setTermsEditor}
-            toolbar={{
-              options: ["inline", "list", "history"],
-              inline: { options: ["bold", "italic", "underline", "monospace"] },
-              list: { options: ["unordered", "ordered"] },
-            }}
-            editorClassName="px-3 py-2 min-h-[120px] text-[15px]"
-            toolbarClassName="border-b"
-          />
+         <TinyMCETextEditor
+  value={formData.terms_conditions || ""}
+  onChange={(html) => setFormData((p) => ({ ...p, terms_conditions: html }))}
+  placeholder="Write terms & conditions..."
+/>
+
         </div>
         <p className="mt-1 text-xs text-gray-500">Add rules as bullets; saved as HTML.</p>
       </Field>

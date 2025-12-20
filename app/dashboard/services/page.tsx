@@ -17,11 +17,7 @@ import {
   X,
 } from "lucide-react";
 
-// Rich text editor
-import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
-import { Editor } from "react-draft-wysiwyg";
-import { EditorState, ContentState, convertFromHTML } from "draft-js";
-import { stateToHTML } from "draft-js-export-html";
+import TinyMCETextEditor from "@/components/TinyMCETextEditor";
 
 /* ---------- Incoming (example) ---------- */
 type OID = { $oid: string };
@@ -29,7 +25,7 @@ type ISODate = string;
 
 type FAQ = { q: string; a: string };
 
-// Steps type: time + title; description is handled via EditorState
+// Steps type: time + title; description stored as HTML string
 type StepItem = {
   time: string;
   title: string;
@@ -129,18 +125,13 @@ const toDateInput = (iso?: string | { $date?: string }) => {
 
 const fromDateInput = (d?: string) => (d ? new Date(d).toISOString() : undefined);
 
-const htmlToEditorState = (html?: string) => {
-  const safe = (html ?? "").trim();
-  if (!safe) return EditorState.createEmpty();
-  const blocks = convertFromHTML(safe);
-  const content = ContentState.createFromBlockArray(blocks.contentBlocks, blocks.entityMap);
-  return EditorState.createWithContent(content);
-};
-
 const sanitizeHtml = (html: string) =>
-  html
-    .replace(/[\n\r]/g, "") // drop newline and carriage return characters
-    .replace(/>\s+</g, "><"); // collapse whitespace between tags
+  (html ?? "")
+    .replace(/[\n\r]/g, "")
+    .replace(/>\s+</g, "><");
+
+const stripHtmlToText = (html: string) =>
+  (html ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 
 /* ---------- Component ---------- */
 export default function EditServiceMobile() {
@@ -155,20 +146,21 @@ export default function EditServiceMobile() {
 
   useEffect(() => {
     let isMounted = true;
+
     (async () => {
       if (!idFromQuery) {
         setLoadErr("Missing id in query");
         setLoading(false);
         return;
       }
+
       try {
         const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_BASE}services?type=${encodeURIComponent(
-            idFromQuery
-          )}`,
+          `${process.env.NEXT_PUBLIC_API_BASE}services?type=${encodeURIComponent(idFromQuery)}`,
           { cache: "no-store" }
         );
         if (!res.ok) throw new Error(await res.text());
+
         const payload = await res.json();
         if (isMounted) {
           setDoc(payload?.data || null);
@@ -180,6 +172,7 @@ export default function EditServiceMobile() {
         if (isMounted) setLoading(false);
       }
     })();
+
     return () => {
       isMounted = false;
     };
@@ -193,10 +186,8 @@ export default function EditServiceMobile() {
   const [category, setCategory] = useState(doc?.category || "");
   const [active, setActive] = useState(!!doc?.is_active);
 
-  // description as RTE
-  const [descriptionEditor, setDescriptionEditor] = useState<EditorState>(() =>
-    htmlToEditorState(doc?.description)
-  );
+  // description HTML (TinyMCE)
+  const [descriptionHtml, setDescriptionHtml] = useState(doc?.description || "");
 
   // banner
   const [bannerUrl, setBannerUrl] = useState(doc?.banners || "");
@@ -206,46 +197,32 @@ export default function EditServiceMobile() {
     [bannerFile, bannerUrl]
   );
 
-  // terms / policies
+  // terms / policies / cancellation: HTML strings
   const [termsVersion, setTermsVersion] = useState(doc?.terms?.version || "1.0");
-  const [termsEditor, setTermsEditor] = useState(() =>
-    htmlToEditorState(doc?.terms?.content)
-  );
+  const [termsHtml, setTermsHtml] = useState(doc?.terms?.content || "");
 
   const [polVersion, setPolVersion] = useState(doc?.policies?.version || "1.0");
-  const [polEditor, setPolEditor] = useState(() =>
-    htmlToEditorState(doc?.policies?.content)
-  );
+  const [polHtml, setPolHtml] = useState(doc?.policies?.content || "");
 
-  // Cancellation policy (editor-only in UI)
-  const [cancelPolVersion, setCancelPolVersion] = useState(
-    doc?.cancellation_policy?.version || "1.0"
-  );
-  const [cancelPolEditor, setCancelPolEditor] = useState(() =>
-    htmlToEditorState(doc?.cancellation_policy?.content)
-  );
+  const [cancelPolVersion, setCancelPolVersion] = useState(doc?.cancellation_policy?.version || "1.0");
+  const [cancelPolHtml, setCancelPolHtml] = useState(doc?.cancellation_policy?.content || "");
 
   // Contact us
   const [contactEmail, setContactEmail] = useState(doc?.contact_us?.email || "");
   const [contactPhone, setContactPhone] = useState(doc?.contact_us?.phone || "");
 
-  // FAQs + editors
+  // FAQs: questions in faqs[], answers in faqAnswersHtml[]
   const [faqs, setFaqs] = useState<FAQ[]>(doc?.faqs || [{ q: "", a: "" }]);
-  const [faqEditors, setFaqEditors] = useState<EditorState[]>(() =>
-    (doc?.faqs && doc.faqs.length ? doc.faqs : [{ q: "", a: "" }]).map((f) =>
-      htmlToEditorState(f.a)
-    )
+  const [faqAnswersHtml, setFaqAnswersHtml] = useState<string[]>(
+    (doc?.faqs && doc.faqs.length ? doc.faqs : [{ q: "", a: "" }]).map((f) => f.a || "")
   );
 
-  // LLM chips + editors
+  // LLM chips
   const [llmChips, setLlmChips] = useState<FAQ[]>(
     doc?.llm_chips && doc.llm_chips.length ? doc.llm_chips : [{ q: "", a: "" }]
   );
-
-  const [llmChipEditors, setLlmChipEditors] = useState<EditorState[]>(() =>
-    (doc?.llm_chips && doc.llm_chips.length ? doc.llm_chips : [{ q: "", a: "" }]).map(
-      (c) => htmlToEditorState(c.a)
-    )
+  const [llmChipAnswersHtml, setLlmChipAnswersHtml] = useState<string[]>(
+    (doc?.llm_chips && doc.llm_chips.length ? doc.llm_chips : [{ q: "", a: "" }]).map((c) => c.a || "")
   );
 
   // Regions
@@ -258,105 +235,81 @@ export default function EditServiceMobile() {
           time: s.time || "",
           title: s.title || "",
         }))
-      : [
-          {
-            time: "",
-            title: "",
-          },
-        ]
+      : [{ time: "", title: "" }]
   );
 
-  // Step description editors (HTML)
-  const [stepEditors, setStepEditors] = useState<EditorState[]>(() =>
-    doc?.stepsToFollow && doc.stepsToFollow.length
-      ? doc.stepsToFollow.map((s) => htmlToEditorState(s.description))
-      : [EditorState.createEmpty()]
+  // Step descriptions as HTML strings
+  const [stepDescriptionsHtml, setStepDescriptionsHtml] = useState<string[]>(
+    doc?.stepsToFollow && doc.stepsToFollow.length ? doc.stepsToFollow.map((s) => s.description || "") : [""]
   );
 
   const [stepIndex, setStepIndex] = useState(0);
   const step = STEPS[stepIndex];
 
+  // Hydrate form state when doc changes
   useEffect(() => {
     if (!doc) return;
+
     setName(doc.name || "");
     setSlug(doc.slug || "");
     setCategory(doc.category || "");
     setActive(!!doc.is_active);
     setBannerUrl(doc.banners || "");
+    setBannerFile(null);
 
-    setDescriptionEditor(htmlToEditorState(doc.description));
+    setDescriptionHtml(doc.description || "");
 
     setTermsVersion(doc.terms?.version || "1.0");
-    setTermsEditor(htmlToEditorState(doc.terms?.content));
+    setTermsHtml(doc.terms?.content || "");
 
     setPolVersion(doc.policies?.version || "1.0");
-    setPolEditor(htmlToEditorState(doc.policies?.content));
+    setPolHtml(doc.policies?.content || "");
 
     setCancelPolVersion(doc.cancellation_policy?.version || "1.0");
-    setCancelPolEditor(htmlToEditorState(doc.cancellation_policy?.content));
+    setCancelPolHtml(doc.cancellation_policy?.content || "");
 
     setContactEmail(doc.contact_us?.email || "");
     setContactPhone(doc.contact_us?.phone || "");
 
     const nextFaqs = (doc.faqs && doc.faqs.length ? doc.faqs : [{ q: "", a: "" }]) as FAQ[];
     setFaqs(nextFaqs);
+    setFaqAnswersHtml(nextFaqs.map((f) => f.a || ""));
 
-    const nextLlmChips = (doc.llm_chips && doc.llm_chips.length
-      ? doc.llm_chips
-      : [{ q: "", a: "" }]) as FAQ[];
+    const nextLlmChips = (doc.llm_chips && doc.llm_chips.length ? doc.llm_chips : [{ q: "", a: "" }]) as FAQ[];
     setLlmChips(nextLlmChips);
+    setLlmChipAnswersHtml(nextLlmChips.map((c) => c.a || ""));
 
-    setRegions(
-      (doc.supportedRegions && doc.supportedRegions.length
-        ? doc.supportedRegions
-        : [""]) as string[]
-    );
+    setRegions((doc.supportedRegions && doc.supportedRegions.length ? doc.supportedRegions : [""]) as string[]);
 
-    // Steps: time + title from doc
     setSteps(
       doc.stepsToFollow && doc.stepsToFollow.length
         ? doc.stepsToFollow.map((s: any) => ({
             time: s.time || "",
             title: s.title || "",
           }))
-        : [
-            {
-              time: "",
-              title: "",
-            },
-          ]
+        : [{ time: "", title: "" }]
     );
 
-    // Step description editors from doc.description HTML
-    setStepEditors(
-      doc.stepsToFollow && doc.stepsToFollow.length
-        ? doc.stepsToFollow.map((s: any) => htmlToEditorState(s.description))
-        : [EditorState.createEmpty()]
+    setStepDescriptionsHtml(
+      doc.stepsToFollow && doc.stepsToFollow.length ? doc.stepsToFollow.map((s: any) => s.description || "") : [""]
     );
-
-    setFaqEditors(nextFaqs.map((f) => htmlToEditorState(f.a)));
-    setLlmChipEditors(nextLlmChips.map((c) => htmlToEditorState(c.a)));
   }, [doc]);
 
   /* ---------- Validation ---------- */
   const isStepValid = (k: StepKey) => {
     switch (k) {
       case "basic":
-        return (
-          name.trim().length > 0 &&
-          slug.trim().length > 0 &&
-          category.trim().length > 0
-        );
+        return name.trim().length > 0 && slug.trim().length > 0 && category.trim().length > 0;
+
       case "media":
         return (bannerPreview?.length ?? 0) > 0;
-      case "steps": {
-        // First step must have title + description text
-        const firstStep = steps[0] || { time: "", title: "" };
-        const firstEditor = stepEditors[0] || EditorState.createEmpty();
-        const hasDesc = firstEditor.getCurrentContent().hasText();
 
-        return firstStep.title.trim().length > 0 && hasDesc;
+      case "steps": {
+        const firstStep = steps[0] || { time: "", title: "" };
+        const firstDescText = stripHtmlToText(stepDescriptionsHtml[0] || "");
+        return firstStep.title.trim().length > 0 && firstDescText.length > 0;
       }
+
       case "terms":
       case "faqs":
       case "regions":
@@ -378,6 +331,7 @@ export default function EditServiceMobile() {
     setStepIndex((i) => Math.min(i + 1, LAST_INDEX));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
   const goBack = () => {
     if (submitting) return;
     setStepIndex((i) => Math.max(i - 1, 0));
@@ -387,14 +341,12 @@ export default function EditServiceMobile() {
   /* ---------- Dynamic lists ---------- */
   const addFAQ = () => {
     setFaqs((p) => [...p, { q: "", a: "" }]);
-    setFaqEditors((p) => [...p, EditorState.createEmpty()]);
+    setFaqAnswersHtml((p) => [...p, ""]);
   };
 
   const remFAQ = (idx: number) => {
     setFaqs((p) => (p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)));
-    setFaqEditors((p) =>
-      p.length <= 1 ? [EditorState.createEmpty()] : p.filter((_, i) => i !== idx)
-    );
+    setFaqAnswersHtml((p) => (p.length <= 1 ? [""] : p.filter((_, i) => i !== idx)));
   };
 
   const setFAQ = (idx: number, next: Partial<FAQ>) =>
@@ -403,52 +355,39 @@ export default function EditServiceMobile() {
   // LLM Chips dynamic list
   const addLlmChip = () => {
     setLlmChips((p) => [...p, { q: "", a: "" }]);
-    setLlmChipEditors((p) => [...p, EditorState.createEmpty()]);
+    setLlmChipAnswersHtml((p) => [...p, ""]);
   };
 
   const remLlmChip = (idx: number) => {
     setLlmChips((p) => (p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)));
-    setLlmChipEditors((p) =>
-      p.length <= 1 ? [EditorState.createEmpty()] : p.filter((_, i) => i !== idx)
-    );
+    setLlmChipAnswersHtml((p) => (p.length <= 1 ? [""] : p.filter((_, i) => i !== idx)));
   };
 
   const setLlmChip = (idx: number, next: Partial<FAQ>) =>
     setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
 
+  // Regions
   const addRegion = () => setRegions((p) => [...p, ""]);
-  const remRegion = (idx: number) =>
-    setRegions((p) => (p.length <= 1 ? [""] : p.filter((_, i) => i !== idx)));
-  const setRegion = (idx: number, val: string) =>
-    setRegions((p) => p.map((r, i) => (i === idx ? val : r)));
+  const remRegion = (idx: number) => setRegions((p) => (p.length <= 1 ? [""] : p.filter((_, i) => i !== idx)));
+  const setRegion = (idx: number, val: string) => setRegions((p) => p.map((r, i) => (i === idx ? val : r)));
 
-  // Steps To Follow dynamic list (time + title + RTE description via stepEditors)
+  // Steps To Follow dynamic list
   const addStep = () => {
     setSteps((prev) => [...prev, { time: "", title: "" }]);
-    setStepEditors((prev) => [...prev, EditorState.createEmpty()]);
+    setStepDescriptionsHtml((prev) => [...prev, ""]);
   };
 
   const updateStepAt = (index: number, field: keyof StepItem, value: string) =>
     setSteps((prev) => prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)));
 
   const clearStepAt = (index: number) => {
-    setSteps((prev) =>
-      prev.map((s, i) => (i === index ? { time: "", title: "" } : s))
-    );
-    setStepEditors((prev) =>
-      prev.map((ed, i) => (i === index ? EditorState.createEmpty() : ed))
-    );
+    setSteps((prev) => prev.map((s, i) => (i === index ? { time: "", title: "" } : s)));
+    setStepDescriptionsHtml((prev) => prev.map((d, i) => (i === index ? "" : d)));
   };
 
   const removeStepAt = (index: number) => {
-    setSteps((prev) =>
-      prev.length <= 1 ? [{ time: "", title: "" }] : prev.filter((_, i) => i !== index)
-    );
-    setStepEditors((prev) =>
-      prev.length <= 1
-        ? [EditorState.createEmpty()]
-        : prev.filter((_, i) => i !== index)
-    );
+    setSteps((prev) => (prev.length <= 1 ? [{ time: "", title: "" }] : prev.filter((_, i) => i !== index)));
+    setStepDescriptionsHtml((prev) => (prev.length <= 1 ? [""] : prev.filter((_, i) => i !== index)));
   };
 
   /* ---------- Submit ---------- */
@@ -463,98 +402,63 @@ export default function EditServiceMobile() {
     try {
       setSubmitting(true);
 
-      // Description HTML
-      const descContent = descriptionEditor.getCurrentContent();
-      const descHasText = descContent.hasText();
-      const rawDescHtml = stateToHTML(descContent);
-      const descriptionHtml = descHasText ? sanitizeHtml(rawDescHtml) : "";
-
-      const termsHtml = sanitizeHtml(stateToHTML(termsEditor.getCurrentContent()));
-      const polHtml = sanitizeHtml(stateToHTML(polEditor.getCurrentContent()));
-      const cancelPolHtml = sanitizeHtml(
-        stateToHTML(cancelPolEditor.getCurrentContent())
-      );
-
       const basePayload: ServiceDoc = {
         ...(doc || {}),
         name: name.trim(),
         slug: slug.trim(),
         category: category.trim(),
-        description: descriptionHtml.trim(),
+        description: sanitizeHtml(descriptionHtml || "").trim(),
         is_active: active,
         banners: bannerFile ? undefined : bannerUrl.trim(),
+
         terms: {
           version: (termsVersion || "1.0").trim(),
-          content: termsHtml,
+          content: sanitizeHtml(termsHtml || "").trim(),
         },
         policies: {
           version: (polVersion || "1.0").trim(),
-          content: polHtml,
+          content: sanitizeHtml(polHtml || "").trim(),
         },
         cancellation_policy: {
           version: (cancelPolVersion || "1.0").trim(),
-          content: cancelPolHtml,
+          content: sanitizeHtml(cancelPolHtml || "").trim(),
         },
+
         contact_us: {
           email: contactEmail.trim(),
           phone: contactPhone.trim(),
         },
 
-        // Steps to follow payload (time, title, description as HTML)
         stepsToFollow: steps
-          .map((s, idx) => {
-            const editor = stepEditors[idx] || EditorState.createEmpty();
-            const content = editor.getCurrentContent();
-            const hasText = content.hasText();
-            const rawHtml = stateToHTML(content);
-            const html = hasText ? sanitizeHtml(rawHtml) : "";
-
-            return {
-              time: (s.time || "").trim(),
-              title: (s.title || "").trim(),
-              description: html.trim(),
-            };
-          })
+          .map((s, idx) => ({
+            time: (s.time || "").trim(),
+            title: (s.title || "").trim(),
+            description: sanitizeHtml(stepDescriptionsHtml[idx] || "").trim(),
+          }))
           .filter((s) => s.time || s.title || s.description),
 
         faqs: faqs
-          .map((f, idx) => {
-            const editor = faqEditors[idx] || EditorState.createEmpty();
-            const content = editor.getCurrentContent();
-            const hasText = content.hasText();
-            const rawHtml = stateToHTML(content);
-            const html = hasText ? sanitizeHtml(rawHtml) : "";
-
-            return {
-              q: (f.q || "").trim(),
-              a: html.trim(),
-            };
-          })
+          .map((f, idx) => ({
+            q: (f.q || "").trim(),
+            a: sanitizeHtml(faqAnswersHtml[idx] || "").trim(),
+          }))
           .filter((f) => f.q || f.a),
+
         supportedRegions: regions.map((r) => r.trim()).filter(Boolean),
 
         llm_chips: llmChips
-          .map((c, idx) => {
-            const editor = llmChipEditors[idx] || EditorState.createEmpty();
-            const content = editor.getCurrentContent();
-            const hasText = content.hasText();
-            const rawHtml = stateToHTML(content);
-            const html = hasText ? sanitizeHtml(rawHtml) : "";
-
-            return {
-              q: (c.q || "").trim(),
-              a: html.trim(),
-            };
-          })
+          .map((c, idx) => ({
+            q: (c.q || "").trim(),
+            a: sanitizeHtml(llmChipAnswersHtml[idx] || "").trim(),
+          }))
           .filter((c) => c.q || c.a),
       };
 
       const id = unwrapId(doc?._id);
-      const url = `${process.env.NEXT_PUBLIC_API_BASE}services?type=${encodeURIComponent(
-        idFromQuery
-      )}`;
+      const url = `${process.env.NEXT_PUBLIC_API_BASE}services?type=${encodeURIComponent(idFromQuery)}`;
 
       let res: Response;
+
       if (bannerFile) {
         const form = new FormData();
         form.append("banner", bannerFile);
@@ -611,21 +515,21 @@ export default function EditServiceMobile() {
             <div className="size-9 rounded-lg bg-blue-600 text-white grid place-items-center text-sm font-bold shadow">
               {titleLetter}
             </div>
+
             <div className="flex-1 min-w-0">
               <h1 className="text-base font-semibold text-gray-900 truncate">
-                {unwrapId(doc?._id) ? "Edit Service" : "Create Service"} —{" "}
-                {name || "Untitled"}
+                {unwrapId(doc?._id) ? "Edit Service" : "Create Service"} — {name || "Untitled"}
               </h1>
-              <p className="text-[11px] text-gray-500 truncate">
-                Configure details, content, FAQs & regions.
-              </p>
+              <p className="text-[11px] text-gray-500 truncate">Configure details, content, FAQs & regions.</p>
             </div>
+
             <label className="inline-flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800">
               <input
                 type="checkbox"
                 className="size-4"
                 checked={active}
                 onChange={(e) => setActive(e.target.checked)}
+                disabled={submitting}
               />
               <Power className="size-3.5" /> Active
             </label>
@@ -636,8 +540,8 @@ export default function EditServiceMobile() {
             {STEPS.map((s, i) => {
               const activeStep = i === stepIndex;
               const done = i < stepIndex;
-              const canJump =
-                i <= stepIndex || STEPS.slice(0, i).every((st) => isStepValid(st.key));
+              const canJump = i <= stepIndex || STEPS.slice(0, i).every((st) => isStepValid(st.key));
+
               return (
                 <button
                   key={s.key}
@@ -652,9 +556,7 @@ export default function EditServiceMobile() {
                   }`}
                   disabled={submitting || !canJump}
                 >
-                  <span className="grid place-items-center">
-                    {done ? <CheckCircle2 className="size-4" /> : s.icon}
-                  </span>
+                  <span className="grid place-items-center">{done ? <CheckCircle2 className="size-4" /> : s.icon}</span>
                   {s.label}
                 </button>
               );
@@ -664,9 +566,7 @@ export default function EditServiceMobile() {
           {/* Progress */}
           <div className="mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
             <div
-              className={`h-full transition-all ${
-                submitting ? "bg-blue-400" : "bg-blue-600"
-              }`}
+              className={`h-full transition-all ${submitting ? "bg-blue-400" : "bg-blue-600"}`}
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -694,6 +594,7 @@ export default function EditServiceMobile() {
                   disabled={submitting}
                 />
               </Field>
+
               <Field label="Slug *" hint="lowercase URL id">
                 <div className="relative">
                   <input
@@ -709,6 +610,7 @@ export default function EditServiceMobile() {
                   </span>
                 </div>
               </Field>
+
               <Field label="Category *">
                 <input
                   type="text"
@@ -722,25 +624,13 @@ export default function EditServiceMobile() {
             </div>
 
             <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Description
-              </label>
-              <p className="text-[11px] text-gray-500 mb-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <p className="text-[11px] text-gray-500 mb-2">
                 Short summary used on service detail and listing views.
               </p>
+
               <div className="rounded-xl border border-gray-300 bg-white p-2">
-                <Editor
-                  editorState={descriptionEditor}
-                  onEditorStateChange={setDescriptionEditor}
-                  toolbar={{
-                    options: ["inline", "list"],
-                    inline: { options: ["bold", "italic", "underline", "strikethrough"] },
-                    list: { options: ["unordered", "ordered"] },
-                  }}
-                  toolbarClassName="border-b"
-                  wrapperClassName="rounded-xl overflow-hidden"
-                  editorClassName="min-h-[120px] px-3"
-                />
+                <TinyMCETextEditor value={descriptionHtml} onChange={setDescriptionHtml} disabled={submitting} />
               </div>
             </div>
           </SectionCard>
@@ -748,12 +638,7 @@ export default function EditServiceMobile() {
 
         {/* MEDIA */}
         {step.key === "media" && (
-          <SectionCard
-            title="Banner"
-            subtitle="Hero image shown on service landing."
-            icon={<ImageIcon className="size-5 text-blue-600" />}
-            requiredHint
-          >
+          <SectionCard title="Banner" subtitle="Hero image shown on service landing." icon={<ImageIcon className="size-5 text-blue-600" />} requiredHint>
             {bannerPreview ? (
               <div className="relative rounded-xl border border-gray-200 overflow-hidden">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -773,6 +658,7 @@ export default function EditServiceMobile() {
                   className="absolute top-2 right-2 h-8 w-8 rounded-full bg-white/90 hover:bg-white text-gray-700 shadow grid place-items-center"
                   title="Remove banner"
                   aria-label="Remove banner"
+                  disabled={submitting}
                 >
                   ×
                 </button>
@@ -789,9 +675,7 @@ export default function EditServiceMobile() {
                   className="block w-full text-sm text-gray-700 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                   disabled={submitting}
                 />
-                <p className="text-xs text-gray-500">
-                  Upload a single image (JPG/PNG/WebP). Max ~5MB recommended.
-                </p>
+                <p className="text-xs text-gray-500">Upload a single image (JPG/PNG/WebP). Max ~5MB recommended.</p>
               </div>
             )}
           </SectionCard>
@@ -799,11 +683,7 @@ export default function EditServiceMobile() {
 
         {/* LLM Chips */}
         {step.key === "llmChips" && (
-          <SectionCard
-            title="LLM Chips"
-            subtitle="Predefined Q&A snippets for the assistant."
-            icon={<HelpCircle className="size-5 text-blue-600" />}
-          >
+          <SectionCard title="LLM Chips" subtitle="Predefined Q&A snippets for the assistant." icon={<HelpCircle className="size-5 text-blue-600" />}>
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-semibold text-gray-800">Chips</span>
               <button
@@ -832,6 +712,7 @@ export default function EditServiceMobile() {
                       Remove
                     </button>
                   </div>
+
                   <div className="space-y-3">
                     <Field label="Question / Prompt">
                       <input
@@ -843,25 +724,15 @@ export default function EditServiceMobile() {
                         disabled={submitting}
                       />
                     </Field>
+
                     <Field label="Answer / Response">
                       <div className="rounded-xl border border-gray-300 bg-white p-2">
-                        <Editor
-                          editorState={llmChipEditors[i] || EditorState.createEmpty()}
-                          onEditorStateChange={(next) =>
-                            setLlmChipEditors((eds) =>
-                              eds.map((ed, idx) => (idx === i ? next : ed))
-                            )
+                        <TinyMCETextEditor
+                          value={llmChipAnswersHtml[i] || ""}
+                          onChange={(html) =>
+                            setLlmChipAnswersHtml((prev) => prev.map((v, idx) => (idx === i ? html : v)))
                           }
-                          toolbar={{
-                            options: ["inline", "list"],
-                            inline: {
-                              options: ["bold", "italic", "underline", "strikethrough"],
-                            },
-                            list: { options: ["unordered", "ordered"] },
-                          }}
-                          toolbarClassName="border-b"
-                          wrapperClassName="rounded-xl overflow-hidden"
-                          editorClassName="min-h-[100px] px-3"
+                          disabled={submitting}
                         />
                       </div>
                     </Field>
@@ -874,11 +745,7 @@ export default function EditServiceMobile() {
 
         {/* TERMS & POLICIES */}
         {step.key === "terms" && (
-          <SectionCard
-            title="Terms & Policies"
-            subtitle="Versioned content used on checkout and legal sections."
-            icon={<FileText className="size-5 text-blue-600" />}
-          >
+          <SectionCard title="Terms & Policies" subtitle="Versioned content used on checkout and legal sections." icon={<FileText className="size-5 text-blue-600" />}>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Field label="Terms Version">
                 <input
@@ -894,22 +761,9 @@ export default function EditServiceMobile() {
             </div>
 
             <div className="mt-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Terms Content
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Terms Content</label>
               <div className="rounded-xl border border-gray-300 bg-white p-2">
-                <Editor
-                  editorState={termsEditor}
-                  onEditorStateChange={setTermsEditor}
-                  toolbar={{
-                    options: ["inline", "list"],
-                    inline: { options: ["bold", "italic", "underline", "strikethrough"] },
-                    list: { options: ["unordered", "ordered"] },
-                  }}
-                  toolbarClassName="border-b"
-                  wrapperClassName="rounded-xl overflow-hidden"
-                  editorClassName="min-h-[180px] px-3"
-                />
+                <TinyMCETextEditor value={termsHtml} onChange={setTermsHtml} disabled={submitting} />
               </div>
             </div>
 
@@ -929,47 +783,20 @@ export default function EditServiceMobile() {
             </div>
 
             <div className="mt-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Policies Content
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Policies Content</label>
               <div className="rounded-xl border border-gray-300 bg-white p-2">
-                <Editor
-                  editorState={polEditor}
-                  onEditorStateChange={setPolEditor}
-                  toolbar={{
-                    options: ["inline", "list"],
-                    inline: { options: ["bold", "italic", "underline", "strikethrough"] },
-                    list: { options: ["unordered", "ordered"] },
-                  }}
-                  toolbarClassName="border-b"
-                  wrapperClassName="rounded-xl overflow-hidden"
-                  editorClassName="min-h-[160px] px-3"
-                />
+                <TinyMCETextEditor value={polHtml} onChange={setPolHtml} disabled={submitting} />
               </div>
             </div>
 
-            {/* Cancellation Policy (editor only) */}
+            {/* Cancellation Policy */}
             <div className="mt-6">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Cancellation Policy
-              </label>
-              <p className="text-[11px] text-gray-500 mb-1">
-                This will be used wherever cancellation terms are shown (checkout, confirmations,
-                etc.).
+              <label className="block text-sm font-medium text-gray-700 mb-1">Cancellation Policy</label>
+              <p className="text-[11px] text-gray-500 mb-2">
+                This will be used wherever cancellation terms are shown (checkout, confirmations, etc.).
               </p>
               <div className="rounded-xl border border-gray-300 bg-white p-2">
-                <Editor
-                  editorState={cancelPolEditor}
-                  onEditorStateChange={setCancelPolEditor}
-                  toolbar={{
-                    options: ["inline", "list"],
-                    inline: { options: ["bold", "italic", "underline", "strikethrough"] },
-                    list: { options: ["unordered", "ordered"] },
-                  }}
-                  toolbarClassName="border-b"
-                  wrapperClassName="rounded-xl overflow-hidden"
-                  editorClassName="min-h-[140px] px-3"
-                />
+                <TinyMCETextEditor value={cancelPolHtml} onChange={setCancelPolHtml} disabled={submitting} />
               </div>
             </div>
 
@@ -1001,16 +828,13 @@ export default function EditServiceMobile() {
 
         {/* STEPS TO FOLLOW */}
         {step.key === "steps" && (
-          <SectionCard
-            title="Steps to Follow"
-            subtitle="Shown to the traveler as important instructions for this transfer route."
-            icon={<FileText className="size-5 text-blue-600" />}
-          >
+          <SectionCard title="Steps to Follow" subtitle="Shown to the traveler as important instructions for this transfer route." icon={<FileText className="size-5 text-blue-600" />}>
             <div className="rounded-xl border border-gray-200">
               <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
                 <p className="text-sm font-semibold text-gray-800 inline-flex items-center gap-2">
                   <FileText className="size-4 text-blue-600" /> Steps
                 </p>
+
                 <button
                   type="button"
                   onClick={addStep}
@@ -1024,85 +848,45 @@ export default function EditServiceMobile() {
 
               <div className="p-3 space-y-3">
                 {steps.map((val, i) => (
-                  <div
-                    key={`step-${i}`}
-                    className="grid grid-cols-12 gap-2 items-start"
-                  >
+                  <div key={`step-${i}`} className="grid grid-cols-12 gap-2 items-start">
                     <div className="col-span-9 space-y-2">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <Field
-                          label="Time"
-                          hint={i === 0 ? "e.g., Before Pickup" : "e.g., During Ride"}
-                        >
+                        <Field label="Time" hint={i === 0 ? "e.g., Before Pickup" : "e.g., During Ride"}>
                           <input
                             type="text"
                             className="input w-full"
                             value={val.time}
-                            onChange={(e) =>
-                              updateStepAt(i, "time", e.target.value)
-                            }
+                            onChange={(e) => updateStepAt(i, "time", e.target.value)}
                             placeholder={i === 0 ? "Before Pickup" : "During Ride"}
                             disabled={submitting}
                           />
                         </Field>
-                        <Field
-                          label={i === 0 ? "Title *" : "Title"}
-                          required={i === 0}
-                          hint={`Step ${i + 1}`}
-                        >
+
+                        <Field label={i === 0 ? "Title *" : "Title"} required={i === 0} hint={`Step ${i + 1}`}>
                           <input
                             type="text"
                             className="input w-full"
                             value={val.title}
-                            onChange={(e) =>
-                              updateStepAt(i, "title", e.target.value)
-                            }
-                            placeholder={
-                              i === 0
-                                ? "Reach the Location"
-                                : "Another instruction title"
-                            }
+                            onChange={(e) => updateStepAt(i, "title", e.target.value)}
+                            placeholder={i === 0 ? "Reach the Location" : "Another instruction title"}
                             disabled={submitting}
                           />
                         </Field>
                       </div>
 
-                      <Field
-                        label={i === 0 ? "Description *" : "Description"}
-                        required={i === 0}
-                      >
+                      <Field label={i === 0 ? "Description *" : "Description"} required={i === 0}>
                         <div className="rounded-xl border border-gray-300 bg-white p-2 w-full">
-                          <Editor
-                            editorState={stepEditors[i] || EditorState.createEmpty()}
-                            onEditorStateChange={(next) =>
-                              setStepEditors((eds) =>
-                                eds.map((ed, idx) => (idx === i ? next : ed))
-                              )
+                          <TinyMCETextEditor
+                            value={stepDescriptionsHtml[i] || ""}
+                            onChange={(html) =>
+                              setStepDescriptionsHtml((prev) => prev.map((v, idx) => (idx === i ? html : v)))
                             }
-                            toolbar={{
-                              options: ["inline", "list"],
-                              inline: {
-                                options: [
-                                  "bold",
-                                  "italic",
-                                  "underline",
-                                  "strikethrough",
-                                ],
-                              },
-                              list: { options: ["unordered", "ordered"] },
-                            }}
-                            toolbarClassName="border-b"
-                            wrapperClassName="rounded-xl overflow-hidden"
-                            editorClassName="min-h-[100px] px-3"
-                            placeholder={
-                              i === 0
-                                ? "Arrive at the pickup point at least 10 minutes before the scheduled time."
-                                : "Add detailed instructions for this step."
-                            }
+                            disabled={submitting}
                           />
                         </div>
                       </Field>
                     </div>
+
                     <div className="col-span-3 flex gap-2 mt-7">
                       <button
                         type="button"
@@ -1114,6 +898,7 @@ export default function EditServiceMobile() {
                       >
                         <X className="size-4" />
                       </button>
+
                       <button
                         type="button"
                         onClick={() => removeStepAt(i)}
@@ -1134,11 +919,7 @@ export default function EditServiceMobile() {
 
         {/* FAQs */}
         {step.key === "faqs" && (
-          <SectionCard
-            title="Frequently Asked Questions"
-            subtitle="Quick answers for customers."
-            icon={<HelpCircle className="size-5 text-blue-600" />}
-          >
+          <SectionCard title="Frequently Asked Questions" subtitle="Quick answers for customers." icon={<HelpCircle className="size-5 text-blue-600" />}>
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-semibold text-gray-800">Questions</span>
               <button
@@ -1167,6 +948,7 @@ export default function EditServiceMobile() {
                       Remove
                     </button>
                   </div>
+
                   <div className="space-y-3">
                     <Field label="Question">
                       <input
@@ -1178,30 +960,15 @@ export default function EditServiceMobile() {
                         disabled={submitting}
                       />
                     </Field>
+
                     <Field label="Answer">
                       <div className="rounded-xl border border-gray-300 bg-white p-2">
-                        <Editor
-                          editorState={faqEditors[i] || EditorState.createEmpty()}
-                          onEditorStateChange={(next) =>
-                            setFaqEditors((eds) =>
-                              eds.map((ed, idx) => (idx === i ? next : ed))
-                            )
+                        <TinyMCETextEditor
+                          value={faqAnswersHtml[i] || ""}
+                          onChange={(html) =>
+                            setFaqAnswersHtml((prev) => prev.map((v, idx) => (idx === i ? html : v)))
                           }
-                          toolbar={{
-                            options: ["inline", "list"],
-                            inline: {
-                              options: [
-                                "bold",
-                                "italic",
-                                "underline",
-                                "strikethrough",
-                              ],
-                            },
-                            list: { options: ["unordered", "ordered"] },
-                          }}
-                          toolbarClassName="border-b"
-                          wrapperClassName="rounded-xl overflow-hidden"
-                          editorClassName="min-h-[100px] px-3"
+                          disabled={submitting}
                         />
                       </div>
                     </Field>
@@ -1214,11 +981,7 @@ export default function EditServiceMobile() {
 
         {/* REGIONS */}
         {step.key === "regions" && (
-          <SectionCard
-            title="Supported Regions"
-            subtitle="Where this service is offered."
-            icon={<MapPin className="size-5 text-blue-600" />}
-          >
+          <SectionCard title="Supported Regions" subtitle="Where this service is offered." icon={<MapPin className="size-5 text-blue-600" />}>
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-semibold text-gray-800">Regions</span>
               <button
@@ -1266,11 +1029,7 @@ export default function EditServiceMobile() {
           <div className="rounded-2xl border border-gray-200 bg-white shadow-xl shadow-gray-900/5">
             <div className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
               <span className="inline-flex items-center gap-2 text-xs text-gray-600 bg-gray-100 rounded-full px-3 py-1.5 font-semibold self-start sm:self-auto">
-                <span
-                  className={`size-2 rounded-full ${
-                    isStepValid(step.key) ? "bg-green-500" : "bg-amber-500"
-                  }`}
-                />
+                <span className={`size-2 rounded-full ${isStepValid(step.key) ? "bg-green-500" : "bg-amber-500"}`} />
                 {isStepValid(step.key) ? "Looks good" : "Complete required fields"}
               </span>
 
@@ -1280,9 +1039,7 @@ export default function EditServiceMobile() {
                   onClick={goBack}
                   disabled={stepIndex === 0 || submitting}
                   className={`flex-1 sm:flex-none px-4 py-3 text-sm font-medium rounded-xl border ${
-                    stepIndex === 0 || submitting
-                      ? "border-gray-200 text-gray-400"
-                      : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                    stepIndex === 0 || submitting ? "border-gray-200 text-gray-400" : "border-gray-300 text-gray-700 hover:bg-gray-50"
                   }`}
                 >
                   Back
@@ -1293,9 +1050,7 @@ export default function EditServiceMobile() {
                   onClick={goNext}
                   disabled={!canGoNext || submitting}
                   className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
-                    !canGoNext || submitting
-                      ? "bg-blue-300 cursor-not-allowed"
-                      : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
+                    !canGoNext || submitting ? "bg-blue-300 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
                   }`}
                   aria-busy={submitting ? "true" : "false"}
                 >
@@ -1303,14 +1058,8 @@ export default function EditServiceMobile() {
                     "Continue"
                   ) : (
                     <span className="inline-flex items-center gap-2">
-                      {submitting && (
-                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                      )}
-                      {submitting
-                        ? "Saving..."
-                        : unwrapId(doc?._id)
-                        ? "Update Service"
-                        : "Create Service"}
+                      {submitting && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+                      {submitting ? "Saving..." : unwrapId(doc?._id) ? "Update Service" : "Create Service"}
                     </span>
                   )}
                 </button>
@@ -1327,12 +1076,6 @@ export default function EditServiceMobile() {
           shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
           text-[16px] leading-none placeholder:text-gray-400 transition-all;
           -webkit-tap-highlight-color: transparent;
-        }
-        .textarea {
-          @apply w-full min-h-[88px] px-4 py-3 rounded-xl border border-gray-300 bg-white
-          shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-          text-[14px] leading-snug placeholder:text-gray-400 transition-all;
-          resize-vertical;
         }
         .no-scrollbar::-webkit-scrollbar {
           display: none;
@@ -1368,19 +1111,13 @@ function SectionCard({
       <div className="bg-white rounded-xl border border-gray-200 shadow-md overflow-visible">
         <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="size-8 grid place-items-center bg-blue-50 rounded-lg">
-              {icon}
-            </div>
+            <div className="size-8 grid place-items-center bg-blue-50 rounded-lg">{icon}</div>
             <div>
               <h2 className="text-base font-bold text-gray-900">{title}</h2>
               {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
             </div>
           </div>
-          {requiredHint && (
-            <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">
-              * Required
-            </span>
-          )}
+          {requiredHint && <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">* Required</span>}
         </div>
         <div className="p-4 sm:p-5">{children}</div>
       </div>

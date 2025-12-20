@@ -59,11 +59,17 @@ export interface ActivityExpectationItem {
   description?: string;
 }
 
+
+
 export interface ActivityPriceBreakdown {
   basePrice: number;
   serviceCharges: number;
   taxes: number;
   totalPrice: number;
+}
+export interface ActivitySegregatedImageGroup {
+  category: string;
+  urls: string[]; // image URLs stored in DB
 }
 
 /* ==========================================================
@@ -211,6 +217,8 @@ export interface Activity {
 
   llm_chips?: FAQ[];
   faqs?: FAQ[];
+
+    segregated_images?: ActivitySegregatedImageGroup[];
 
   /* ---------- Internal Flags ---------- */
 

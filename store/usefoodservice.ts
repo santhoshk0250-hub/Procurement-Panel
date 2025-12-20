@@ -15,6 +15,11 @@ export type IDType = string | { $oid: string };
 export type Category = "breakfast" | "lunch" | "dinner" | "snacks" | "beverages";
 export type SpiceLevel = "mild" | "medium" | "hot" | "extra-hot";
 
+export interface ActivitySegregatedImageGroup {
+  category: Category; // or string if your backend is more flexible
+  urls: string[]; // image URLs stored in DB
+}
+
 export interface DietaryInfo {
   vegetarian: boolean;
   vegan: boolean;
@@ -35,6 +40,7 @@ export interface FoodAddon {
   updatedAt?: MongoDate;
   __v?: number;
 }
+
 export interface FAQ {
   q: string;
   a: string;
@@ -59,21 +65,23 @@ export interface FoodService {
   dietaryInfo: DietaryInfo;
 
   // Pricing / ratings
-  price: number;          // in INR
-  rating: number;         // 0..5
-  reviewCount: number;    // >= 0
+  price: number; // in INR
+  rating: number; // 0..5
+  reviewCount: number; // >= 0
 
   // Ops
   isAvailable: boolean;
   preparationTime: number; // minutes
 
   // Media
-  banner?: string | null;  // persisted URL (null if not set)
-  images: string[];        // persisted URLs
-llm_chips?: FAQ[];
+  banner?: string | null; // persisted URL (null if not set)
+  images: string[]; // persisted URLs
+  llm_chips?: FAQ[];
+  segregated_images?: ActivitySegregatedImageGroup[];
+
   // Relations
-  addons: string[];          // ObjectId strings (for submit)
-  addonsFull?: FoodAddon[];  // Full addon objects (for edit UI)
+  addons: string[]; // ObjectId strings (for submit)
+  addonsFull?: FoodAddon[]; // Full addon objects (for edit UI)
 
   // Convenience flag for your UI (optional)
   isComplete?: boolean;
@@ -84,10 +92,10 @@ llm_chips?: FAQ[];
   __v?: number;
 }
 
-/** UI form values (unchanged) */
+/** UI form values (unchanged, just extended) */
 export interface FoodFormUIValues {
   name: string;
-  description: string;  // HTML
+  description: string; // HTML
   price: string | number | ""; // UI keeps as string, we’ll coerce
   category: Category | "";
   cuisineTags: string[];
@@ -100,9 +108,11 @@ export interface FoodFormUIValues {
   rating?: number | "";
   reviewCount?: number | "";
   addonIds: string[];
+
   // Media in the UI are handled via Files; the store keeps only URLs
   bannerUrl?: string | null;
   images: string[]; // existing URLs only
+  segregated_images?: ActivitySegregatedImageGroup[];
 }
 
 /* ==========================================================
@@ -141,8 +151,16 @@ export const fromFormUI = (ui: FoodFormUIValues): FoodService => {
     banner: ui.bannerUrl ?? null,
     images: Array.isArray(ui.images) ? ui.images.slice() : [],
 
+    // segregated images from UI
+    segregated_images: Array.isArray(ui.segregated_images)
+      ? ui.segregated_images.map((g) => ({
+          category: g.category,
+          urls: Array.isArray(g.urls) ? g.urls.filter(Boolean) : [],
+        }))
+      : [],
+
     addons: (ui.addonIds || []).filter(Boolean),
-llm_chips: [],
+    llm_chips: [],
     isComplete: false, // you can toggle this from the UI
   };
 };
@@ -166,20 +184,24 @@ export interface FoodAPIItem {
   preparationTime?: number;
   spiceLevel?: SpiceLevel | string;
   dietaryInfo?: Partial<DietaryInfo>;
-  addons?: FoodAddon[];  
-  llm_chips?: FAQ[];    // full objects from API
+  addons?: FoodAddon[];
+  llm_chips?: FAQ[];
+  segregated_images?: ActivitySegregatedImageGroup[];
+
   createdAt?: MongoDate;
   updatedAt?: MongoDate;
   __v?: number;
 }
 
 const asCategory = (c?: string): Category =>
-  (["breakfast","lunch","dinner","snacks","beverages"] as const).includes(c as Category)
+  (["breakfast", "lunch", "dinner", "snacks", "beverages"] as const).includes(
+    c as Category
+  )
     ? (c as Category)
     : "breakfast";
 
 const asSpice = (s?: string): SpiceLevel =>
-  (["mild","medium","hot","extra-hot"] as const).includes(s as SpiceLevel)
+  (["mild", "medium", "hot", "extra-hot"] as const).includes(s as SpiceLevel)
     ? (s as SpiceLevel)
     : "mild";
 
@@ -202,21 +224,35 @@ export const fromAPI = (x: FoodAPIItem): FoodService => ({
 
   price: Number.isFinite(x.price as number) ? (x.price as number) : 0,
   rating: Number.isFinite(x.rating as number) ? (x.rating as number) : 0,
-  reviewCount: Number.isFinite(x.reviewCount as number) ? (x.reviewCount as number) : 0,
+  reviewCount: Number.isFinite(x.reviewCount as number)
+    ? (x.reviewCount as number)
+    : 0,
 
   isAvailable: x.isAvailable ?? true,
-  preparationTime: Number.isFinite(x.preparationTime as number) ? (x.preparationTime as number) : 0,
+  preparationTime: Number.isFinite(x.preparationTime as number)
+    ? (x.preparationTime as number)
+    : 0,
 
   banner: x.banner ?? null,
   images: Array.isArray(x.images) ? x.images.filter(Boolean) : [],
+
   llm_chips: Array.isArray(x.llm_chips)
     ? x.llm_chips.map((f) => ({
         q: (f.q ?? "").toString(),
         a: (f.a ?? "").toString(),
       }))
     : [],
+
+  // normalized segregated_images from API
+  segregated_images: Array.isArray(x.segregated_images)
+    ? x.segregated_images.map((g) => ({
+        category: g.category,
+        urls: Array.isArray(g.urls) ? g.urls.filter(Boolean) : [],
+      }))
+    : [],
+
   // keep both ids and full objects
-  addons: Array.isArray(x.addons) ? x.addons.map(a => a._id).filter(Boolean) : [],
+  addons: Array.isArray(x.addons) ? x.addons.map((a) => a._id).filter(Boolean) : [],
   addonsFull: Array.isArray(x.addons) ? x.addons.slice() : [],
 
   isComplete: false,
@@ -290,7 +326,12 @@ export const BLANK_FOOD_SERVICE: FoodService = {
   ingredients: [],
   allergens: [],
   spiceLevel: "mild",
-  dietaryInfo: { vegetarian: false, vegan: false, glutenFree: false, halal: false },
+  dietaryInfo: {
+    vegetarian: false,
+    vegan: false,
+    glutenFree: false,
+    halal: false,
+  },
 
   price: 0,
   rating: 0,
@@ -301,6 +342,7 @@ export const BLANK_FOOD_SERVICE: FoodService = {
 
   banner: null,
   images: [],
+  segregated_images: [],
 
   addons: [],
   isComplete: false,

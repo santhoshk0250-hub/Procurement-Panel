@@ -6,10 +6,8 @@ import { useRouter } from "next/navigation";
 import { useCouponStore } from "@/store/couponsStore";
 
 // WYSIWYG
-import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
-import { Editor } from "react-draft-wysiwyg";
-import { EditorState, ContentState, convertFromHTML } from "draft-js";
-import { stateToHTML } from "draft-js-export-html";
+import TinyMCETextEditor from "@/components/TinyMCETextEditor";
+
 
 // ---- Types ----
 interface Eligibility {
@@ -94,7 +92,7 @@ const escapeHtml = (s: string) =>
 
 const initialBlankState: CouponFormData = {
   _id: "",
-  seq: ("" as unknown) as number,
+  seq: "",
   name: "",
   coupon_code: "",
   price: "",
@@ -120,8 +118,7 @@ export default function EditCouponFormMobile() {
   }, [coupon, router]);
 
   const [formData, setFormData] = useState<CouponFormData>(initialBlankState);
-  const [editorState, setEditorState] = useState<EditorState>(() => EditorState.createEmpty());
-  const [termsEditorState, setTermsEditorState] = useState<EditorState>(() => EditorState.createEmpty());
+ 
 
   // Images
   const [newImages, setNewImages] = useState<ImageFile[]>([]);
@@ -146,27 +143,8 @@ export default function EditCouponFormMobile() {
   // Initialize from store coupon
   useEffect(() => {
     if (!coupon) return;
-
-    // Details editor init
-    const detailsHtml = coupon.details || "";
-    try {
-      const blocks = convertFromHTML(detailsHtml);
-      const content = ContentState.createFromBlockArray(blocks.contentBlocks, blocks.entityMap);
-      setEditorState(EditorState.createWithContent(content));
-    } catch {
-      setEditorState(EditorState.createEmpty());
-    }
-
-    // Terms editor init
-    const termsHtml = normalizeTermsToHTML(coupon.terms_conditions);
-    try {
-      const blocks = convertFromHTML(termsHtml);
-      const content = ContentState.createFromBlockArray(blocks.contentBlocks, blocks.entityMap);
-      setTermsEditorState(EditorState.createWithContent(content));
-    } catch {
-      setTermsEditorState(EditorState.createEmpty());
-    }
-
+const detailsHtml = coupon.details || "";
+  const termsHtml = normalizeTermsToHTML(coupon.terms_conditions);
     setFormData({
       _id: coupon._id,
       seq: coupon.seq,
@@ -199,7 +177,7 @@ export default function EditCouponFormMobile() {
   }, [coupon]);
 
   // Required check
-  const detailsOk = editorState.getCurrentContent().hasText();
+  const detailsOk = (formData.details || "").replace(/<[^>]*>/g, "").trim().length > 0;
   const requiredOk =
     !!formData.seq &&
     formData.name.trim().length > 0 &&
@@ -270,21 +248,7 @@ export default function EditCouponFormMobile() {
       const detailsHtml = coupon.details || "";
       const termsHtml = normalizeTermsToHTML(coupon.terms_conditions);
 
-      // reset editors
-      try {
-        const b = convertFromHTML(detailsHtml);
-        setEditorState(EditorState.createWithContent(ContentState.createFromBlockArray(b.contentBlocks, b.entityMap)));
-      } catch {
-        setEditorState(EditorState.createEmpty());
-      }
-      try {
-        const tb = convertFromHTML(termsHtml);
-        setTermsEditorState(
-          EditorState.createWithContent(ContentState.createFromBlockArray(tb.contentBlocks, tb.entityMap))
-        );
-      } catch {
-        setTermsEditorState(EditorState.createEmpty());
-      }
+    
 
       setFormData({
         _id: coupon._id,
@@ -314,8 +278,6 @@ export default function EditCouponFormMobile() {
       setSegments(coupon.eligibility.segments?.join(", ") || "");
       setExistingImageUrls(coupon.images || []);
     } else {
-      setEditorState(EditorState.createEmpty());
-      setTermsEditorState(EditorState.createEmpty());
       setFormData(initialBlankState);
       setStayDays("");
       setPropertyTags("");
@@ -338,23 +300,17 @@ export default function EditCouponFormMobile() {
     try {
       setIsSubmitting(true);
 
-      const detailsHTML = stateToHTML(editorState.getCurrentContent());
-      const termsHTML = stateToHTML(termsEditorState.getCurrentContent());
-
       const processedData = {
-        ...formData,
-        details: detailsHTML,
-        terms_conditions: termsHTML,
-        eligibility: {
-          ...formData.eligibility,
-          stay_days: stayDays ? stayDays.split(",").map((s) => s.trim()).filter(Boolean) : [],
-          property_tags_required: propertyTags
-            ? propertyTags.split(",").map((s) => s.trim()).filter(Boolean)
-            : [],
-          segments: segments ? segments.split(",").map((s) => s.trim()).filter(Boolean) : [],
-        },
-        images: existingImageUrls,
-      };
+  ...formData,
+  eligibility: {
+    ...formData.eligibility,
+    stay_days: stayDays ? stayDays.split(",").map((s) => s.trim()).filter(Boolean) : [],
+    property_tags_required: propertyTags ? propertyTags.split(",").map((s) => s.trim()).filter(Boolean) : [],
+    segments: segments ? segments.split(",").map((s) => s.trim()).filter(Boolean) : [],
+  },
+  images: existingImageUrls,
+};
+
 
       const submitFormData = new FormData();
       submitFormData.append("data", JSON.stringify(processedData));
@@ -497,20 +453,12 @@ export default function EditCouponFormMobile() {
             {/* Details */}
             <Field label="Details" required>
               <div className={`rounded-xl border border-gray-300 bg-white ${isSubmitting ? "opacity-70" : ""}`}>
-                <Editor
-                  editorState={editorState}
-                  onEditorStateChange={setEditorState}
-                  toolbarClassName="rdw-toolbar-wrapper rounded-t-xl border-b"
-                  wrapperClassName="rdw-wrapper"
-                  editorClassName="px-3 py-2 min-h-[140px]"
-                  readOnly={isSubmitting}
-                  toolbarHidden={isSubmitting}
-                  toolbar={{
-                    options: ["inline", "blockType", "list","remove", "history"],
-                    inline: { options: ["bold", "italic", "underline"] },
-                    list: { options: ["unordered", "ordered"] },
-                  }}
-                />
+              <TinyMCETextEditor
+  value={formData.details || ""}
+  onChange={(html) => setFormData((p) => ({ ...p, details: html }))}
+  placeholder="Write coupon details..."
+/>
+
               </div>
               <p className="mt-1 text-xs text-gray-500">Rich text will be saved as HTML.</p>
             </Field>
@@ -544,20 +492,11 @@ export default function EditCouponFormMobile() {
 <div className="sm:col-span-2">
   <Field label="Terms & Conditions">
     <div className={`rounded-xl border border-gray-300 bg-white ${isSubmitting ? "opacity-70" : ""}`}>
-      <Editor
-        editorState={termsEditorState}
-        onEditorStateChange={setTermsEditorState}
-        toolbarClassName="rdw-toolbar-wrapper rounded-t-xl border-b"
-        wrapperClassName="rdw-wrapper"
-        editorClassName="px-3 py-2 min-h-[140px]"
-        readOnly={isSubmitting}
-        toolbarHidden={isSubmitting}
-        toolbar={{
-          options: ["inline", "blockType", "list", "remove", "history"],
-          inline: { options: ["bold", "italic", "underline"] },
-          list: { options: ["unordered", "ordered"] },
-        }}
-      />
+      <TinyMCETextEditor
+  value={formData.terms_conditions || ""}
+  onChange={(html) => setFormData((p) => ({ ...p, terms_conditions: html }))}
+  placeholder="Write terms & conditions..."
+/>
     </div>
     <p className="mt-1 text-xs text-gray-500">Add rules as bullets; saved as HTML.</p>
   </Field>

@@ -246,7 +246,7 @@ const SightseeingDashboard: React.FC = () => {
     if (!selected) return;
     try {
       await axios.delete(
-        `${process.env.NEXT_PUBLIC_API_BASE}sightseeing/${unwrapId(
+        `${process.env.NEXT_PUBLIC_API_BASE}sightseeing-places/delete/${unwrapId(
           selected._id
         )}`
       );

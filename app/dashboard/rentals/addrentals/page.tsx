@@ -18,10 +18,8 @@ import {
 } from "lucide-react";
 
 // 🔤 Rich text editor
-import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
-import { Editor } from "react-draft-wysiwyg";
-import { EditorState, ContentState, convertFromHTML } from "draft-js";
-import { stateToHTML } from "draft-js-export-html";
+import TinyMCETextEditor from "@/components/TinyMCETextEditor";
+
 
 /* ---------- Types ---------- */
 interface Pricing {
@@ -39,6 +37,11 @@ interface Deposits {
 interface Fuel {
   type?: string | null;
   status?: string | null;
+}
+interface SegregatedImageGroup {
+  id: string;
+  category: string;
+  images: ImageFile[];
 }
 
 interface SurgeItem {
@@ -129,6 +132,7 @@ const STEPS = [
   { key: "specs", label: "Specs", icon: <Gauge className="size-4" /> },
   { key: "locs", label: "Locations", icon: <MapPin className="size-4" /> },
   { key: "images", label: "Images", icon: <ImageIcon className="size-4" /> },
+   { key: "segregatedMedia", label: "Segregated Images", icon: <ImageIcon className="size-4" /> },
 ] as const;
 
 type StepKey = (typeof STEPS)[number]["key"];
@@ -178,16 +182,73 @@ export default function AddRentalFormMobile() {
   const [pickupList, setPickupList] = useState<string[]>([""]);
   const [dropList, setDropList] = useState<string[]>([""]);
 
-  // ---------- Rich Text helpers & state ----------
-  const htmlToEditorState = (html?: string) => {
-    const safe = (html ?? "").trim();
-    if (!safe) return EditorState.createEmpty();
-    const blocks = convertFromHTML(safe);
-    const content = ContentState.createFromBlockArray(blocks.contentBlocks, blocks.entityMap);
-    return EditorState.createWithContent(content);
+
+
+
+    // segregated images (category-wise)
+  const [segregatedGroups, setSegregatedGroups] = useState<SegregatedImageGroup[]>([
+    { id: "seg-0", category: "", images: [] },
+  ]);
+
+  const addSegGroup = () => {
+    setSegregatedGroups((prev) => [
+      ...prev,
+      {
+        id: `seg-${prev.length}`,
+        category: "",
+        images: [],
+      },
+    ]);
   };
 
+  const removeSegGroup = (id: string) => {
+    setSegregatedGroups((prev) => {
+      // cleanup URLs
+      const toRemove = prev.find((g) => g.id === id);
+      toRemove?.images.forEach((img) => URL.revokeObjectURL(img.preview));
+      const next = prev.filter((g) => g.id !== id);
+      // keep at least one empty group
+      return next.length ? next : [{ id: "seg-0", category: "", images: [] }];
+    });
+  };
 
+  const updateSegGroupCategory = (id: string, category: string) => {
+    setSegregatedGroups((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, category } : g))
+    );
+  };
+
+  const handleSegImagesUpload = (
+    id: string,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (!files.length) return;
+    const mapped: ImageFile[] = files.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+    setSegregatedGroups((prev) =>
+      prev.map((g) =>
+        g.id === id ? { ...g, images: [...g.images, ...mapped] } : g
+      )
+    );
+    e.target.value = "";
+  };
+
+  const removeSegImage = (groupId: string, idx: number) => {
+    setSegregatedGroups((prev) =>
+      prev.map((g) => {
+        if (g.id !== groupId) return g;
+        const img = g.images[idx];
+        if (img?.preview) URL.revokeObjectURL(img.preview);
+        return {
+          ...g,
+          images: g.images.filter((_, i) => i !== idx),
+        };
+      })
+    );
+  };
 
   // hydrate lists if server data exists
   useEffect(() => {
@@ -408,6 +469,12 @@ export default function AddRentalFormMobile() {
         images: existingImageUrls,
         pickupLocations: joinedPickup,
         dropLocations: joinedDrop,
+           segregated_images: segregatedGroups
+          .map((g) => ({
+            category: g.category.trim(),
+            imagesCount: g.images.length,
+          }))
+          .filter((g) => g.category && g.imagesCount > 0),
       };
 
       if (processedVendorPricing) processedData.vendorPricing = processedVendorPricing;
@@ -426,7 +493,12 @@ export default function AddRentalFormMobile() {
       submitFormData.append("images_removed", JSON.stringify([]));
 
       newImages.forEach((img) => submitFormData.append("images", img.file));
-
+    segregatedGroups.forEach((group, gIdx) => {
+        group.images.forEach((img) => {
+          // backend can use field name + index to know which category it belongs to
+          submitFormData.append(`segregated_images_${gIdx}`, img.file);
+        });
+      });
       if (newThumbnail?.file) submitFormData.append("thumbnail", newThumbnail.file);
       if (existingThumbnailUrl) submitFormData.append("thumbnail_keep", existingThumbnailUrl);
 
@@ -1308,6 +1380,117 @@ export default function AddRentalFormMobile() {
             </div>
           </SectionCard>
         )}
+         {step.key === "segregatedMedia" && (
+                  <SectionCard
+                    title="Segregated Images"
+                    subtitle="Group images by category (e.g., Nature, Waterfall, Guest Images)."
+                    icon={<ImageIcon className="size-5 text-blue-600" />}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold text-gray-900">
+                        Categories & Images
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={addSegGroup}
+                        disabled={submitting}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                      >
+                        <Plus className="size-3.5" />
+                        Add Category
+                      </button>
+                    </div>
+        
+                    <div className="space-y-4">
+                      {segregatedGroups.map((group, idx) => (
+                        <div
+                          key={group.id}
+                          className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4"
+                        >
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="text-xs font-semibold text-gray-700">
+                              Category #{idx + 1}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => removeSegGroup(group.id)}
+                              disabled={submitting}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                            >
+                              <X className="size-3.5" />
+                              Remove
+                            </button>
+                          </div>
+        
+                          <Field label="Category name" required>
+                            <input
+                              type="text"
+                              className="input"
+                              value={group.category}
+                              onChange={(e) =>
+                                updateSegGroupCategory(group.id, e.target.value)
+                              }
+                              placeholder="e.g., nature, waterfall, guest_images"
+                              disabled={submitting}
+                            />
+                          </Field>
+        
+                          <div className="mt-3">
+                            <p className="text-xs font-semibold text-gray-700 mb-1.5">
+                              Images ({group.images.length})
+                            </p>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                              {group.images.map((img, imgIdx) => (
+                                <div
+                                  key={img.preview}
+                                  className="relative aspect-square rounded-xl overflow-hidden border-2 border-dashed border-blue-400 bg-blue-50"
+                                >
+                                  <img
+                                    src={img.preview}
+                                    alt={`Segregated ${idx + 1}-${imgIdx + 1}`}
+                                    className="w-full h-full object-cover opacity-80"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => removeSegImage(group.id, imgIdx)}
+                                    className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                                    title="Remove image"
+                                    aria-label="Remove image"
+                                    disabled={submitting}
+                                  >
+                                    <X className="size-4" strokeWidth={3} />
+                                  </button>
+                                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                                    <p className="text-white text-[10px] font-medium truncate">
+                                      NEW
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+        
+                              <label className="block aspect-square">
+                                <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-gray-50">
+                                  <ImageIcon className="size-6 text-gray-400" />
+                                  <p className="mt-1 text-sm font-medium text-gray-700">
+                                    Add Image
+                                  </p>
+                                </div>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  className="hidden"
+                                  onChange={(e) => handleSegImagesUpload(group.id, e)}
+                                  disabled={submitting}
+                                />
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </SectionCard>
+                )}
       </main>
 
       {/* Sticky step navigation */}

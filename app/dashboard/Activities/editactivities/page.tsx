@@ -22,10 +22,7 @@ import {
   Wallet,
 } from "lucide-react";
 
-import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
-import { Editor } from "react-draft-wysiwyg";
-import { EditorState, ContentState, convertFromHTML } from "draft-js";
-import { stateToHTML } from "draft-js-export-html";
+import TinyMCETextEditor from "@/components/TinyMCETextEditor";
 
 import { useActivityStore } from "@/store/useactivityStore";
 
@@ -47,6 +44,15 @@ interface Surcharge {
   amount: string;
   currency: string;
 }
+
+
+interface SegregatedImageGroup {
+  id: string;
+  category: string;
+  existingImages: string[]; // URLs from backend
+  images: ImageFile[];      // newly uploaded files
+}
+
 
 interface TimelineItem {
   time: string;
@@ -265,6 +271,7 @@ const STEPS = [
   { key: "experience", label: "Experience", icon: <Users className="size-4" /> },
   { key: "surcharges", label: "Surcharges", icon: <Wallet className="size-4" /> },
   { key: "media", label: "Media", icon: <ImageIcon className="size-4" /> },
+   { key: "segregatedMedia", label: "Segregated Images", icon: <ImageIcon className="size-4" /> },
 ] as const;
 
 type StepKey = (typeof STEPS)[number]["key"];
@@ -386,42 +393,97 @@ export default function EditActivityFormMobile() {
     preview: string;
   }
 
+      // segregated images (category-wise)
+
+    const [segregatedGroups, setSegregatedGroups] = useState<SegregatedImageGroup[]>([
+  { id: "seg-0", category: "", existingImages: [], images: [] },
+]);
+
+  
+  const addSegGroup = () => {
+  setSegregatedGroups((prev) => [
+    ...prev,
+    {
+      id: `seg-${prev.length}`,
+      category: "",
+      existingImages: [],
+      images: [],
+    },
+  ]);
+};
+
+const removeSegGroup = (id: string) => {
+  setSegregatedGroups((prev) => {
+    const toRemove = prev.find((g) => g.id === id);
+    toRemove?.images.forEach((img) => URL.revokeObjectURL(img.preview));
+
+    const next = prev.filter((g) => g.id !== id);
+    return next.length
+      ? next
+      : [{ id: "seg-0", category: "", existingImages: [], images: [] }];
+  });
+};
+
+  
+    const updateSegGroupCategory = (id: string, category: string) => {
+      setSegregatedGroups((prev) =>
+        prev.map((g) => (g.id === id ? { ...g, category } : g))
+      );
+    };
+  
+    const handleSegImagesUpload = (
+      id: string,
+      e: React.ChangeEvent<HTMLInputElement>
+    ) => {
+      const files = e.target.files ? Array.from(e.target.files) : [];
+      if (!files.length) return;
+      const mapped: ImageFile[] = files.map((file) => ({
+        file,
+        preview: URL.createObjectURL(file),
+      }));
+      setSegregatedGroups((prev) =>
+        prev.map((g) =>
+          g.id === id ? { ...g, images: [...g.images, ...mapped] } : g
+        )
+      );
+      e.target.value = "";
+    };
+  
+    const removeSegImage = (groupId: string, idx: number) => {
+      setSegregatedGroups((prev) =>
+        prev.map((g) => {
+          if (g.id !== groupId) return g;
+          const img = g.images[idx];
+          if (img?.preview) URL.revokeObjectURL(img.preview);
+          return {
+            ...g,
+            images: g.images.filter((_, i) => i !== idx),
+          };
+        })
+      );
+    };
+
+    const removeExistingSegImage = (groupId: string, url: string) => {
+  setSegregatedGroups((prev) =>
+    prev.map((g) =>
+      g.id === groupId
+        ? { ...g, existingImages: g.existingImages.filter((u) => u !== url) }
+        : g
+    )
+  );
+};
+
+
   const [newVideos, setNewVideos] = useState<VideoFile[]>([]);
   const [existingVideoUrls, setExistingVideoUrls] = useState<string[]>([]);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
 
-  // rich text helpers
-  const htmlToEditorState = (html?: string) => {
-    const safe = (html ?? "").trim();
-    if (!safe) return EditorState.createEmpty();
-    const blocks = convertFromHTML(safe);
-    const content = ContentState.createFromBlockArray(
-      blocks.contentBlocks,
-      blocks.entityMap
-    );
-    return EditorState.createWithContent(content);
-  };
 
-  const [descEditor, setDescEditor] = useState<EditorState>(() =>
-    htmlToEditorState("")
-  );
-
-  const onDescChange = (es: EditorState) => {
-    setDescEditor(es);
-    const html = stateToHTML(es.getCurrentContent());
-    setData((p) => ({ ...p, description: html }));
-  };
 
   // LLM chips + FAQs rich text
   const [llmChips, setLlmChips] = useState<FAQ[]>(BLANK.llm_chips);
-  const [llmChipEditors, setLlmChipEditors] = useState<EditorState[]>(() =>
-    BLANK.llm_chips.map((c) => htmlToEditorState(c.a))
-  );
-
   const [faqs, setFaqs] = useState<FAQ[]>(BLANK.faqs);
-  const [faqEditors, setFaqEditors] = useState<EditorState[]>(() =>
-    BLANK.faqs.map((c) => htmlToEditorState(c.a))
-  );
+
 
   /* --------------------- Load existing activity into form ------------------ */
 
@@ -562,9 +624,30 @@ export default function EditActivityFormMobile() {
       setExistingImageUrls(a.images || []);
       setExistingGuestImageUrls(a.guest_images || []);
       setExistingVideoUrls(a.videos || []);
+            
+if (Array.isArray(a.segregated_images) && a.segregated_images.length > 0) {
+  setSegregatedGroups(
+    a.segregated_images.map((g: any, idx: number) => ({
+      id: `seg-${idx}`,
+      category: g.category || "",
+      // Prefer `urls` (your current DB shape), but also support `images` for safety
+      existingImages: Array.isArray(g.urls)
+        ? g.urls
+        : Array.isArray(g.images)
+        ? g.images
+        : [],
+      images: [], // no new files yet
+    }))
+  );
+} else {
+  setSegregatedGroups([
+    { id: "seg-0", category: "", existingImages: [], images: [] },
+  ]);
+}
 
-      // description editor
-      setDescEditor(htmlToEditorState(a.description || ""));
+
+
+
 
       // llm chips editors
       const chips =
@@ -572,13 +655,11 @@ export default function EditActivityFormMobile() {
           ? a.llm_chips
           : [{ q: "", a: "" }];
       setLlmChips(chips);
-      setLlmChipEditors(chips.map((c: any) => htmlToEditorState(c.a)));
 
       // faq editors
       const fqs =
         a.faqs && a.faqs.length > 0 ? a.faqs : [{ q: "", a: "" }];
       setFaqs(fqs);
-      setFaqEditors(fqs.map((c: any) => htmlToEditorState(c.a)));
     };
 
     syncFromActivity(activity);
@@ -613,33 +694,19 @@ export default function EditActivityFormMobile() {
 
   /* ------------------------ LLM Chips / FAQ handlers ---------------------- */
 
-  const addLlmChip = () => {
-    setLlmChips((p) => [...p, { q: "", a: "" }]);
-    setLlmChipEditors((p) => [...p, EditorState.createEmpty()]);
-  };
-  const remLlmChip = (idx: number) => {
-    setLlmChips((p) =>
-      p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)
-    );
-    setLlmChipEditors((p) =>
-      p.length <= 1 ? [EditorState.createEmpty()] : p.filter((_, i) => i !== idx)
-    );
-  };
+const addLlmChip = () => setLlmChips((p) => [...p, { q: "", a: "" }]);
+
+const remLlmChip = (idx: number) =>
+  setLlmChips((p) => (p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)));
+
   const setLlmChip = (idx: number, next: Partial<FAQ>) =>
     setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
 
-  const addFaq = () => {
-    setFaqs((p) => [...p, { q: "", a: "" }]);
-    setFaqEditors((p) => [...p, EditorState.createEmpty()]);
-  };
-  const remFaq = (idx: number) => {
-    setFaqs((p) =>
-      p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)
-    );
-    setFaqEditors((p) =>
-      p.length <= 1 ? [EditorState.createEmpty()] : p.filter((_, i) => i !== idx)
-    );
-  };
+const addFaq = () => setFaqs((p) => [...p, { q: "", a: "" }]);
+
+const remFaq = (idx: number) =>
+  setFaqs((p) => (p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)));
+
   const setFaq = (idx: number, next: Partial<FAQ>) =>
     setFaqs((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
 
@@ -1067,33 +1134,19 @@ export default function EditActivityFormMobile() {
           totalPrice,
         },
 
-        llm_chips: llmChips
-          .map((c, idx) => {
-            const editor = llmChipEditors[idx] || EditorState.createEmpty();
-            const content = editor.getCurrentContent();
-            const hasText = content.hasText();
-            const rawHtml = stateToHTML(content);
-            const html = hasText ? sanitizeHtml(rawHtml) : "";
-            return {
-              q: (c.q || "").trim(),
-              a: html.trim(),
-            };
-          })
-          .filter((c) => c.q || c.a),
+       llm_chips: llmChips
+  .map((c) => ({
+    q: (c.q || "").trim(),
+    a: sanitizeHtml((c.a || "").trim()),
+  }))
+  .filter((c) => c.q || c.a),
 
-        faqs: faqs
-          .map((c, idx) => {
-            const editor = faqEditors[idx] || EditorState.createEmpty();
-            const content = editor.getCurrentContent();
-            const hasText = content.hasText();
-            const rawHtml = stateToHTML(content);
-            const html = hasText ? sanitizeHtml(rawHtml) : "";
-            return {
-              q: (c.q || "").trim(),
-              a: html.trim(),
-            };
-          })
-          .filter((c) => c.q || c.a),
+       faqs: faqs
+  .map((c) => ({
+    q: (c.q || "").trim(),
+    a: sanitizeHtml((c.a || "").trim()),
+  }))
+  .filter((c) => c.q || c.a),
 
         surcharges: data.surcharges
           .map((s) => ({
@@ -1108,6 +1161,15 @@ export default function EditActivityFormMobile() {
               s.windowType === "range" ? s.endDate || undefined : undefined,
           }))
           .filter((s) => s.amount > 0),
+        segregated_images: segregatedGroups
+  .map((g) => ({
+    category: g.category.trim(),
+    // match DB shape: { category, urls: string[] }
+    urls: g.existingImages,
+    // later you can also append uploaded files here once backend supports it
+  }))
+  .filter((g) => g.category || g.urls.length > 0),
+
       };
 
       const form = new FormData();
@@ -1131,6 +1193,12 @@ export default function EditActivityFormMobile() {
       // videos
       existingVideoUrls.forEach((url) => form.append("videos_keep", url));
       newVideos.forEach((vid) => form.append("videos", vid.file));
+         segregatedGroups.forEach((group, gIdx) => {
+        group.images.forEach((img) => {
+          // backend can use field name + index to know which category it belongs to
+          form.append(`segregated_images_${gIdx}`, img.file);
+        });
+      });
 
       form.append(
         "images_change_summary",
@@ -1563,24 +1631,14 @@ export default function EditActivityFormMobile() {
 
             {/* Description */}
             <div className="mt-6">
-              <Field label="Short description">
-                <div className="rounded-xl border border-gray-300 bg-white">
-                  <Editor
-                    editorState={descEditor}
-                    onEditorStateChange={onDescChange}
-                    toolbar={{
-                      options: ["inline", "list", "remove", "history"],
-                      inline: {
-                        options: ["bold", "italic", "underline", "strikethrough"],
-                      },
-                      list: { options: ["unordered", "ordered"] },
-                    }}
-                    wrapperClassName="rdw-wrapper"
-                    editorClassName="min-h-[144px] px-3 py-2 rounded-xl"
-                    toolbarClassName="border-b"
-                  />
-                </div>
-              </Field>
+             <Field label="Short description">
+  <TinyMCETextEditor
+    value={data.description}
+    onChange={(html) => setData((p) => ({ ...p, description: sanitizeHtml(html) }))}
+    disabled={submitting}
+  />
+</Field>
+
             </div>
           </SectionCard>
         )}
@@ -1642,31 +1700,12 @@ export default function EditActivityFormMobile() {
                       </Field>
                       <Field label="Answer / Response">
                         <div className="rounded-xl border border-gray-300 bg-white p-2">
-                          <Editor
-                            editorState={
-                              llmChipEditors[i] || EditorState.createEmpty()
-                            }
-                            onEditorStateChange={(next) =>
-                              setLlmChipEditors((eds) =>
-                                eds.map((ed, idx) => (idx === i ? next : ed))
-                              )
-                            }
-                            toolbar={{
-                              options: ["inline", "list"],
-                              inline: {
-                                options: [
-                                  "bold",
-                                  "italic",
-                                  "underline",
-                                  "strikethrough",
-                                ],
-                              },
-                              list: { options: ["unordered", "ordered"] },
-                            }}
-                            toolbarClassName="border-b"
-                            wrapperClassName="rounded-xl overflow-hidden"
-                            editorClassName="min-h-[100px] px-3"
-                          />
+                         <TinyMCETextEditor
+  value={llmChips[i]?.a || ""}
+  onChange={(html) => setLlmChip(i, { a: sanitizeHtml(html) })}
+  disabled={submitting}
+/>
+
                         </div>
                       </Field>
                     </div>
@@ -1723,31 +1762,12 @@ export default function EditActivityFormMobile() {
                       </Field>
                       <Field label="Answer">
                         <div className="rounded-xl border border-gray-300 bg-white p-2">
-                          <Editor
-                            editorState={
-                              faqEditors[i] || EditorState.createEmpty()
-                            }
-                            onEditorStateChange={(next) =>
-                              setFaqEditors((eds) =>
-                                eds.map((ed, idx) => (idx === i ? next : ed))
-                              )
-                            }
-                            toolbar={{
-                              options: ["inline", "list"],
-                              inline: {
-                                options: [
-                                  "bold",
-                                  "italic",
-                                  "underline",
-                                  "strikethrough",
-                                ],
-                              },
-                              list: { options: ["unordered", "ordered"] },
-                            }}
-                            toolbarClassName="border-b"
-                            wrapperClassName="rounded-xl overflow-hidden"
-                            editorClassName="min-h-[100px] px-3"
-                          />
+                         <TinyMCETextEditor
+  value={faqs[i]?.a || ""}
+  onChange={(html) => setFaq(i, { a: sanitizeHtml(html) })}
+  disabled={submitting}
+/>
+
                         </div>
                       </Field>
                     </div>
@@ -3027,6 +3047,139 @@ export default function EditActivityFormMobile() {
             </div>
           </SectionCard>
         )}
+         {step.key === "segregatedMedia" && (
+                  <SectionCard
+                    title="Segregated Images"
+                    subtitle="Group images by category (e.g., Nature, Waterfall, Guest Images)."
+                    icon={<ImageIcon className="size-5 text-blue-600" />}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold text-gray-900">
+                        Categories & Images
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={addSegGroup}
+                        disabled={submitting}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                      >
+                        <Plus className="size-3.5" />
+                        Add Category
+                      </button>
+                    </div>
+        
+                    <div className="space-y-4">
+                      {segregatedGroups.map((group, idx) => (
+                        <div
+                          key={group.id}
+                          className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4"
+                        >
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="text-xs font-semibold text-gray-700">
+                              Category #{idx + 1}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => removeSegGroup(group.id)}
+                              disabled={submitting}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                            >
+                              <X className="size-3.5" />
+                              Remove
+                            </button>
+                          </div>
+        
+                          <Field label="Category name" required>
+                            <input
+                              type="text"
+                              className="input"
+                              value={group.category}
+                              onChange={(e) =>
+                                updateSegGroupCategory(group.id, e.target.value)
+                              }
+                              placeholder="e.g., nature, waterfall, guest_images"
+                              disabled={submitting}
+                            />
+                          </Field>
+        
+                         <div className="mt-3">
+  <p className="text-xs font-semibold text-gray-700 mb-1.5">
+    Images ({group.existingImages.length + group.images.length})
+  </p>
+  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+    {/* Existing URLs from backend */}
+    {group.existingImages.map((url) => (
+      <div
+        key={url}
+        className="relative aspect-square rounded-xl overflow-hidden border border-gray-300 bg-gray-50 shadow-sm"
+      >
+        <img src={url} alt="Existing" className="w-full h-full object-cover" />
+        <button
+          type="button"
+          onClick={() => removeExistingSegImage(group.id, url)}
+          className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+          title="Remove image"
+          aria-label="Remove image"
+          disabled={submitting}
+        >
+          <X className="size-4" strokeWidth={3} />
+        </button>
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+          <p className="text-white text-[10px] font-medium">EXISTING</p>
+        </div>
+      </div>
+    ))}
+
+    {/* Newly uploaded (local) files */}
+    {group.images.map((img, imgIdx) => (
+      <div
+        key={img.preview}
+        className="relative aspect-square rounded-xl overflow-hidden border-2 border-dashed border-blue-400 bg-blue-50"
+      >
+        <img
+          src={img.preview}
+          alt={`Segregated ${idx + 1}-${imgIdx + 1}`}
+          className="w-full h-full object-cover opacity-80"
+        />
+        <button
+          type="button"
+          onClick={() => removeSegImage(group.id, imgIdx)}
+          className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+          title="Remove image"
+          aria-label="Remove image"
+          disabled={submitting}
+        >
+          <X className="size-4" strokeWidth={3} />
+        </button>
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+          <p className="text-white text-[10px] font-medium truncate">NEW</p>
+        </div>
+      </div>
+    ))}
+
+    {/* Uploader */}
+    <label className="block aspect-square">
+      <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-gray-50">
+        <ImageIcon className="size-6 text-gray-400" />
+        <p className="mt-1 text-sm font-medium text-gray-700">Add Image</p>
+      </div>
+      <input
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => handleSegImagesUpload(group.id, e)}
+        disabled={submitting}
+      />
+    </label>
+  </div>
+</div>
+
+                        </div>
+                      ))}
+                    </div>
+                  </SectionCard>
+                )}
       </main>
 
       {/* Bottom bar */}

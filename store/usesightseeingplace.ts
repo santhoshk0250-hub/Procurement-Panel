@@ -50,6 +50,10 @@ export interface PlaceDuration {
   max?: number;
   text?: string;
 }
+export interface ActivitySegregatedImageGroup {
+  category: string;
+  urls: string[]; // image URLs stored in DB
+}
 
 export interface PlacePrice {
   type?: string;   // "free", "paid", etc.
@@ -125,6 +129,7 @@ export interface SightseeingPlace {
   itinerary: PlaceItineraryItem[];
   nearbyPlaces: PlaceNearby[];
   llm_chips: PlaceLLMChip[];
+    segregated_images?: ActivitySegregatedImageGroup[];
 
   // Ratings
   rating: number | null;

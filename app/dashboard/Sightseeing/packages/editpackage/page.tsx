@@ -23,10 +23,8 @@ import axios from "axios";
 import { useRouter } from "next/navigation";
 import { useSightseeingPackageStore } from "@/store/usesightpackages";
 
-import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
-import { Editor } from "react-draft-wysiwyg";
-import { EditorState, ContentState, convertFromHTML } from "draft-js";
-import { stateToHTML } from "draft-js-export-html";
+import TinyMCETextEditor from "@/components/TinyMCETextEditor";
+
 
 /* =========================
    Types aligned to your schema / sample docs
@@ -38,6 +36,13 @@ interface PlaceLite {
   _id: ObjId;
   name: string;
   images?: string[];
+}
+
+interface SegregatedImageGroup {
+  id: string;
+  category: string;
+  existingImages: string[]; // URLs from backend
+  images: ImageFile[];      // newly uploaded files
 }
 
 type FAQ = { q: string; a: string };
@@ -164,7 +169,10 @@ interface SightseeingPackageUI {
   galleryImagesFiles?: File[];
   videoFiles?: File[];
 }
-
+interface ImageFile {
+  file: File;
+  preview: string;
+}
 /* =========================
    Helpers & Constants
    ========================= */
@@ -451,6 +459,7 @@ const STEPS = [
   { key: "schedule", label: "Timings & Places", icon: <Clock className="size-4" /> },
   { key: "commerce", label: "Inclusions & Pricing", icon: <ListChecks className="size-4" /> },
   { key: "media", label: "Media", icon: <ImageIcon className="size-4" /> },
+   { key: "segregatedMedia", label: "Segregated Images", icon: <ImageIcon className="size-4" /> },
 ] as const;
 
 type StepKey = (typeof STEPS)[number]["key"];
@@ -582,22 +591,102 @@ const [form, setForm] = useState<SightseeingPackageUI>({ ...BLANK });
 
   const step = STEPS[stepIndex];
 
-  const htmlToEditorState = (html?: string) => {
-    const safe = (html ?? "").trim();
-    if (!safe) return EditorState.createEmpty();
-    const blocks = convertFromHTML(safe);
-    const content = ContentState.createFromBlockArray(
-      blocks.contentBlocks,
-      blocks.entityMap
-    );
-    return EditorState.createWithContent(content);
+
+     // segregated images (category-wise)
+  
+          const [segregatedGroups, setSegregatedGroups] = useState<SegregatedImageGroup[]>(() => {
+            
+           const seg = storepkg?.segregated_images; // depend on your API key
+           if (Array.isArray(seg) && seg.length > 0) {
+             return seg.map((g: any, idx: number) => ({
+               id: `seg-${idx}`,
+               category: g.category || "",
+               existingImages: Array.isArray(g.urls) ? g.urls : [],
+               images: [], // no local uploads initially
+             }));
+           }
+           return [{ id: "seg-0", category: "", existingImages: [], images: [] }];
+         });
+  
+    
+    const addSegGroup = () => {
+    setSegregatedGroups((prev) => [
+      ...prev,
+      {
+        id: `seg-${prev.length}`,
+        category: "",
+        existingImages: [],
+        images: [],
+      },
+    ]);
   };
+  
+  const removeSegGroup = (id: string) => {
+    setSegregatedGroups((prev) => {
+      const toRemove = prev.find((g) => g.id === id);
+      toRemove?.images.forEach((img) => URL.revokeObjectURL(img.preview));
+  
+      const next = prev.filter((g) => g.id !== id);
+      return next.length
+        ? next
+        : [{ id: "seg-0", category: "", existingImages: [], images: [] }];
+    });
+  };
+  
+    
+      const updateSegGroupCategory = (id: string, category: string) => {
+        setSegregatedGroups((prev) =>
+          prev.map((g) => (g.id === id ? { ...g, category } : g))
+        );
+      };
+    
+      const handleSegImagesUpload = (
+        id: string,
+        e: React.ChangeEvent<HTMLInputElement>
+      ) => {
+        const files = e.target.files ? Array.from(e.target.files) : [];
+        if (!files.length) return;
+        const mapped: ImageFile[] = files.map((file) => ({
+          file,
+          preview: URL.createObjectURL(file),
+        }));
+        setSegregatedGroups((prev) =>
+          prev.map((g) =>
+            g.id === id ? { ...g, images: [...g.images, ...mapped] } : g
+          )
+        );
+        e.target.value = "";
+      };
+    
+      const removeSegImage = (groupId: string, idx: number) => {
+        setSegregatedGroups((prev) =>
+          prev.map((g) => {
+            if (g.id !== groupId) return g;
+            const img = g.images[idx];
+            if (img?.preview) URL.revokeObjectURL(img.preview);
+            return {
+              ...g,
+              images: g.images.filter((_, i) => i !== idx),
+            };
+          })
+        );
+      };
+  
+      const removeExistingSegImage = (groupId: string, url: string) => {
+    setSegregatedGroups((prev) =>
+      prev.map((g) =>
+        g.id === groupId
+          ? { ...g, existingImages: g.existingImages.filter((u) => u !== url) }
+          : g
+      )
+    );
+  };
+  
+  
 
 // after defining htmlToEditorState
 const [llmChips, setLlmChips] = useState<FAQ[]>([{ q: "", a: "" }]);
-const [llmChipEditors, setLlmChipEditors] = useState<EditorState[]>([
-  EditorState.createEmpty(),
-]);
+
 
 // load from store
 useEffect(() => {
@@ -607,15 +696,14 @@ useEffect(() => {
   setOriginalDoc(mapped);
   setForm(mapped);
 
-  const chips = mapped.llm_chips && mapped.llm_chips.length
-    ? mapped.llm_chips
-    : [{ q: "", a: "" }];
+  const chips =
+    mapped.llm_chips && mapped.llm_chips.length
+      ? mapped.llm_chips
+      : [{ q: "", a: "" }];
 
   setLlmChips(chips);
-  setLlmChipEditors(
-    chips.map((c) => htmlToEditorState(c.a))
-  );
 }, [storepkg]);
+
 
 
    const addStrItem =
@@ -634,20 +722,19 @@ useEffect(() => {
         [key]: (p[key] as string[]).filter((_, idx) => idx !== i),
       }));
 
-  const addLlmChip = () => {
-    setLlmChips((p) => [...p, { q: "", a: "" }]);
-    setLlmChipEditors((p) => [...p, EditorState.createEmpty()]);
-  };
+ const addLlmChip = () => {
+  setLlmChips((p) => [...p, { q: "", a: "" }]);
+};
 
-  const remLlmChip = (idx: number) => {
-    setLlmChips((p) => (p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)));
-    setLlmChipEditors((p) =>
-      p.length <= 1 ? [EditorState.createEmpty()] : p.filter((_, i) => i !== idx)
-    );
-  };
+const remLlmChip = (idx: number) => {
+  setLlmChips((p) =>
+    p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)
+  );
+};
 
-  const setLlmChip = (idx: number, next: Partial<FAQ>) =>
-    setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
+const setLlmChip = (idx: number, next: Partial<FAQ>) =>
+  setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
+
 
   /* ---------- Fetch places (ALL pages) ---------- */
   useEffect(() => {
@@ -706,15 +793,12 @@ useEffect(() => {
     return !!(hasCore && minOk && maxOk && durOk);
   }, [form.tour_name, form.vehicle_type, form.min_pax, form.max_pax, form.duration_hours]);
 
+
   const canContinueSchedule = useMemo(() => {
-    const ok1 =
-      !form.regular_timings || TIME_RANGE_REGEX.test(cleanTime(form.regular_timings));
-    const ok2 =
-      !form.alternative_timings ||
-      TIME_RANGE_REGEX.test(cleanTime(form.alternative_timings));
+    const hasRegularTimings = form.regular_timings.trim().length > 0;
     const hasPlaces = form.place_ids.length > 0;
-    return ok1 && ok2 && hasPlaces;
-  }, [form.regular_timings, form.alternative_timings, form.place_ids]);
+    return hasRegularTimings && hasPlaces;
+  }, [form.regular_timings, form.place_ids]);
 
   const canContinueCommerce = useMemo(() => true, []);
 
@@ -881,19 +965,12 @@ useEffect(() => {
         alternative_timings: form.alternative_timings.trim(),
         inclusions: form.inclusions,
         exclusions: form.exclusions,
-        llm_chips: llmChips
-          .map((c, idx) => {
-            const editor = llmChipEditors[idx] || EditorState.createEmpty();
-            const content = editor.getCurrentContent();
-            const hasText = content.hasText();
-            const rawHtml = stateToHTML(content);
-            const html = hasText ? sanitizeHtml(rawHtml) : "";
-            return {
-              q: (c.q || "").trim(),
-              a: html.trim(),
-            };
-          })
-          .filter((c) => c.q || c.a),
+     llm_chips: llmChips
+  .map((c) => ({
+    q: (c.q || "").trim(),
+    a: sanitizeHtml((c.a || "").trim()),
+  }))
+  .filter((c) => c.q || c.a),
         vendor_charge: numOrNull(form.vendor_charge),
         seller_charge: numOrNull(form.seller_charge),
         blockout_surcharges: form.blockout_surcharges
@@ -948,7 +1025,14 @@ useEffect(() => {
             description: b.description.trim(),
           }))
           .filter((b) => b.title || b.description),
-
+    segregated_images: segregatedGroups
+  .map((g) => ({
+    category: g.category.trim(),
+    // match DB shape: { category, urls: string[] }
+    urls: g.existingImages,
+    // later you can also append uploaded files here once backend supports it
+  }))
+  .filter((g) => g.category || g.urls.length > 0),
         pickupType: form.pickupType.trim(),
         pickupAreas: form.pickupAreas,
         meetingTime: form.meetingTime.trim(),
@@ -1001,7 +1085,12 @@ useEffect(() => {
       (form.videoFiles || []).forEach((file) => {
         fd.append("videos", file);
       });
-
+segregatedGroups.forEach((group, gIdx) => {
+        group.images.forEach((img) => {
+          // backend can use field name + index to know which category it belongs to
+          fd.append(`segregated_images_${gIdx}`, img.file);
+        });
+      });
       const base = process.env.NEXT_PUBLIC_API_BASE || "/";
             const id = storepkg?._id; // or from router params
       if (!id) throw new Error("Package ID missing");
@@ -1261,16 +1350,14 @@ useEffect(() => {
                             </div>
                           </Field>
 
-                <Field label="Description">
-                  <textarea
-                    className="textarea"
-                    rows={4}
-                    value={form.description}
-                    onChange={(e) => set({ description: e.target.value })}
-                    placeholder="Short product description shown to users…"
-                    disabled={submitting}
-                  />
-                </Field>
+                <Field label="Description (Rich Text)">
+                                <TinyMCETextEditor
+                                  value={form.description}
+                                  onChange={(html) => set({ description: html })}
+                                  disabled={submitting}
+                                  height={260}
+                                />
+                              </Field>
 
               </div>
             </SectionCard>
@@ -1325,24 +1412,12 @@ useEffect(() => {
                     </Field>
                     <Field label="Answer / Response">
                       <div className="rounded-xl border border-gray-300 bg-white p-2">
-                        <Editor
-                          editorState={llmChipEditors[i] || EditorState.createEmpty()}
-                          onEditorStateChange={(next) =>
-                            setLlmChipEditors((eds) =>
-                              eds.map((ed, idx) => (idx === i ? next : ed))
-                            )
-                          }
-                          toolbar={{
-                            options: ["inline", "list"],
-                            inline: {
-                              options: ["bold", "italic", "underline", "strikethrough"],
-                            },
-                            list: { options: ["unordered", "ordered"] },
-                          }}
-                          toolbarClassName="border-b"
-                          wrapperClassName="rounded-xl overflow-hidden"
-                          editorClassName="min-h-[100px] px-3"
-                        />
+<TinyMCETextEditor
+  value={llmChips[i]?.a || ""}
+  disabled={submitting}
+  onChange={(html: string) => setLlmChip(i, { a: html })}
+/>
+
                       </div>
                     </Field>
                   </div>
@@ -2754,7 +2829,139 @@ useEffect(() => {
     </div>
   </SectionCard>
 )}
+ {step.key === "segregatedMedia" && (
+                  <SectionCard
+                    title="Segregated Images"
+                    subtitle="Group images by category (e.g., Nature, Waterfall, Guest Images)."
+                    icon={<ImageIcon className="size-5 text-blue-600" />}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold text-gray-900">
+                        Categories & Images
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={addSegGroup}
+                        disabled={submitting}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                      >
+                        <Plus className="size-3.5" />
+                        Add Category
+                      </button>
+                    </div>
+        
+                    <div className="space-y-4">
+                      {segregatedGroups.map((group, idx) => (
+                        <div
+                          key={group.id}
+                          className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4"
+                        >
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="text-xs font-semibold text-gray-700">
+                              Category #{idx + 1}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => removeSegGroup(group.id)}
+                              disabled={submitting}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                            >
+                              <X className="size-3.5" />
+                              Remove
+                            </button>
+                          </div>
+        
+                          <Field label="Category name" required>
+                            <input
+                              type="text"
+                              className="input"
+                              value={group.category}
+                              onChange={(e) =>
+                                updateSegGroupCategory(group.id, e.target.value)
+                              }
+                              placeholder="e.g., nature, waterfall, guest_images"
+                              disabled={submitting}
+                            />
+                          </Field>
+        
+                         <div className="mt-3">
+  <p className="text-xs font-semibold text-gray-700 mb-1.5">
+    Images ({group.existingImages.length + group.images.length})
+  </p>
+  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+    {/* Existing URLs from backend */}
+    {group.existingImages.map((url) => (
+      <div
+        key={url}
+        className="relative aspect-square rounded-xl overflow-hidden border border-gray-300 bg-gray-50 shadow-sm"
+      >
+        <img src={url} alt="Existing" className="w-full h-full object-cover" />
+        <button
+          type="button"
+          onClick={() => removeExistingSegImage(group.id, url)}
+          className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+          title="Remove image"
+          aria-label="Remove image"
+          disabled={submitting}
+        >
+          <X className="size-4" strokeWidth={3} />
+        </button>
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+          <p className="text-white text-[10px] font-medium">EXISTING</p>
+        </div>
+      </div>
+    ))}
 
+    {/* Newly uploaded (local) files */}
+    {group.images.map((img, imgIdx) => (
+      <div
+        key={img.preview}
+        className="relative aspect-square rounded-xl overflow-hidden border-2 border-dashed border-blue-400 bg-blue-50"
+      >
+        <img
+          src={img.preview}
+          alt={`Segregated ${idx + 1}-${imgIdx + 1}`}
+          className="w-full h-full object-cover opacity-80"
+        />
+        <button
+          type="button"
+          onClick={() => removeSegImage(group.id, imgIdx)}
+          className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+          title="Remove image"
+          aria-label="Remove image"
+          disabled={submitting}
+        >
+          <X className="size-4" strokeWidth={3} />
+        </button>
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+          <p className="text-white text-[10px] font-medium truncate">NEW</p>
+        </div>
+      </div>
+    ))}
+
+    {/* Uploader */}
+    <label className="block aspect-square">
+      <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-gray-50">
+        <ImageIcon className="size-6 text-gray-400" />
+        <p className="mt-1 text-sm font-medium text-gray-700">Add Image</p>
+      </div>
+      <input
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => handleSegImagesUpload(group.id, e)}
+        disabled={submitting}
+      />
+    </label>
+  </div>
+</div>
+
+                        </div>
+                      ))}
+                    </div>
+                  </SectionCard>
+                )}
 
       </main>
 

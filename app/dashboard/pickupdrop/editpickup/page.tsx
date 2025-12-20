@@ -684,7 +684,6 @@ export default function EditTransferRouteMobile() {
               style={{ width: `${progress}%` }}
             />
           </div>
-        </div>
 
         {/* Content */}
         <main className="pb-2 sm:pb-6 px-3 sm:px-0">
@@ -1256,6 +1255,7 @@ export default function EditTransferRouteMobile() {
           </SectionCard>
         )}
       </main>
+        </form>
 
           {/* Sticky Footer */}
           <div className="sticky bottom-0 z-40 mt-2 sm:mt-6 bg-white rounded-none sm:rounded-xl border-t sm:border border-gray-200 shadow-lg mx-0 sm:mx-0">
@@ -1325,7 +1325,6 @@ export default function EditTransferRouteMobile() {
             .safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem); }
             .suffix { position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:12px; color:#6b7280; }
           `}</style>
-        </form>
       </div>
     </div>
   );

@@ -18,7 +18,10 @@ export interface Pricing {
   currency?: Currency;
   minDaysIfApplicable?: string;
 }
-
+export interface ActivitySegregatedImageGroup {
+  category: string;
+  urls: string[]; // image URLs stored in DB
+}
 export interface Deposits {
   security: string;
   serviceCharge: number;
@@ -53,6 +56,8 @@ export interface Vehicle {
 
   images: string[];
   thumbnailUrl?: string | null;
+  segregated_images?: ActivitySegregatedImageGroup[];
+  
   pricing?: Pricing;
   vendorPricing?: Pricing;
   sellerPricing?: Pricing;

@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -9,10 +10,8 @@ import {
   Trash2,
   CheckCircle2,
   Loader2,
-  Shield,
   Truck,
   Calendar,
-  FileText,
   SunMoon,
   Image as ImageIcon,
   X,
@@ -21,12 +20,9 @@ import {
 import { Button } from "@mui/material";
 import { AddCircleOutline } from "@mui/icons-material";
 import Link from "next/link";
+import TinyMCETextEditor from "@/components/TinyMCETextEditor";
 
-// ---- WYSIWYG imports ----
-import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
-import { Editor } from "react-draft-wysiwyg";
-import { EditorState, ContentState, convertFromHTML } from "draft-js";
-import { stateToHTML } from "draft-js-export-html";
+
 
 /* =========================
    Types (UI shape)
@@ -71,7 +67,6 @@ interface RatingsUI {
   totalReviews?: number | "";
 }
 
-
 interface VehicleOptionUI {
   vehiclename?: string;
   vehicleType: VehicleType;
@@ -88,7 +83,7 @@ interface VehicleOptionUI {
 
   // extra fields from API
   vehicleId?: string;
-  description?: string;
+  description?: string; // ✅ store HTML
   minimumDistanceKm?: number | "";
   minimumCharge?: number | "";
   year?: number | "";
@@ -102,9 +97,6 @@ interface VehicleOptionUI {
   imagesExisting: string[];
   imagesRemovedExisting: string[];
   imagesNew: NewImage[];
-
-  // UI-only state for rich text editor
-  editorState?: EditorState;
 }
 
 interface TransferRouteFormData {
@@ -135,9 +127,20 @@ const VEHICLE_TYPE_TO_MAX_PAX: Record<VehicleType, number[]> = {
   "30-40 SEATER": Array.from({ length: 11 }, (_, i) => 30 + i),
 };
 
-const BLANK_SURGE: SurgeItem = { mode: "single", date: "", startDate: "", endDate: "", price: "" };
+const BLANK_SURGE: SurgeItem = {
+  mode: "single",
+  date: "",
+  startDate: "",
+  endDate: "",
+  price: "",
+};
 const BLANK_SERVICE: ServiceCharge = { amount: "", currency: "INR", notes: "" };
-const BLANK_NIGHT: NightChargeUI = { enabled: false, amount: "", appliesFromHour: 22, appliesToHour: 6 };
+const BLANK_NIGHT: NightChargeUI = {
+  enabled: false,
+  amount: "",
+  appliesFromHour: 22,
+  appliesToHour: 6,
+};
 const BLANK_RATINGS: RatingsUI = { average: "", totalReviews: "" };
 
 const n = (v: any) => (v === "" || v == null ? NaN : Number(v));
@@ -185,7 +188,6 @@ function overrideToSurgeItem(ov: any): SurgeItem | null {
   if (!Number.isFinite(priceVal)) return null;
 
   if (label === "single") {
-    // Support backends that send either `date` or `startDate` for single-day
     const ymd =
       normalizeToYMD((ov as any).date) || normalizeToYMD((ov as any).startDate);
     if (!ymd) return null;
@@ -211,26 +213,12 @@ function cookSurgeToOverride(b: SurgeItem, currency: string) {
   if (b.mode === "single") {
     const d = (b.date || "").trim();
     if (!d) return null;
-    // Use startDate for single to match your backend example
     return { label: "single", price: Number(price), currency: cur, startDate: d };
   }
   const start = (b.startDate || "").trim();
   const end = (b.endDate || "").trim();
   if (!start || !end) return null;
   return { label: "range", price: Number(price), currency: cur, startDate: start, endDate: end };
-}
-
-/* ---------- DraftJS helpers ---------- */
-function createEditorStateFromHTML(html?: string): EditorState {
-  if (!html) {
-    return EditorState.createEmpty();
-  }
-  const blocksFromHTML = convertFromHTML(html);
-  const contentState = ContentState.createFromBlockArray(
-    blocksFromHTML.contentBlocks,
-    blocksFromHTML.entityMap
-  );
-  return EditorState.createWithContent(contentState);
 }
 
 /* =========================
@@ -256,7 +244,9 @@ export default function EditTransferRouteMobile() {
       }
       try {
         const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_BASE}pickupdrop/${encodeURIComponent(idFromQuery)}`,
+          `${process.env.NEXT_PUBLIC_API_BASE}pickupdrop/${encodeURIComponent(
+            idFromQuery
+          )}`,
           { cache: "no-store" }
         );
         if (!res.ok) throw new Error(await res.text());
@@ -280,7 +270,6 @@ export default function EditTransferRouteMobile() {
   const initialForm: TransferRouteFormData = useMemo(() => {
     const d = doc;
     if (!d) {
-      const emptyEditor = createEditorStateFromHTML("");
       return {
         pickups: [""],
         drops: [""],
@@ -301,6 +290,7 @@ export default function EditTransferRouteMobile() {
 
             vehicleId: "",
             description: "",
+
             minimumDistanceKm: "",
             minimumCharge: "",
             year: "",
@@ -313,8 +303,6 @@ export default function EditTransferRouteMobile() {
             imagesExisting: [],
             imagesRemovedExisting: [],
             imagesNew: [],
-
-            editorState: emptyEditor,
           },
         ],
       };
@@ -325,8 +313,6 @@ export default function EditTransferRouteMobile() {
 
     const drops: string[] =
       Array.isArray(d.drops) && d.drops.length ? d.drops.map(String) : [""];
-
- 
 
     const vopts: VehicleOptionUI[] = (d.vehicleOptions || []).map((o: any) => {
       const desc = o?.description || "";
@@ -356,8 +342,7 @@ export default function EditTransferRouteMobile() {
         nightCharge: o?.nightCharge
           ? {
               enabled: true,
-              amount:
-                typeof o.nightCharge.amount === "number" ? o.nightCharge.amount : "",
+              amount: typeof o.nightCharge.amount === "number" ? o.nightCharge.amount : "",
               appliesFromHour:
                 typeof o.nightCharge.appliesFromHour === "number"
                   ? o.nightCharge.appliesFromHour
@@ -388,30 +373,22 @@ export default function EditTransferRouteMobile() {
 
         ratings: o?.ratings
           ? {
-              average:
-                typeof o.ratings.average === "number" ? o.ratings.average : "",
+              average: typeof o.ratings.average === "number" ? o.ratings.average : "",
               totalReviews:
-                typeof o.ratings.totalReviews === "number"
-                  ? o.ratings.totalReviews
-                  : "",
+                typeof o.ratings.totalReviews === "number" ? o.ratings.totalReviews : "",
             }
           : { ...BLANK_RATINGS },
 
         amenities: Array.isArray(o?.amenities) ? o.amenities.map(String) : [],
-        safetyFeatures: Array.isArray(o?.safetyFeatures)
-          ? o.safetyFeatures.map(String)
-          : [],
+        safetyFeatures: Array.isArray(o?.safetyFeatures) ? o.safetyFeatures.map(String) : [],
 
         imagesExisting: Array.isArray(o?.images) ? o.images : [],
         imagesRemovedExisting: [],
         imagesNew: [],
-
-        editorState: createEditorStateFromHTML(desc),
       };
     });
 
     if (!vopts.length) {
-      const emptyEditor = createEditorStateFromHTML("");
       return {
         pickups,
         drops,
@@ -432,6 +409,7 @@ export default function EditTransferRouteMobile() {
 
             vehicleId: "",
             description: "",
+
             minimumDistanceKm: "",
             minimumCharge: "",
             year: "",
@@ -444,34 +422,26 @@ export default function EditTransferRouteMobile() {
             imagesExisting: [],
             imagesRemovedExisting: [],
             imagesNew: [],
-
-            editorState: emptyEditor,
           },
         ],
       };
     }
 
-    return {
-      pickups,
-      drops,
-      vehicleOptions: vopts,
-    };
+    return { pickups, drops, vehicleOptions: vopts };
   }, [doc]);
 
   // ---------- Local UI state ----------
   const [data, setData] = useState<TransferRouteFormData>(initialForm);
   const [stepIndex, setStepIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
-  const [appendImages, setAppendImages] = useState(true); // merge strategy across vehicles
+  const [appendImages, setAppendImages] = useState(true);
 
   const step = STEPS[stepIndex];
 
-  // hydrate on doc change
   useEffect(() => {
     setData(initialForm);
   }, [initialForm]);
 
-  // revoke previews on unmount
   useEffect(() => {
     return () => {
       data.vehicleOptions.forEach((v) =>
@@ -482,8 +452,10 @@ export default function EditTransferRouteMobile() {
   }, []);
 
   /* ---------- Helpers ---------- */
-  const setField = <K extends keyof TransferRouteFormData>(k: K, v: TransferRouteFormData[K]) =>
-    setData((p) => ({ ...p, [k]: v }));
+  const setField = <K extends keyof TransferRouteFormData>(
+    k: K,
+    v: TransferRouteFormData[K]
+  ) => setData((p) => ({ ...p, [k]: v }));
 
   // PICKUPS
   const addPickup = () => setField("pickups", [...data.pickups, ""]);
@@ -512,7 +484,6 @@ export default function EditTransferRouteMobile() {
     const next = data.drops.filter((_, idx) => idx !== i);
     setField("drops", next);
   };
-
 
   // Vehicles
   const updateOption = (idx: number, next: Partial<VehicleOptionUI>) =>
@@ -543,6 +514,7 @@ export default function EditTransferRouteMobile() {
 
           vehicleId: "",
           description: "",
+
           minimumDistanceKm: "",
           minimumCharge: "",
           year: "",
@@ -555,8 +527,6 @@ export default function EditTransferRouteMobile() {
           imagesExisting: [],
           imagesRemovedExisting: [],
           imagesNew: [],
-
-          editorState: createEditorStateFromHTML(""),
         },
       ],
     }));
@@ -565,7 +535,6 @@ export default function EditTransferRouteMobile() {
     setData((p) => {
       const arr = [...p.vehicleOptions];
       if (arr.length <= 1) {
-        // reset the single option
         arr[0] = {
           vehiclename: "",
           vehicleType: "4 SEATER",
@@ -582,6 +551,7 @@ export default function EditTransferRouteMobile() {
 
           vehicleId: "",
           description: "",
+
           minimumDistanceKm: "",
           minimumCharge: "",
           year: "",
@@ -594,19 +564,19 @@ export default function EditTransferRouteMobile() {
           imagesExisting: [],
           imagesRemovedExisting: [],
           imagesNew: [],
-
-          editorState: createEditorStateFromHTML(""),
         };
         return { ...p, vehicleOptions: arr };
       }
-      // revoke previews for deleted option
       arr[idx]?.imagesNew?.forEach((ni) => ni.preview && URL.revokeObjectURL(ni.preview));
       arr.splice(idx, 1);
       return { ...p, vehicleOptions: arr };
     });
 
-  /* ---------- Per-vehicle images handlers (used in Images step) ---------- */
-  const handleVehicleImageUpload = (idx: number, e: React.ChangeEvent<HTMLInputElement>) => {
+  /* ---------- Per-vehicle images handlers ---------- */
+  const handleVehicleImageUpload = (
+    idx: number,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
     updateOption(idx, {
@@ -696,7 +666,8 @@ export default function EditTransferRouteMobile() {
     }
 
     const _id =
-      (doc?._id && (typeof doc._id === "string" ? doc._id : doc._id.$oid)) || idFromQuery;
+      (doc?._id && (typeof doc._id === "string" ? doc._id : doc._id.$oid)) ||
+      idFromQuery;
     if (!_id) {
       alert("Missing route id to update.");
       return;
@@ -726,7 +697,7 @@ export default function EditTransferRouteMobile() {
           chargePerKm: toNumOrZero(v.chargePerKm),
           minimumDistanceKm: toNumOrZero(v.minimumDistanceKm),
           minimumCharge: toNumOrZero(v.minimumCharge),
-          description: v.description || "",
+          description: v.description || "", // ✅ TinyMCE HTML
           year: toNumOrZero(v.year),
           fuelType: v.fuelType || undefined,
           transmission: v.transmission || undefined,
@@ -736,11 +707,13 @@ export default function EditTransferRouteMobile() {
                   enabled: true,
                   amount: toNumOrZero(v.nightCharge.amount),
                   appliesFromHour:
-                    v.nightCharge.appliesFromHour === "" || v.nightCharge.appliesFromHour == null
+                    v.nightCharge.appliesFromHour === "" ||
+                    v.nightCharge.appliesFromHour == null
                       ? 22
                       : Number(v.nightCharge.appliesFromHour),
                   appliesToHour:
-                    v.nightCharge.appliesToHour === "" || v.nightCharge.appliesToHour == null
+                    v.nightCharge.appliesToHour === "" ||
+                    v.nightCharge.appliesToHour == null
                       ? 6
                       : Number(v.nightCharge.appliesToHour),
                 }
@@ -755,15 +728,9 @@ export default function EditTransferRouteMobile() {
               }
             : undefined,
 
-          amenities:
-            v.amenities && v.amenities.length
-              ? v.amenities
-              : undefined,
+          amenities: v.amenities && v.amenities.length ? v.amenities : undefined,
           safetyFeatures:
-            v.safetyFeatures && v.safetyFeatures.length
-              ? v.safetyFeatures
-              : undefined,
-          // images handled separately
+            v.safetyFeatures && v.safetyFeatures.length ? v.safetyFeatures : undefined,
         };
       });
 
@@ -779,7 +746,10 @@ export default function EditTransferRouteMobile() {
         );
 
         if (appendImages) {
-          fd.append(`vehicleOptions[${idx}][existingImages]`, JSON.stringify(keptExisting));
+          fd.append(
+            `vehicleOptions[${idx}][existingImages]`,
+            JSON.stringify(keptExisting)
+          );
         } else {
           fd.append(`vehicleOptions[${idx}][imagesJson]`, JSON.stringify(keptExisting));
         }
@@ -789,7 +759,9 @@ export default function EditTransferRouteMobile() {
         });
       });
 
-      const url = `${process.env.NEXT_PUBLIC_API_BASE}pickupdrop/${encodeURIComponent(_id)}`;
+      const url = `${process.env.NEXT_PUBLIC_API_BASE}pickupdrop/${encodeURIComponent(
+        _id
+      )}`;
       const res = await fetch(url, { method: "PATCH", body: fd });
       if (!res.ok) throw new Error((await res.text()) || "Failed");
 
@@ -804,8 +776,10 @@ export default function EditTransferRouteMobile() {
   };
 
   /* ============ Derived for header ============ */
-  const titlePickup = data.pickups.find((p) => p.trim()) || data.pickups[0] || "Pickup";
-  const titleDrop = data.drops.find((d) => d.trim()) || data.drops[0] || "Drop";
+  const titlePickup =
+    data.pickups.find((p) => p.trim()) || data.pickups[0] || "Pickup";
+  const titleDrop =
+    data.drops.find((d) => d.trim()) || data.drops[0] || "Drop";
 
   if (loading) {
     return (
@@ -830,7 +804,6 @@ export default function EditTransferRouteMobile() {
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-gray-200">
         <div className="px-2 py-2 sm:px-6 sm:py-3 w-full sm:max-w-3xl sm:mx-auto">
-          {/* Top row: avatar/title/stepper actions */}
           <div className="flex items-center gap-3">
             <div className="flex-1 min-w-0">
               <h1 className="text-sm sm:text-base font-semibold text-gray-900 truncate">
@@ -840,7 +813,6 @@ export default function EditTransferRouteMobile() {
                 Update pickup/drop, vehicles, images, surge,
               </p>
 
-              {/* Mobile button (full-width) */}
               <Button
                 href="/dashboard/services?type=pick-and-drop"
                 component={Link as any}
@@ -861,7 +833,6 @@ export default function EditTransferRouteMobile() {
               </Button>
             </div>
 
-            {/* Desktop button (pill at right) */}
             <Button
               href="/dashboard/services?type=pick-and-drop"
               component={Link as any}
@@ -927,8 +898,8 @@ export default function EditTransferRouteMobile() {
       </header>
 
       {/* Content */}
-    <main className="w-full sm:max-w-3xl sm:mx-auto p-2 sm:p-6 pb-36 lg:pb-64">
-        {/* ROUTE + STEPS */}
+      <main className="w-full sm:max-w-3xl sm:mx-auto p-2 sm:p-6 pb-36 lg:pb-64">
+        {/* ROUTE */}
         {step.key === "route" && (
           <>
             <SectionCard
@@ -958,7 +929,10 @@ export default function EditTransferRouteMobile() {
 
                   <div className="p-2 sm:p-3 space-y-1.5 sm:space-y-2">
                     {data.pickups.map((val, i) => (
-                      <div key={`pickup-${i}`} className="grid grid-cols-12 gap-1.5 sm:gap-2 items-end">
+                      <div
+                        key={`pickup-${i}`}
+                        className="grid grid-cols-12 gap-1.5 sm:gap-2 items-end"
+                      >
                         <div className="col-span-9">
                           <Field
                             label={i === 0 ? "Pickup Location *" : "Pickup Location"}
@@ -1020,7 +994,10 @@ export default function EditTransferRouteMobile() {
 
                   <div className="p-2 sm:p-3 space-y-1.5 sm:space-y-2">
                     {data.drops.map((val, i) => (
-                      <div key={`drop-${i}`} className="grid grid-cols-12 gap-1.5 sm:gap-2 items-end">
+                      <div
+                        key={`drop-${i}`}
+                        className="grid grid-cols-12 gap-1.5 sm:gap-2 items-end"
+                      >
                         <div className="col-span-9">
                           <Field
                             label={i === 0 ? "Drop Location *" : "Drop Location"}
@@ -1070,8 +1047,6 @@ export default function EditTransferRouteMobile() {
                 <code>pickups[]</code> and <code>drops[]</code>.
               </div>
             </SectionCard>
-
-           
           </>
         )}
 
@@ -1091,15 +1066,10 @@ export default function EditTransferRouteMobile() {
                   updateOption(idx, { vehicleType, maxPax: autoMax });
                 };
 
-                const currentEditorState =
-                  v.editorState ?? createEditorStateFromHTML(v.description || "");
-
                 return (
                   <div key={idx} className="rounded-xl border border-gray-200 p-2 sm:p-4">
                     <div className="flex items-center justify-between mb-2 sm:mb-3">
-                      <p className="text-sm font-semibold text-gray-800">
-                        Option #{idx + 1}
-                      </p>
+                      <p className="text-sm font-semibold text-gray-800">Option #{idx + 1}</p>
                       <button
                         type="button"
                         onClick={() => removeOption(idx)}
@@ -1144,8 +1114,7 @@ export default function EditTransferRouteMobile() {
                           value={v.maxPax === "" ? "" : Number(v.maxPax)}
                           onChange={(e) =>
                             updateOption(idx, {
-                              maxPax:
-                                e.target.value === "" ? "" : Number(e.target.value),
+                              maxPax: e.target.value === "" ? "" : Number(e.target.value),
                             })
                           }
                           disabled={submitting}
@@ -1169,8 +1138,7 @@ export default function EditTransferRouteMobile() {
                             value={v.chargePerKm === "" ? "" : Number(v.chargePerKm)}
                             onChange={(e) =>
                               updateOption(idx, {
-                                chargePerKm:
-                                  e.target.value === "" ? "" : Number(e.target.value),
+                                chargePerKm: e.target.value === "" ? "" : Number(e.target.value),
                               })
                             }
                             placeholder="charge per km"
@@ -1190,8 +1158,7 @@ export default function EditTransferRouteMobile() {
                             value={v.vendorPrice === "" ? "" : Number(v.vendorPrice)}
                             onChange={(e) =>
                               updateOption(idx, {
-                                vendorPrice:
-                                  e.target.value === "" ? "" : Number(e.target.value),
+                                vendorPrice: e.target.value === "" ? "" : Number(e.target.value),
                               })
                             }
                             placeholder="vendor amount"
@@ -1211,8 +1178,7 @@ export default function EditTransferRouteMobile() {
                             value={v.sellerPrice === "" ? "" : Number(v.sellerPrice)}
                             onChange={(e) =>
                               updateOption(idx, {
-                                sellerPrice:
-                                  e.target.value === "" ? "" : Number(e.target.value),
+                                sellerPrice: e.target.value === "" ? "" : Number(e.target.value),
                               })
                             }
                             placeholder="seller amount"
@@ -1227,9 +1193,7 @@ export default function EditTransferRouteMobile() {
                           className="input"
                           value={v.availabilityStatus || "available"}
                           onChange={(e) =>
-                            updateOption(idx, {
-                              availabilityStatus: e.target.value as Availability,
-                            })
+                            updateOption(idx, { availabilityStatus: e.target.value as Availability })
                           }
                           disabled={submitting}
                         >
@@ -1240,23 +1204,15 @@ export default function EditTransferRouteMobile() {
                         </select>
                       </Field>
 
-                      {/* MIN DISTANCE & MIN CHARGE */}
                       <Field label="Minimum Distance (km)">
                         <input
                           type="number"
                           min={0}
                           className="input"
-                          value={
-                            v.minimumDistanceKm === ""
-                              ? ""
-                              : Number(v.minimumDistanceKm as any)
-                          }
+                          value={v.minimumDistanceKm === "" ? "" : Number(v.minimumDistanceKm as any)}
                           onChange={(e) =>
                             updateOption(idx, {
-                              minimumDistanceKm:
-                                e.target.value === ""
-                                  ? ""
-                                  : Number(e.target.value),
+                              minimumDistanceKm: e.target.value === "" ? "" : Number(e.target.value),
                             })
                           }
                           placeholder="e.g. 10"
@@ -1270,17 +1226,10 @@ export default function EditTransferRouteMobile() {
                             type="number"
                             min={0}
                             className="input"
-                            value={
-                              v.minimumCharge === ""
-                                ? ""
-                                : Number(v.minimumCharge as any)
-                            }
+                            value={v.minimumCharge === "" ? "" : Number(v.minimumCharge as any)}
                             onChange={(e) =>
                               updateOption(idx, {
-                                minimumCharge:
-                                  e.target.value === ""
-                                    ? ""
-                                    : Number(e.target.value),
+                                minimumCharge: e.target.value === "" ? "" : Number(e.target.value),
                               })
                             }
                             placeholder="e.g. 400"
@@ -1290,7 +1239,6 @@ export default function EditTransferRouteMobile() {
                         </div>
                       </Field>
 
-                      {/* YEAR / FUEL / TRANSMISSION */}
                       <Field label="Model Year">
                         <input
                           type="number"
@@ -1299,12 +1247,7 @@ export default function EditTransferRouteMobile() {
                           className="input"
                           value={v.year === "" ? "" : Number(v.year as any)}
                           onChange={(e) =>
-                            updateOption(idx, {
-                              year:
-                                e.target.value === ""
-                                  ? ""
-                                  : Number(e.target.value),
-                            })
+                            updateOption(idx, { year: e.target.value === "" ? "" : Number(e.target.value) })
                           }
                           placeholder="2022"
                           disabled={submitting}
@@ -1316,9 +1259,7 @@ export default function EditTransferRouteMobile() {
                           type="text"
                           className="input"
                           value={v.fuelType || ""}
-                          onChange={(e) =>
-                            updateOption(idx, { fuelType: e.target.value })
-                          }
+                          onChange={(e) => updateOption(idx, { fuelType: e.target.value })}
                           placeholder="Petrol / Diesel / CNG / EV"
                           disabled={submitting}
                         />
@@ -1329,47 +1270,23 @@ export default function EditTransferRouteMobile() {
                           type="text"
                           className="input"
                           value={v.transmission || ""}
-                          onChange={(e) =>
-                            updateOption(idx, { transmission: e.target.value })
-                          }
+                          onChange={(e) => updateOption(idx, { transmission: e.target.value })}
                           placeholder="Manual / Automatic"
                           disabled={submitting}
                         />
                       </Field>
 
-                      {/* DESCRIPTION with WYSIWYG editor */}
+                      {/* DESCRIPTION (TinyMCE) */}
                       <Field
                         label="Vehicle Description"
                         className="sm:col-span-2"
                         hint="Shown in product card details."
                       >
-                        <div className="rounded-xl border border-gray-300 bg-white">
-                          <Editor
-                            editorState={currentEditorState}
-                            onEditorStateChange={(editorState) => {
-                              const html = stateToHTML(
-                                editorState.getCurrentContent()
-                              );
-                              updateOption(idx, {
-                                editorState,
-                                description: html,
-                              });
-                            }}
-                            readOnly={submitting}
-                            toolbarClassName="border-b border-gray-200"
-                            wrapperClassName="min-h-[140px]"
-                            editorClassName="px-3 py-2 min-h-[120px]"
-                            toolbar={{
-                              options: ["inline", "list", "link", "history"],
-                              inline: {
-                                options: ["bold", "italic", "underline"],
-                              },
-                              list: {
-                                options: ["unordered", "ordered"],
-                              },
-                            }}
-                          />
-                        </div>
+                        <TinyMCETextEditor
+                          value={v.description || ""}
+                          disabled={submitting}
+                          onChange={(html) => updateOption(idx, { description: html })}
+                        />
                       </Field>
 
                       {/* RATINGS */}
@@ -1381,8 +1298,7 @@ export default function EditTransferRouteMobile() {
                           step={0.1}
                           className="input"
                           value={
-                            v.ratings?.average === "" ||
-                            v.ratings?.average == null
+                            v.ratings?.average === "" || v.ratings?.average == null
                               ? ""
                               : Number(v.ratings.average as any)
                           }
@@ -1390,10 +1306,7 @@ export default function EditTransferRouteMobile() {
                             updateOption(idx, {
                               ratings: {
                                 ...(v.ratings || {}),
-                                average:
-                                  e.target.value === ""
-                                    ? ""
-                                    : Number(e.target.value),
+                                average: e.target.value === "" ? "" : Number(e.target.value),
                               },
                             })
                           }
@@ -1408,8 +1321,7 @@ export default function EditTransferRouteMobile() {
                           min={0}
                           className="input"
                           value={
-                            v.ratings?.totalReviews === "" ||
-                            v.ratings?.totalReviews == null
+                            v.ratings?.totalReviews === "" || v.ratings?.totalReviews == null
                               ? ""
                               : Number(v.ratings.totalReviews as any)
                           }
@@ -1417,10 +1329,7 @@ export default function EditTransferRouteMobile() {
                             updateOption(idx, {
                               ratings: {
                                 ...(v.ratings || {}),
-                                totalReviews:
-                                  e.target.value === ""
-                                    ? ""
-                                    : Number(e.target.value),
+                                totalReviews: e.target.value === "" ? "" : Number(e.target.value),
                               },
                             })
                           }
@@ -1506,17 +1415,12 @@ export default function EditTransferRouteMobile() {
                               min={0}
                               inputMode="decimal"
                               className="input"
-                              value={
-                                v.nightCharge?.amount === "" ? "" : Number(v.nightCharge?.amount as any)
-                              }
+                              value={v.nightCharge?.amount === "" ? "" : Number(v.nightCharge?.amount as any)}
                               onChange={(e) =>
                                 updateOption(idx, {
                                   nightCharge: {
                                     ...(v.nightCharge || {}),
-                                    amount:
-                                      e.target.value === ""
-                                        ? ""
-                                        : Number(e.target.value),
+                                    amount: e.target.value === "" ? "" : Number(e.target.value),
                                   },
                                 })
                               }
@@ -1531,8 +1435,7 @@ export default function EditTransferRouteMobile() {
                               max={23}
                               className="input"
                               value={
-                                v.nightCharge?.appliesFromHour === "" ||
-                                v.nightCharge?.appliesFromHour == null
+                                v.nightCharge?.appliesFromHour === "" || v.nightCharge?.appliesFromHour == null
                                   ? ""
                                   : Number(v.nightCharge?.appliesFromHour)
                               }
@@ -1540,10 +1443,7 @@ export default function EditTransferRouteMobile() {
                                 updateOption(idx, {
                                   nightCharge: {
                                     ...(v.nightCharge || {}),
-                                    appliesFromHour:
-                                      e.target.value === ""
-                                        ? ""
-                                        : Number(e.target.value),
+                                    appliesFromHour: e.target.value === "" ? "" : Number(e.target.value),
                                   },
                                 })
                               }
@@ -1557,8 +1457,7 @@ export default function EditTransferRouteMobile() {
                               max={23}
                               className="input"
                               value={
-                                v.nightCharge?.appliesToHour === "" ||
-                                v.nightCharge?.appliesToHour == null
+                                v.nightCharge?.appliesToHour === "" || v.nightCharge?.appliesToHour == null
                                   ? ""
                                   : Number(v.nightCharge?.appliesToHour)
                               }
@@ -1566,10 +1465,7 @@ export default function EditTransferRouteMobile() {
                                 updateOption(idx, {
                                   nightCharge: {
                                     ...(v.nightCharge || {}),
-                                    appliesToHour:
-                                      e.target.value === ""
-                                        ? ""
-                                        : Number(e.target.value),
+                                    appliesToHour: e.target.value === "" ? "" : Number(e.target.value),
                                   },
                                 })
                               }
@@ -1596,7 +1492,7 @@ export default function EditTransferRouteMobile() {
           </SectionCard>
         )}
 
-        {/* IMAGES (per vehicle option) */}
+        {/* IMAGES */}
         {step.key === "images" && (
           <SectionCard
             title="Images"
@@ -1605,7 +1501,10 @@ export default function EditTransferRouteMobile() {
           >
             <div className="space-y-4 sm:space-y-6">
               {data.vehicleOptions.map((v, idx) => (
-                <div key={`images-${idx}`} className="rounded-xl border border-gray-200 p-2 sm:p-4">
+                <div
+                  key={`images-${idx}`}
+                  className="rounded-xl border border-gray-200 p-2 sm:p-4"
+                >
                   <div className="flex items-center justify-between gap-2 sm:gap-3 mb-2">
                     <p className="text-sm font-semibold text-gray-900">
                       Vehicle Option #{idx + 1} {v.vehiclename ? `— ${v.vehiclename}` : ""}
@@ -1749,9 +1648,7 @@ export default function EditTransferRouteMobile() {
                     "Continue"
                   ) : (
                     <span className="inline-flex items-center gap-2">
-                      {submitting && (
-                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                      )}
+                      {submitting && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
                       {submitting ? "Updating..." : "Update Route"}
                     </span>
                   )}
@@ -1793,6 +1690,57 @@ export default function EditTransferRouteMobile() {
           font-size: 12px;
           color: #6b7280;
         }
+
+        /* Optional: tighter toolbar like your screenshot */
+        :global(.tox .tox-toolbar__group) {
+          padding: 4px 6px !important;
+        }
+        :global(.tox .tox-tbtn) {
+          width: 30px !important;
+          height: 30px !important;
+        }
+        :global(.tox .tox-edit-area__iframe) {
+          background: white !important;
+        }
+          /* ✅ TinyMCE responsive UI */
+  :global(.tox) {
+    border: none !important;
+  }
+
+  :global(.tox .tox-editor-header) {
+    border-bottom: 1px solid #e5e7eb !important; /* gray-200 */
+  }
+
+  :global(.tox .tox-toolbar__primary) {
+    padding: 6px !important;
+  }
+
+  /* ✅ Buttons compact + nice on mobile */
+  :global(.tox .tox-tbtn) {
+    width: 32px !important;
+    height: 32px !important;
+  }
+
+  /* ✅ Make editor content padding consistent */
+  :global(.tox .tox-edit-area__iframe) {
+    background: white !important;
+  }
+
+  /* ✅ Fix text starting position (top-left) */
+  :global(.tox-edit-area) {
+    padding: 0 !important;
+  }
+
+  /* ✅ Mobile tweaks */
+  @media (max-width: 640px) {
+    :global(.tox .tox-toolbar__primary) {
+      padding: 4px !important;
+    }
+    :global(.tox .tox-tbtn) {
+      width: 28px !important;
+      height: 28px !important;
+    }
+  }
       `}</style>
     </form>
   );
@@ -1914,9 +1862,7 @@ function SurgeChargesSection({
         {data.vehicleOptions.map((v, idx) => (
           <div key={idx} className="rounded-xl border border-gray-200 p-2 sm:p-4">
             <div className="flex items-center justify-between mb-2 sm:mb-3">
-              <p className="text-sm font-semibold text-gray-800">
-                Vehicle Option #{idx + 1}
-              </p>
+              <p className="text-sm font-semibold text-gray-800">Vehicle Option #{idx + 1}</p>
               <button
                 type="button"
                 onClick={() => add(idx)}
@@ -1936,9 +1882,7 @@ function SurgeChargesSection({
               {(v.surgeCharges || []).map((b, i) => (
                 <div key={i} className="rounded-lg border border-gray-200 p-2 sm:p-3">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-gray-700">
-                      Surge #{i + 1}
-                    </span>
+                    <span className="text-xs font-semibold text-gray-700">Surge #{i + 1}</span>
                     <button
                       type="button"
                       onClick={() => remove(idx, i)}
@@ -1993,9 +1937,7 @@ function SurgeChargesSection({
                             type="date"
                             className="input"
                             value={b.startDate || ""}
-                            onChange={(e) =>
-                              patch(idx, i, { startDate: e.target.value })
-                            }
+                            onChange={(e) => patch(idx, i, { startDate: e.target.value })}
                             disabled={submitting}
                           />
                         </Field>
@@ -2005,9 +1947,7 @@ function SurgeChargesSection({
                             className="input"
                             value={b.endDate || ""}
                             min={b.startDate || undefined}
-                            onChange={(e) =>
-                              patch(idx, i, { endDate: e.target.value })
-                            }
+                            onChange={(e) => patch(idx, i, { endDate: e.target.value })}
                             disabled={submitting}
                           />
                         </Field>
@@ -2022,10 +1962,7 @@ function SurgeChargesSection({
                         className="input"
                         value={b.price === "" ? "" : Number(b.price)}
                         onChange={(e) =>
-                          patch(idx, i, {
-                            price:
-                              e.target.value === "" ? "" : Number(e.target.value),
-                          })
+                          patch(idx, i, { price: e.target.value === "" ? "" : Number(e.target.value) })
                         }
                         placeholder="amount"
                         disabled={submitting}

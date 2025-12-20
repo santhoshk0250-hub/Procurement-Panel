@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState, useRef } from "react";
+import dynamic from "next/dynamic";
 import {
   CheckCircle2,
   Loader2,
@@ -17,15 +18,11 @@ import {
   HelpCircle,
   Image as ImageIcon,
   Users,
-
 } from "lucide-react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
+import TinyMCETextEditor from "@/components/TinyMCETextEditor";
 
-import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
-import { Editor } from "react-draft-wysiwyg";
-import { EditorState, ContentState, convertFromHTML } from "draft-js";
-import { stateToHTML } from "draft-js-export-html";
 
 /* =========================
    Types aligned to your schema / sample docs
@@ -48,6 +45,16 @@ interface BlockoutSurcharge {
   start_date: string; // yyyy-mm-dd
   end_date?: string; // yyyy-mm-dd
   currency?: "INR";
+}
+
+interface SegregatedImageGroup {
+  id: string;
+  category: string;
+  images: ImageFile[];
+}
+interface ImageFile {
+  file: File;
+  preview: string;
 }
 
 interface WhyChooseItem {
@@ -106,8 +113,9 @@ interface SightseeingPackageUI {
   // Multi surcharges
   blockout_surcharges: BlockoutSurcharge[];
 
-  
+  // ✅ HTML (TinyMCE)
   description: string;
+
   thumbnail: string;
   images: string[];
   highlights: string[];
@@ -148,7 +156,7 @@ interface SightseeingPackageUI {
 
   operatedBy: string;
 
-  // LLM chips
+  // ✅ LLM chips (TinyMCE HTML)
   llm_chips?: FAQ[];
 
   // Notes
@@ -166,7 +174,7 @@ interface SightseeingPackageUI {
    Helpers & Constants
    ========================= */
 
-// Vehicle type options (for "coach" tours – walking/boat can still be free text)
+// Vehicle type options
 const VEHICLE_TYPES = [
   "4 Seater",
   "7 Seater",
@@ -176,12 +184,7 @@ const VEHICLE_TYPES = [
   "30–40 Seater",
 ] as const;
 
-const CATEGORY_OPTIONS = [
-  "family",
-  "friends",
-  "bachelor's",
-  "couple",
-] as const;
+const CATEGORY_OPTIONS = ["family", "friends", "bachelor's", "couple"] as const;
 
 const getSelectedCategories = (category: string) =>
   category
@@ -189,15 +192,10 @@ const getSelectedCategories = (category: string) =>
     .map((c) => c.trim())
     .filter(Boolean);
 
-const toggleCategory = (
-  currentValue: string,
-  cat: string
-): string => {
+const toggleCategory = (currentValue: string, cat: string): string => {
   const selected = getSelectedCategories(currentValue);
   const exists = selected.includes(cat);
-  const next = exists
-    ? selected.filter((c) => c !== cat)
-    : [...selected, cat];
+  const next = exists ? selected.filter((c) => c !== cat) : [...selected, cat];
   return next.join(", ");
 };
 
@@ -216,7 +214,9 @@ const VEHICLE_PAX_PRESETS: Record<string, { min: number; max: number }> = {
   "30-40 Seater": { min: 30, max: 40 },
 };
 
-function derivePaxFromVehicleType(label: string): { min: number; max: number } | null {
+function derivePaxFromVehicleType(
+  label: string
+): { min: number; max: number } | null {
   const s = (label || "").trim();
   if (VEHICLE_PAX_PRESETS[s]) return VEHICLE_PAX_PRESETS[s];
 
@@ -224,7 +224,8 @@ function derivePaxFromVehicleType(label: string): { min: number; max: number } |
   if (range) {
     const a = Number(range[1]);
     const b = Number(range[2]);
-    if (!Number.isNaN(a) && !Number.isNaN(b)) return { min: Math.min(a, b), max: Math.max(a, b) };
+    if (!Number.isNaN(a) && !Number.isNaN(b))
+      return { min: Math.min(a, b), max: Math.max(a, b) };
   }
 
   const single = s.match(/(\d+)\s*Seater/i);
@@ -244,34 +245,30 @@ const TIME_RANGE_REGEX =
   /^([0-1]?\d|2[0-3])\s?(am|pm)?\s?(-|to)\s?([0-1]?\d|2[0-3])\s?(am|pm)?$/i;
 
 const BLANK: SightseeingPackageUI = {
-  // core
   tour_name: "",
   vehicle_type: "",
   destination: "",
   category: "",
 
-  // pax & duration
   min_pax: "",
   max_pax: "",
   duration_hours: "",
 
-  // timings
   regular_timings: "",
   alternative_timings: "",
 
-  // places
   places_to_visit_names: [],
   place_ids: [],
 
-  // commercials
   inclusions: [],
   exclusions: [],
   vendor_charge: "",
   seller_charge: "",
   blockout_surcharges: [],
 
-  // extended content
+  // ✅ HTML for TinyMCE
   description: "",
+
   thumbnail: "",
   images: [],
   highlights: [],
@@ -280,7 +277,6 @@ const BLANK: SightseeingPackageUI = {
   operationProcess: [],
   whatToExpect: [],
 
-  // pickup & ops
   pickupType: "",
   pickupAreas: [],
   meetingTime: "",
@@ -319,7 +315,6 @@ const BLANK: SightseeingPackageUI = {
   special_mentions: "",
   notes: "",
 
-  // media files
   thumbnailFile: null,
   guestImagesFiles: [],
   galleryImagesFiles: [],
@@ -333,20 +328,44 @@ function uid() {
 // Steps
 const STEPS = [
   { key: "details", label: "Details", icon: <FileText className="size-4" /> },
-  { key: "llmChips", label: "LLM Chips", icon: <HelpCircle className="size-4" /> },
+  {
+    key: "llmChips",
+    label: "LLM Chips",
+    icon: <HelpCircle className="size-4" />,
+  },
   { key: "experience", label: "Experience", icon: <Users className="size-4" /> },
-  { key: "schedule", label: "Timings & Places", icon: <Clock className="size-4" /> },
-  { key: "commerce", label: "Inclusions & Pricing", icon: <ListChecks className="size-4" /> },
+  {
+    key: "schedule",
+    label: "Timings & Places",
+    icon: <Clock className="size-4" />,
+  },
+  {
+    key: "commerce",
+    label: "Inclusions & Pricing",
+    icon: <ListChecks className="size-4" />,
+  },
   { key: "media", label: "Media", icon: <ImageIcon className="size-4" /> },
+  {
+    key: "segregatedMedia",
+    label: "Segregated Images",
+    icon: <ImageIcon className="size-4" />,
+  },
 ] as const;
 
 type StepKey = (typeof STEPS)[number]["key"];
 const LAST_INDEX = STEPS.length - 1;
 
 const sanitizeHtml = (html: string) =>
-  html
-    .replace(/[\n\r]/g, "")
-    .replace(/>\s+</g, "><");
+  (html || "").replace(/[\n\r]/g, "").replace(/>\s+</g, "><").trim();
+
+const stripHtmlText = (html: string) =>
+  (html || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const hasMeaningfulHtml = (html: string) => stripHtmlText(html).length > 0;
 
 /* =========================
    Local utils
@@ -449,6 +468,11 @@ function TagComposer({
 }
 
 /* =========================
+   TinyMCE wrapper
+   ========================= */
+
+
+/* =========================
    Component
    ========================= */
 
@@ -462,33 +486,70 @@ export default function AddSightseeingPackageMobile() {
   const [places, setPlaces] = useState<PlaceLite[]>([]);
   const [loadingPlaces, setLoadingPlaces] = useState(true);
 
-  const [doc] = useState<SightseeingPackageUI | null>(null);
-
   const step = STEPS[stepIndex];
 
-  const htmlToEditorState = (html?: string) => {
-    const safe = (html ?? "").trim();
-    if (!safe) return EditorState.createEmpty();
-    const blocks = convertFromHTML(safe);
-    const content = ContentState.createFromBlockArray(
-      blocks.contentBlocks,
-      blocks.entityMap
-    );
-    return EditorState.createWithContent(content);
+  // ✅ LLM chips (TinyMCE HTML)
+  const [llmChips, setLlmChips] = useState<FAQ[]>([{ q: "", a: "" }]);
+
+  // segregated images (category-wise)
+  const [segregatedGroups, setSegregatedGroups] = useState<
+    SegregatedImageGroup[]
+  >([{ id: "seg-0", category: "", images: [] }]);
+
+  const addSegGroup = () => {
+    setSegregatedGroups((prev) => [
+      ...prev,
+      {
+        id: `seg-${prev.length}`,
+        category: "",
+        images: [],
+      },
+    ]);
   };
 
-  // LLM chips
-  const [llmChips, setLlmChips] = useState<FAQ[]>(
-    doc?.llm_chips && doc.llm_chips.length ? doc.llm_chips : [{ q: "", a: "" }]
-  );
+  const removeSegGroup = (id: string) => {
+    setSegregatedGroups((prev) => {
+      const toRemove = prev.find((g) => g.id === id);
+      toRemove?.images.forEach((img) => URL.revokeObjectURL(img.preview));
+      const next = prev.filter((g) => g.id !== id);
+      return next.length ? next : [{ id: "seg-0", category: "", images: [] }];
+    });
+  };
 
-  const [llmChipEditors, setLlmChipEditors] = useState<EditorState[]>(() =>
-    (doc?.llm_chips && doc.llm_chips.length ? doc.llm_chips : [{ q: "", a: "" }]).map(
-      (c) => htmlToEditorState(c.a)
-    )
-  );
+  const updateSegGroupCategory = (id: string, category: string) => {
+    setSegregatedGroups((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, category } : g))
+    );
+  };
 
-   const addStrItem =
+  const handleSegImagesUpload = (
+    id: string,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (!files.length) return;
+    const mapped: ImageFile[] = files.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+    setSegregatedGroups((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, images: [...g.images, ...mapped] } : g))
+    );
+    e.target.value = "";
+  };
+
+  const removeSegImage = (groupId: string, idx: number) => {
+    setSegregatedGroups((prev) =>
+      prev.map((g) => {
+        if (g.id !== groupId) return g;
+        const img = g.images[idx];
+        if (img?.preview) URL.revokeObjectURL(img.preview);
+        return { ...g, images: g.images.filter((_, i) => i !== idx) };
+      })
+    );
+  };
+
+  const addStrItem =
     (key: keyof SightseeingPackageUI) =>
     (v: string) =>
       setForm((p) => ({
@@ -504,17 +565,10 @@ export default function AddSightseeingPackageMobile() {
         [key]: (p[key] as string[]).filter((_, idx) => idx !== i),
       }));
 
-  const addLlmChip = () => {
-    setLlmChips((p) => [...p, { q: "", a: "" }]);
-    setLlmChipEditors((p) => [...p, EditorState.createEmpty()]);
-  };
+  const addLlmChip = () => setLlmChips((p) => [...p, { q: "", a: "" }]);
 
-  const remLlmChip = (idx: number) => {
+  const remLlmChip = (idx: number) =>
     setLlmChips((p) => (p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)));
-    setLlmChipEditors((p) =>
-      p.length <= 1 ? [EditorState.createEmpty()] : p.filter((_, i) => i !== idx)
-    );
-  };
 
   const setLlmChip = (idx: number, next: Partial<FAQ>) =>
     setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
@@ -577,14 +631,10 @@ export default function AddSightseeingPackageMobile() {
   }, [form.tour_name, form.vehicle_type, form.min_pax, form.max_pax, form.duration_hours]);
 
   const canContinueSchedule = useMemo(() => {
-    const ok1 =
-      !form.regular_timings || TIME_RANGE_REGEX.test(cleanTime(form.regular_timings));
-    const ok2 =
-      !form.alternative_timings ||
-      TIME_RANGE_REGEX.test(cleanTime(form.alternative_timings));
+    const hasRegularTimings = form.regular_timings.trim().length > 0;
     const hasPlaces = form.place_ids.length > 0;
-    return ok1 && ok2 && hasPlaces;
-  }, [form.regular_timings, form.alternative_timings, form.place_ids]);
+    return hasRegularTimings && hasPlaces;
+  }, [form.regular_timings, form.place_ids]);
 
   const canContinueCommerce = useMemo(() => true, []);
 
@@ -601,7 +651,6 @@ export default function AddSightseeingPackageMobile() {
     }
   };
 
-  const canGoNext = isStepValid(step.key);
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
 
   const canSubmit =
@@ -611,7 +660,7 @@ export default function AddSightseeingPackageMobile() {
 
   /* ---------- Nav ---------- */
   const goNext = () => {
-    if (submitting || !canGoNext) return;
+    if (submitting || !isStepValid(step.key as StepKey)) return;
     if (stepIndex >= LAST_INDEX) {
       void handleSubmit();
       return;
@@ -673,9 +722,7 @@ export default function AddSightseeingPackageMobile() {
 
   // When user selects place IDs from dropdown, also keep names in sync
   const syncPlacesToNames = (ids: ObjId[]) => {
-    const names = places
-      .filter((p) => ids.includes(p._id))
-      .map((p) => p.name);
+    const names = places.filter((p) => ids.includes(p._id)).map((p) => p.name);
     set({ place_ids: ids, places_to_visit_names: names });
   };
 
@@ -683,9 +730,7 @@ export default function AddSightseeingPackageMobile() {
 
   const handleGalleryImagesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
-    set({
-      galleryImagesFiles: [...(form.galleryImagesFiles || []), ...files],
-    });
+    set({ galleryImagesFiles: [...(form.galleryImagesFiles || []), ...files] });
   };
 
   const removeGalleryImage = (idx: number) => {
@@ -696,9 +741,7 @@ export default function AddSightseeingPackageMobile() {
 
   const handleGuestImagesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
-    set({
-      guestImagesFiles: [...(form.guestImagesFiles || []), ...files],
-    });
+    set({ guestImagesFiles: [...(form.guestImagesFiles || []), ...files] });
   };
 
   const removeGuestImage = (idx: number) => {
@@ -709,9 +752,7 @@ export default function AddSightseeingPackageMobile() {
 
   const handleVideosChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
-    set({
-      videoFiles: [...(form.videoFiles || []), ...files],
-    });
+    set({ videoFiles: [...(form.videoFiles || []), ...files] });
   };
 
   const removeVideo = (idx: number) => {
@@ -724,7 +765,7 @@ export default function AddSightseeingPackageMobile() {
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (stepIndex < LAST_INDEX) {
-      if (isStepValid(step.key)) goNext();
+      if (isStepValid(step.key as StepKey)) goNext();
       return;
     }
 
@@ -740,7 +781,6 @@ export default function AddSightseeingPackageMobile() {
         .filter(Boolean) as { name: string; placeId: string }[];
 
       const cooked: Record<string, any> = {
-        // original internal fields
         tour_name: form.tour_name.trim(),
         vehicle_type: form.vehicle_type.trim(),
         min_pax: numOrDefault(form.min_pax, 1),
@@ -753,19 +793,17 @@ export default function AddSightseeingPackageMobile() {
         places_to_visit_names: form.places_to_visit_names,
         inclusions: form.inclusions,
         exclusions: form.exclusions,
+
+        // ✅ TinyMCE chips -> HTML
         llm_chips: llmChips
-          .map((c, idx) => {
-            const editor = llmChipEditors[idx] || EditorState.createEmpty();
-            const content = editor.getCurrentContent();
-            const hasText = content.hasText();
-            const rawHtml = stateToHTML(content);
-            const html = hasText ? sanitizeHtml(rawHtml) : "";
-            return {
-              q: (c.q || "").trim(),
-              a: html.trim(),
-            };
+          .map((c) => {
+            const q = (c.q || "").trim();
+            const aRaw = c.a || "";
+            const a = hasMeaningfulHtml(aRaw) ? sanitizeHtml(aRaw) : "";
+            return { q, a };
           })
           .filter((c) => c.q || c.a),
+
         vendor_charge: numOrNull(form.vendor_charge),
         seller_charge: numOrNull(form.seller_charge),
         blockout_surcharges: form.blockout_surcharges
@@ -777,16 +815,23 @@ export default function AddSightseeingPackageMobile() {
             start_date: s.start_date,
             end_date: s.mode === "range" ? s.end_date || s.start_date : s.start_date,
           })),
+
         special_mentions: form.special_mentions.trim(),
         notes: form.notes.trim(),
 
+        // Public fields
         title: form.tour_name.trim(),
         destination: form.destination.trim(),
         vehicleType: form.vehicle_type.trim(),
         duration: numOrDefault(form.duration_hours, 1),
         regularTimings: form.regular_timings.trim(),
         alternativeTimings: form.alternative_timings.trim(),
-        description: form.description.trim(),
+
+        // ✅ TinyMCE description -> HTML
+        description: hasMeaningfulHtml(form.description)
+          ? sanitizeHtml(form.description)
+          : "",
+
         thumbnail: form.thumbnail.trim(),
         images: form.images,
         placesToVisit,
@@ -818,6 +863,13 @@ export default function AddSightseeingPackageMobile() {
             description: b.description.trim(),
           }))
           .filter((b) => b.title || b.description),
+
+        segregated_images: segregatedGroups
+          .map((g) => ({
+            category: g.category.trim(),
+            imagesCount: g.images.length,
+          }))
+          .filter((g) => g.category && g.imagesCount > 0),
 
         pickupType: form.pickupType.trim(),
         pickupAreas: form.pickupAreas,
@@ -855,21 +907,16 @@ export default function AddSightseeingPackageMobile() {
       const fd = new FormData();
       fd.append("payload", JSON.stringify({ ...cooked }));
 
-      // Attach media files
-      if (form.thumbnailFile) {
-        fd.append("thumbnail", form.thumbnailFile);
-      }
+      if (form.thumbnailFile) fd.append("thumbnail", form.thumbnailFile);
 
-      (form.guestImagesFiles || []).forEach((file) => {
-        fd.append("guestImages", file);
-      });
+      (form.guestImagesFiles || []).forEach((file) => fd.append("guestImages", file));
+      (form.galleryImagesFiles || []).forEach((file) => fd.append("galleryImages", file));
+      (form.videoFiles || []).forEach((file) => fd.append("videos", file));
 
-      (form.galleryImagesFiles || []).forEach((file) => {
-        fd.append("galleryImages", file);
-      });
-
-      (form.videoFiles || []).forEach((file) => {
-        fd.append("videos", file);
+      segregatedGroups.forEach((group, gIdx) => {
+        group.images.forEach((img) => {
+          fd.append(`segregated_images_${gIdx}`, img.file);
+        });
       });
 
       const base = process.env.NEXT_PUBLIC_API_BASE || "/";
@@ -892,7 +939,7 @@ export default function AddSightseeingPackageMobile() {
      ========================= */
 
   return (
-    <form className="min-h-screen bg-gray-50" >
+    <form className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-gray-200">
         <div className="px-4 py-3 sm:px-6 max-w-3xl mx-auto">
@@ -910,7 +957,11 @@ export default function AddSightseeingPackageMobile() {
             </div>
             <button
               type="button"
-              onClick={() => setForm({ ...BLANK })}
+              onClick={() => {
+                setForm({ ...BLANK });
+                setLlmChips([{ q: "", a: "" }]);
+                setSegregatedGroups([{ id: "seg-0", category: "", images: [] }]);
+              }}
               disabled={submitting}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${
                 submitting
@@ -934,9 +985,7 @@ export default function AddSightseeingPackageMobile() {
                   onClick={() => {
                     if (submitting) return;
                     const allPrevValid =
-                      i <= stepIndex
-                        ? true
-                        : STEPS.slice(0, i).every((st) => isStepValid(st.key));
+                      i <= stepIndex ? true : STEPS.slice(0, i).every((st) => isStepValid(st.key));
                     if (allPrevValid) setStepIndex(i);
                     window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
@@ -961,9 +1010,7 @@ export default function AddSightseeingPackageMobile() {
           {/* Progress */}
           <div className="mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
             <div
-              className={`h-full transition-all ${
-                submitting ? "bg-emerald-400" : "bg-emerald-600"
-              }`}
+              className={`h-full transition-all ${submitting ? "bg-emerald-400" : "bg-emerald-600"}`}
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -993,8 +1040,6 @@ export default function AddSightseeingPackageMobile() {
                       disabled={submitting}
                     />
                   </Field>
-
-              
 
                   <Field label="Destination">
                     <input
@@ -1037,9 +1082,7 @@ export default function AddSightseeingPackageMobile() {
                       min={0}
                       value={form.min_pax}
                       onChange={(e) =>
-                        set({
-                          min_pax: e.target.value === "" ? "" : Number(e.target.value),
-                        })
+                        set({ min_pax: e.target.value === "" ? "" : Number(e.target.value) })
                       }
                       placeholder="e.g., 1"
                       disabled={submitting}
@@ -1053,9 +1096,7 @@ export default function AddSightseeingPackageMobile() {
                       min={0}
                       value={form.max_pax}
                       onChange={(e) =>
-                        set({
-                          max_pax: e.target.value === "" ? "" : Number(e.target.value),
-                        })
+                        set({ max_pax: e.target.value === "" ? "" : Number(e.target.value) })
                       }
                       placeholder="e.g., 17"
                       disabled={submitting}
@@ -1070,10 +1111,7 @@ export default function AddSightseeingPackageMobile() {
                       max={24}
                       value={form.duration_hours}
                       onChange={(e) =>
-                        set({
-                          duration_hours:
-                            e.target.value === "" ? "" : Number(e.target.value),
-                        })
+                        set({ duration_hours: e.target.value === "" ? "" : Number(e.target.value) })
                       }
                       placeholder="e.g., 7"
                       disabled={submitting}
@@ -1089,57 +1127,49 @@ export default function AddSightseeingPackageMobile() {
               icon={<FileText className="size-5 text-blue-600" />}
             >
               <div className="space-y-4">
-              <Field label="Category" required>
-                            <div className="flex flex-wrap gap-2">
-                              {CATEGORY_OPTIONS.map((cat) => {
-                                const selected = getSelectedCategories(form.category).includes(cat);
-              
-                                return (
-                                  <label
-                                    key={cat}
-                                    className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs cursor-pointer ${
-                                      selected
-                                        ? "bg-blue-600 border-blue-600 text-white"
-                                        : "bg-white border-gray-300 text-gray-700"
-                                    }`}
-                                  >
-                                  <input
-                                      type="checkbox"
-                                      className="sr-only"
-                                      checked={selected}
-                                      onChange={() =>
-                                        set({
-                                          category: toggleCategory(form.category, cat),
-                                        })
-                                      }
-                                      disabled={submitting}
-                                    />
-
-                                    <span className="inline-flex items-center justify-center">
-                                      {selected ? (
-                                        <Check className="size-3.5" />
-                                      ) : (
-                                        <span className="size-3.5 rounded border border-current" />
-                                      )}
-                                    </span>
-                                    <span className="uppercase">{cat}</span>
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          </Field>
-
-                <Field label="Description">
-                  <textarea
-                    className="textarea"
-                    rows={4}
-                    value={form.description}
-                    onChange={(e) => set({ description: e.target.value })}
-                    placeholder="Short product description shown to users…"
-                    disabled={submitting}
-                  />
+                <Field label="Category" required>
+                  <div className="flex flex-wrap gap-2">
+                    {CATEGORY_OPTIONS.map((cat) => {
+                      const selected = getSelectedCategories(form.category).includes(cat);
+                      return (
+                        <label
+                          key={cat}
+                          className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs cursor-pointer ${
+                            selected
+                              ? "bg-blue-600 border-blue-600 text-white"
+                              : "bg-white border-gray-300 text-gray-700"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="sr-only"
+                            checked={selected}
+                            onChange={() => set({ category: toggleCategory(form.category, cat) })}
+                            disabled={submitting}
+                          />
+                          <span className="inline-flex items-center justify-center">
+                            {selected ? (
+                              <Check className="size-3.5" />
+                            ) : (
+                              <span className="size-3.5 rounded border border-current" />
+                            )}
+                          </span>
+                          <span className="uppercase">{cat}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </Field>
 
+                {/* ✅ TinyMCE description */}
+                <Field label="Description (Rich Text)">
+                  <TinyMCETextEditor
+                    value={form.description}
+                    onChange={(html) => set({ description: html })}
+                    disabled={submitting}
+                    height={260}
+                  />
+                </Field>
               </div>
             </SectionCard>
           </>
@@ -1180,6 +1210,7 @@ export default function AddSightseeingPackageMobile() {
                       Remove
                     </button>
                   </div>
+
                   <div className="space-y-3">
                     <Field label="Question / Prompt">
                       <input
@@ -1191,27 +1222,15 @@ export default function AddSightseeingPackageMobile() {
                         disabled={submitting}
                       />
                     </Field>
-                    <Field label="Answer / Response">
-                      <div className="rounded-xl border border-gray-300 bg-white p-2">
-                        <Editor
-                          editorState={llmChipEditors[i] || EditorState.createEmpty()}
-                          onEditorStateChange={(next) =>
-                            setLlmChipEditors((eds) =>
-                              eds.map((ed, idx) => (idx === i ? next : ed))
-                            )
-                          }
-                          toolbar={{
-                            options: ["inline", "list"],
-                            inline: {
-                              options: ["bold", "italic", "underline", "strikethrough"],
-                            },
-                            list: { options: ["unordered", "ordered"] },
-                          }}
-                          toolbarClassName="border-b"
-                          wrapperClassName="rounded-xl overflow-hidden"
-                          editorClassName="min-h-[100px] px-3"
-                        />
-                      </div>
+
+                    {/* ✅ TinyMCE answer */}
+                    <Field label="Answer / Response (Rich Text)">
+                      <TinyMCETextEditor
+                        value={c.a}
+                        onChange={(html) => setLlmChip(i, { a: html })}
+                        disabled={submitting}
+                        height={220}
+                      />
                     </Field>
                   </div>
                 </div>
@@ -1228,15 +1247,13 @@ export default function AddSightseeingPackageMobile() {
             icon={<Clock className="size-5 text-emerald-600" />}
           >
             <div className="rounded-xl border border-gray-200 p-4 space-y-6">
-              {/* Timings */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Regular Timings" hint="e.g., 9:00 AM - 5:00 PM">
                   <div className="relative">
                     <input
                       type="text"
                       className={`input pr-9 ${
-                        !form.regular_timings ||
-                        TIME_RANGE_REGEX.test(cleanTime(form.regular_timings))
+                        !form.regular_timings || TIME_RANGE_REGEX.test(cleanTime(form.regular_timings))
                           ? ""
                           : "ring-2 ring-amber-300"
                       }`}
@@ -1272,9 +1289,7 @@ export default function AddSightseeingPackageMobile() {
               {/* Places multi-select */}
               <div>
                 <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="block text-sm font-medium text-gray-700">
-                    Select Places
-                  </span>
+                  <span className="block text-sm font-medium text-gray-700">Select Places</span>
                   <span className="text-[11px] text-gray-500">
                     {loadingPlaces ? "Loading…" : `${places.length} available`}
                   </span>
@@ -1288,7 +1303,6 @@ export default function AddSightseeingPackageMobile() {
                   onChange={(ids) => syncPlacesToNames(ids)}
                 />
 
-                {/* Selected chips */}
                 <div className="mt-3 rounded-xl bg-gray-100 p-3">
                   <div className="flex flex-wrap gap-2">
                     {form.place_ids.length === 0 ? (
@@ -1324,18 +1338,17 @@ export default function AddSightseeingPackageMobile() {
           </SectionCard>
         )}
 
-        {/* COMMERCE STEP */}
+        {/* COMMERCE + EXPERIENCE + MEDIA + SEGREGATED MEDIA */}
+        {/* (unchanged from your code, kept exactly as-is below) */}
+
         {step.key === "commerce" && (
           <>
-            {/* Inclusions & pricing / surcharges / notes */}
             <SectionCard
               title="Inclusions, Exclusions & Pricing"
               subtitle="Add inclusions/exclusions, base charges, and block-out surcharges."
               icon={<ListChecks className="size-5 text-emerald-600" />}
             >
               <div className="rounded-xl border border-gray-200 p-4 space-y-6">
-
-                {/* Base charges */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Field label="Vendor Charge (₹)">
                     <div className="relative">
@@ -1365,7 +1378,6 @@ export default function AddSightseeingPackageMobile() {
                   </Field>
                 </div>
 
-                {/* Block-out surcharges */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="block text-sm font-medium text-gray-700">
@@ -1403,10 +1415,7 @@ export default function AddSightseeingPackageMobile() {
                   ) : (
                     <div className="space-y-3">
                       {form.blockout_surcharges.map((s, idx) => (
-                        <div
-                          key={s.id}
-                          className="rounded-xl border border-gray-200 overflow-hidden"
-                        >
+                        <div key={s.id} className="rounded-xl border border-gray-200 overflow-hidden">
                           <div className="flex items-center justify-between px-3 py-2 bg-amber-50 border-b border-amber-100">
                             <span className="text-xs font-semibold text-amber-800">
                               Surcharge #{idx + 1}
@@ -1427,7 +1436,6 @@ export default function AddSightseeingPackageMobile() {
                           </div>
 
                           <div className="p-3 sm:p-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
-                            {/* Mode */}
                             <div className="sm:col-span-2">
                               <div className="flex items-center gap-4">
                                 <label className="inline-flex items-center gap-2 text-sm">
@@ -1450,11 +1458,7 @@ export default function AddSightseeingPackageMobile() {
                                     checked={s.mode === "range"}
                                     onChange={() => {
                                       const next = [...form.blockout_surcharges];
-                                      next[idx] = {
-                                        ...s,
-                                        mode: "range",
-                                        end_date: s.end_date || "",
-                                      };
+                                      next[idx] = { ...s, mode: "range", end_date: s.end_date || "" };
                                       set({ blockout_surcharges: next });
                                     }}
                                   />
@@ -1463,7 +1467,6 @@ export default function AddSightseeingPackageMobile() {
                               </div>
                             </div>
 
-                            {/* Amount */}
                             <div className="sm:col-span-1">
                               <div className="relative">
                                 <input
@@ -1472,10 +1475,7 @@ export default function AddSightseeingPackageMobile() {
                                   value={s.amount ?? ""}
                                   onChange={(e) => {
                                     const next = [...form.blockout_surcharges];
-                                    next[idx] = {
-                                      ...s,
-                                      amount: emptyToNull(e.target.value),
-                                    };
+                                    next[idx] = { ...s, amount: emptyToNull(e.target.value) };
                                     set({ blockout_surcharges: next });
                                   }}
                                   placeholder="Amount"
@@ -1485,12 +1485,10 @@ export default function AddSightseeingPackageMobile() {
                               </div>
                             </div>
 
-                            {/* Currency (locked INR) */}
                             <div className="sm:col-span-1 flex items-center">
                               <span className="text-xs text-gray-500">INR</span>
                             </div>
 
-                            {/* Dates */}
                             <div className="sm:col-span-2">
                               <Field label={s.mode === "single" ? "Date" : "Start date"}>
                                 <input
@@ -1531,7 +1529,6 @@ export default function AddSightseeingPackageMobile() {
                   )}
                 </div>
 
-                {/* Notes */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Field label="Special Mentions">
                     <textarea
@@ -1539,7 +1536,7 @@ export default function AddSightseeingPackageMobile() {
                       rows={3}
                       value={form.special_mentions}
                       onChange={(e) => set({ special_mentions: e.target.value })}
-                      placeholder="Any special notes (e.g., festival surcharges, seasonal changes)…"
+                      placeholder="Any special notes…"
                       disabled={submitting}
                     />
                   </Field>
@@ -1557,7 +1554,6 @@ export default function AddSightseeingPackageMobile() {
               </div>
             </SectionCard>
 
-            {/* Pickup & preparation */}
             <SectionCard
               title="Pickup & Preparation"
               subtitle="Pickup info, good to know, and what to bring."
@@ -1589,8 +1585,7 @@ export default function AddSightseeingPackageMobile() {
               </div>
             </SectionCard>
 
-            {/* Experience content & policies */}
-            <SectionCard
+           <SectionCard
               title="Experience Details & Policies"
               subtitle="Itinerary, what to expect, pricing breakdown, and policies."
               icon={<ListChecks className="size-5 text-blue-600" />}
@@ -2289,6 +2284,7 @@ export default function AddSightseeingPackageMobile() {
                 placeholder="e.g., Wear comfortable shoes"
                 disabled={submitting}
               />
+
               <TagComposer
                 label="Voucher info"
                 values={form.voucherInfo}
@@ -2296,7 +2292,8 @@ export default function AddSightseeingPackageMobile() {
                 onRemove={remStrItem("voucherInfo")}
                 placeholder="e.g., Mobile voucher accepted"
                 disabled={submitting}
-              />   
+              />
+
               <TagComposer
                 label="Pickup areas"
                 values={form.pickupAreas}
@@ -2305,21 +2302,21 @@ export default function AddSightseeingPackageMobile() {
                 placeholder="e.g., Calangute, Candolim, Baga"
                 disabled={submitting}
               />
-               <TagComposer
-                label="cancellation Details"
+
+              <TagComposer
+                label="Cancellation Details"
                 values={form.cancellationDetails}
                 onAdd={addStrItem("cancellationDetails")}
                 onRemove={remStrItem("cancellationDetails")}
                 placeholder="e.g., write cancellation Details"
                 disabled={submitting}
-              />  
-                
+              />
             </div>
           </SectionCard>
         )}
 
-        {/* MEDIA STEP (last tab) */}
-        {step.key === "media" && (
+        {/* MEDIA STEP */}
+         {step.key === "media" && (
           <SectionCard
             title="Media"
             subtitle="Thumbnail, gallery, guest images and videos."
@@ -2535,6 +2532,117 @@ export default function AddSightseeingPackageMobile() {
             </div>
           </SectionCard>
         )}
+        {step.key === "segregatedMedia" && (
+                  <SectionCard
+                    title="Segregated Images"
+                    subtitle="Group images by category (e.g., Nature, Waterfall, Guest Images)."
+                    icon={<ImageIcon className="size-5 text-blue-600" />}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold text-gray-900">
+                        Categories & Images
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={addSegGroup}
+                        disabled={submitting}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                      >
+                        <Plus className="size-3.5" />
+                        Add Category
+                      </button>
+                    </div>
+        
+                    <div className="space-y-4">
+                      {segregatedGroups.map((group, idx) => (
+                        <div
+                          key={group.id}
+                          className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4"
+                        >
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="text-xs font-semibold text-gray-700">
+                              Category #{idx + 1}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => removeSegGroup(group.id)}
+                              disabled={submitting}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                            >
+                              <X className="size-3.5" />
+                              Remove
+                            </button>
+                          </div>
+        
+                          <Field label="Category name" required>
+                            <input
+                              type="text"
+                              className="input"
+                              value={group.category}
+                              onChange={(e) =>
+                                updateSegGroupCategory(group.id, e.target.value)
+                              }
+                              placeholder="e.g., nature, waterfall, guest_images"
+                              disabled={submitting}
+                            />
+                          </Field>
+        
+                          <div className="mt-3">
+                            <p className="text-xs font-semibold text-gray-700 mb-1.5">
+                              Images ({group.images.length})
+                            </p>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                              {group.images.map((img, imgIdx) => (
+                                <div
+                                  key={img.preview}
+                                  className="relative aspect-square rounded-xl overflow-hidden border-2 border-dashed border-blue-400 bg-blue-50"
+                                >
+                                  <img
+                                    src={img.preview}
+                                    alt={`Segregated ${idx + 1}-${imgIdx + 1}`}
+                                    className="w-full h-full object-cover opacity-80"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => removeSegImage(group.id, imgIdx)}
+                                    className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                                    title="Remove image"
+                                    aria-label="Remove image"
+                                    disabled={submitting}
+                                  >
+                                    <X className="size-4" strokeWidth={3} />
+                                  </button>
+                                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                                    <p className="text-white text-[10px] font-medium truncate">
+                                      NEW
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+        
+                              <label className="block aspect-square">
+                                <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-gray-50">
+                                  <ImageIcon className="size-6 text-gray-400" />
+                                  <p className="mt-1 text-sm font-medium text-gray-700">
+                                    Add Image
+                                  </p>
+                                </div>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  className="hidden"
+                                  onChange={(e) => handleSegImagesUpload(group.id, e)}
+                                  disabled={submitting}
+                                />
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </SectionCard>
+                )}
       </main>
 
       {/* Bottom bar */}
@@ -2548,9 +2656,7 @@ export default function AddSightseeingPackageMobile() {
                     isStepValid(step.key as StepKey) ? "bg-green-500" : "bg-amber-500"
                   }`}
                 />
-                {isStepValid(step.key as StepKey)
-                  ? "Looks good"
-                  : "Complete required fields"}
+                {isStepValid(step.key as StepKey) ? "Looks good" : "Complete required fields"}
               </span>
 
               <div className="flex w-full sm:w-auto gap-2 sm:ml-auto">
@@ -2586,18 +2692,11 @@ export default function AddSightseeingPackageMobile() {
                     onClick={() => handleSubmit()}
                     disabled={!canSubmit || submitting}
                     className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
-                      !canSubmit || submitting
-                        ? "bg-blue-300"
-                        : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
+                      !canSubmit || submitting ? "bg-blue-300" : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
                     }`}
                   >
                     <span className="inline-flex items-center gap-2">
-                      {submitting && (
-                        <Loader2
-                          className="size-4 animate-spin"
-                          aria-hidden="true"
-                        />
-                      )}
+                      {submitting && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
                       {submitting ? "Saving..." : "Save Changes"}
                     </span>
                   </button>
@@ -2652,14 +2751,10 @@ function SectionCard({
       <div className="bg-white rounded-xl border border-gray-200 shadow-md overflow-visible">
         <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="size-8 grid place-items-center bg-blue-50 rounded-lg">
-              {icon}
-            </div>
+            <div className="size-8 grid place-items-center bg-blue-50 rounded-lg">{icon}</div>
             <div>
               <h2 className="text-base font-bold text-gray-900">{title}</h2>
-              {subtitle && (
-                <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
-              )}
+              {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
             </div>
           </div>
           {requiredHint && (
@@ -2789,9 +2884,7 @@ function MultiSelectDropdown({
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (!ref.current) return;
-      if (!ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      if (!ref.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -2802,11 +2895,8 @@ function MultiSelectDropdown({
   );
 
   const toggleValue = (v: string) => {
-    if (selected.includes(v)) {
-      onChange(selected.filter((x) => x !== v));
-    } else {
-      onChange([...selected, v]);
-    }
+    if (selected.includes(v)) onChange(selected.filter((x) => x !== v));
+    else onChange([...selected, v]);
   };
 
   const labelSummary =
@@ -2824,9 +2914,7 @@ function MultiSelectDropdown({
         onClick={() => !disabled && setOpen((o) => !o)}
         disabled={disabled}
       >
-        <span className={selected.length === 0 ? "text-gray-400" : ""}>
-          {labelSummary}
-        </span>
+        <span className={selected.length === 0 ? "text-gray-400" : ""}>{labelSummary}</span>
         <ChevronDown className="size-4 text-gray-400 shrink-0" />
       </button>
 

@@ -66,6 +66,11 @@ export interface ActivityPriceBreakdown {
   totalPrice: number;
 }
 
+export interface ActivitySegregatedImageGroup {
+  category: string;
+  urls: string[]; // image URLs stored in DB
+}
+
 /* ==========================================================
    Activity model (store)
    ========================================================== */
@@ -211,6 +216,9 @@ export interface LeisureActivitydata {
 
   llm_chips?: FAQ[];
   faqs?: FAQ[];
+
+      segregated_images?: ActivitySegregatedImageGroup[];
+  
 
   /* ---------- Internal Flags ---------- */
 

@@ -21,6 +21,7 @@ import {
   Info,
   FileText,
   UserCog,
+  Luggage 
 } from "lucide-react";
 
 type Item = { label: string; href: string; icon: any; category?: string };
@@ -32,7 +33,7 @@ export default function Sidebar() {
 
   const items: Item[] = useMemo(
     () => [
-      { label: "Hotels",            href: "/",                           icon: Hotel, category: "Main" },
+      { label: "Hotels",            href: "/dashboard/calendar",         icon: Hotel, category: "Main" },
       { label: "Review",            href: "/dashboard/review",           icon: MessageSquareShare, category: "Management" },
       { label: "Profitability",     href: "/dashboard/profitability",    icon: LineChart, category: "Management" },
       { label: "Coupons",           href: "/dashboard/coupons",          icon: TicketPercent, category: "Management" },
@@ -44,8 +45,9 @@ export default function Sidebar() {
       { label: "Leisure-activity",  href: "/dashboard/leisure-activity", icon: Palmtree, category: "Travel Services" },
       { label: "Food Service",      href: "/dashboard/Food-service",     icon: UtensilsCrossed, category: "Travel Services" },
       { label: "Tour Manager",       href: "/dashboard/tour-managers",    icon: UserCog, category: "Travel Services" },
-      { label: "About Us",          href: "/dashboard/about-us",         icon: Info, category: "General" },
-      { label: "Certifications",    href: "/dashboard/certifications",   icon: FileText, category: "General" },
+      { label: "Tour Packages",       href: "/dashboard/tour-packages",    icon: Luggage, category: "Travel Services" },
+      // { label: "About Us",          href: "/dashboard/about-us",         icon: Info, category: "General" },
+      // { label: "Certifications",    href: "/dashboard/certifications",   icon: FileText, category: "General" },
     ],
     []
   );

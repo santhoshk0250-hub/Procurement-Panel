@@ -22,8 +22,12 @@ import {
   CircularProgress,
   Pagination,
   CardActions,
-  Stack
+  Stack,
+  
 } from "@mui/material";
+import {
+  AddCircleOutline,
+} from "@mui/icons-material";
 import { PlaylistAddRounded, Search, MoreVert, Flight } from "@mui/icons-material";
 import Link from "next/link";
 import { useHotelStore } from "@/store/hotelStore";
@@ -106,10 +110,11 @@ const CalendarDetails: React.FC = () => {
     handleCloseMenu();
   };
 
-  const handleDelete = () => {
-    handleCloseMenu();
-    setOpenDeleteDialog(true);
-  };
+const handleDelete = (hotel: HotelData) => {
+  setSelectedHotel(hotel);
+  setOpenDeleteDialog(true);
+};
+
 
   const handleConfirmDelete = async () => {
     if (!selectedHotel) return;
@@ -170,7 +175,16 @@ const CalendarDetails: React.FC = () => {
             }
           }}
         />
-
+     <Button
+            href="/dashboard/services?type=hotels" // adjust as needed
+            component={Link as any}
+            fullWidth
+            variant="outlined"
+            startIcon={<AddCircleOutline />}
+            sx={{ width: { xs: "100%", sm: "auto" } }}
+          >
+            Add Services
+          </Button>
         <Link href="/dashboard/calendar/Addhotel" style={{ width: "100%", display: "block" }}>
           <Button
             fullWidth={true}
@@ -356,7 +370,7 @@ const CalendarDetails: React.FC = () => {
                         <Button 
                           color="error" 
                           size="small" 
-                          onClick={handleDelete}
+                          onClick={() => handleDelete(hotel)}
                           sx={{
                             flex: 1,
                             fontSize: { xs: "13px", sm: "14px" },

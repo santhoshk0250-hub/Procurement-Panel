@@ -568,9 +568,7 @@ export default function AddTransferRouteMobile() {
               style={{ width: `${progress}%` }}
             />
           </div>
-        </div>
-
-        {/* Content */}
+        
         <main className="pb-2 sm:pb-6 px-3 sm:px-0">
         {step.key === "route" && (
           <SectionCard
@@ -1127,7 +1125,7 @@ export default function AddTransferRouteMobile() {
         </SectionCard>
         )}
       </main>
-
+</form>
           {/* Sticky step navigation */}
           <div className="sticky bottom-0 z-40 mt-2 sm:mt-6 bg-white rounded-none sm:rounded-xl border-t sm:border border-gray-200 shadow-lg mx-0 sm:mx-0">
             <div className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -1195,7 +1193,6 @@ export default function AddTransferRouteMobile() {
             .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
             .safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem); }
           `}</style>
-        </form>
       </div>
     </div>
   );

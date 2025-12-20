@@ -1,0 +1,2922 @@
+"use client";
+
+import React, { useEffect, useMemo, useState,useRef } from "react";
+import { useRouter } from "next/navigation";
+import {
+  CheckCircle2,
+  Loader2,
+  FileText,
+  Image as ImageIcon,
+  ListChecks,
+  IndianRupee,
+  Plus,
+  X,
+  Settings2,
+  ChevronDown,
+  Trash2,
+  Pencil,
+  ChevronLeft,
+  ChevronRight
+} from "lucide-react";
+
+
+
+// Rich text editor deps
+import TinyMCETextEditor from "@/components/TinyMCETextEditor";
+
+
+/* =========================
+   Types for Tour Package UI
+   ========================= */
+
+type IDType = string | { $oid: string };
+
+interface ThumbnailUI {
+  file: File | null;
+  preview?: string;
+}
+
+interface ServiceUI {
+  serviceId: string;
+  serviceItemId: string;
+  itemModel: string;
+  pricePerPerson: string;
+  priceCurrency: string;
+}
+
+
+
+
+
+interface ItineraryActivityUI {
+  serviceId: string;
+  serviceItemId: string;
+  itemModel: string;
+  isRemovable: boolean;
+}
+
+interface DayTimeSlotUI {
+  id: string; // ✅ unique id for stable editing
+  from: string;
+  to: string;
+  activities: ItineraryActivityUI[]; // ✅ activities per slot
+}
+
+interface ItineraryDayUI {
+  day: string;
+  title: string;
+  description: string;
+  timeSlots: DayTimeSlotUI[]; // ✅ slots already contain activities
+}
+
+
+interface ImageFile {
+  file: File | null;
+  preview?: string;
+}
+
+type SurchargeWindow = "single" | "range";
+
+interface Surcharge {
+  windowType: SurchargeWindow;
+  singleDate: string;
+  startDate: string;
+  endDate: string;
+  amount: string;
+  currency: string;
+}
+
+interface TourPackageUI {
+  name: string;
+  category: string;
+  descriptionHtml: string;
+
+  thumbnail: ThumbnailUI;
+
+  minPax: string;
+  maxPax: string;
+  totalDays: string;
+  totalNights: string;
+  surcharges: Surcharge[];
+  startDate: string; // "YYYY-MM-DD"
+  endDate: string;
+  services: ServiceUI[];
+
+
+  itinerary: ItineraryDayUI[];
+
+  exclusions: string[];
+
+  hasTourGuide: boolean;
+  hasTransport: boolean;
+}
+
+/* 🔹 services API response type */
+interface ServiceCategory {
+  _id: string;
+  title: string;
+}
+
+/* 🔹 services/meta API response types */
+interface ServiceMetaItem {
+  _id: string;
+  title?: string;
+  metaTitle?: string;
+  name?: string;
+
+  banner?: string;
+  thumbnail?: string;
+  thumbnailUrl?: string;
+  images?: string[];
+  
+
+  destination?: string;
+  address?: string;
+  city?: string;
+  location?: {
+    address?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+  };
+
+  price?: number;
+  priceBreakdown?: { totalPrice?: number; basePrice?: number };
+  vendorPricing?: {
+    oneDay?: number;
+    twoDays?: number;
+    threePlusPerDay?: number;
+    currency?: string;
+  };
+  sellerPricing?: {
+    oneDay?: number;
+    twoDays?: number;
+    threePlusPerDay?: number;
+    currency?: string;
+  };
+  vehicleOption?: any;
+  vehicleOptions?: any[];
+
+  vehicleId?: string;
+  vehicleType?: string;
+  seaterCapacity?: string;
+  mileage?: string;
+  distanceLimitPerDay?: string;
+
+  rating?: number;
+  reviewCount?: number;
+  ratingCount?: number;
+  duration?: number;
+  durationType?: string;
+  timing?: string;
+  regularTimings?: string;
+
+  [key: string]: any;
+}
+
+type ServicesMetaMap = Record<string, ServiceMetaItem[]>;
+
+const makeSlot = (from: string, to: string): DayTimeSlotUI => ({
+  id: crypto.randomUUID(),
+  from,
+  to,
+  activities: [],
+});
+
+const DEFAULT_DAY_SLOTS: DayTimeSlotUI[] = [
+  makeSlot("10:00 AM", "1:30 PM"),
+  makeSlot("3:00 PM", "6:00 PM"),
+  makeSlot("6:30 PM", "9:00 PM"),
+];
+
+
+
+/* 🔹 mapping from /services title -> /services/meta key */
+const SERVICE_META_KEY_BY_TITLE: Record<string, string> = {
+  Hotels: "hotels",
+  Rentals: "rentals",
+  "Food Service": "foodservices",
+  Activities: "activities",
+  "Leisure Activities": "leisureactivities",
+  Nightlife: "nightlife",
+  Sightseeing: "sightseeingpackages",
+  "Pick & Drop": "pickupanddrop",
+  "Tour Manager": "tourmanager",
+};
+
+// 🔹 Map service "title" -> itemModel
+const ITEM_MODEL_BY_TITLE: Record<string, string> = {
+  Hotels: "Hotel_mains",
+  Sightseeing: "sightseeing_packages",
+  "Leisure Activities": "LeisureActivity",
+  Activities: "Activity",
+  Nightlife: "NightlifePlace",
+  "Tour Manager": "TourManager",
+  "Pick & Drop": "PickupDrop",
+  Rentals: "rentals",
+  "Food Service": "foodservices",
+};
+
+/* =========================
+   Robust helpers (fix Hotels not showing)
+   ========================= */
+
+const normalizeTitle = (t: string) => (t || "").trim().toLowerCase();
+
+const timeToMinutes = (t: string) => {
+  // expects "h:mm AM" or "hh:mm PM"
+  const m = (t || "").trim().match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/i);
+  if (!m) return null;
+
+  let hour = Number(m[1]);
+  const minute = Number(m[2]);
+  const ampm = m[3].toUpperCase();
+
+  if (hour === 12) hour = 0; // 12AM -> 0, 12PM handled below
+
+  let mins = hour * 60 + minute;
+  if (ampm === "PM") mins += 12 * 60;
+
+  return mins;
+};
+const slotRange = (from: string, to: string) => {
+  const start = timeToMinutes(from);
+  const end = timeToMinutes(to);
+  if (start === null || end === null) return null;
+
+  // if someone accidentally picks an end earlier than start, treat as invalid
+  if (end <= start) return null;
+
+  return { start, end };
+};
+
+const rangesOverlap = (a: { start: number; end: number }, b: { start: number; end: number }) => {
+  // overlap if a starts before b ends AND b starts before a ends
+  return a.start < b.end && b.start < a.end;
+};
+
+const hasOverlappingSlot = (
+  slots: DayTimeSlotUI[],
+  from: string,
+  to: string,
+  ignoreId?: string
+) => {
+  const nr = slotRange(from, to);
+  if (!nr) return "Invalid time range (end must be after start).";
+
+  for (const s of slots) {
+    if (ignoreId && s.id === ignoreId) continue;
+    const er = slotRange(s.from, s.to);
+    if (!er) continue;
+    if (rangesOverlap(nr, er)) {
+      return `This time overlaps an existing slot: ${s.from} - ${s.to}`;
+    }
+  }
+  return null;
+};
+
+
+const normalizeKey = (v: string) =>
+  (v || "")
+    .toLowerCase()
+    .trim()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "");
+
+function DayTimeSlotPicker({
+  value,
+  onChange,
+  onSlotAdded,   // ✅ NEW: open modal automatically
+  dayIdx,
+  disabled,
+}: {
+  value: DayTimeSlotUI[];
+  onChange: (next: DayTimeSlotUI[]) => void;
+  onSlotAdded: (dayIdx: number, slotIdx: number) => void;
+  dayIdx: number;
+  disabled?: boolean;
+}) {
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+
+  const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
+  const MINUTES = Array.from({ length: 60 }, (_, i) => i);
+
+  // ✅ Track which slot is being edited
+  const [editIndex, setEditIndex] = React.useState<number | null>(null);
+const [slotError, setSlotError] = React.useState<string>("");
+
+  // Picker state
+  const [fromHour, setFromHour] = React.useState<number>(10);
+  const [fromMinute, setFromMinute] = React.useState<number>(0);
+  const [fromAmpm, setFromAmpm] = React.useState<"AM" | "PM">("AM");
+
+  const [toHour, setToHour] = React.useState<number>(1);
+  const [toMinute, setToMinute] = React.useState<number>(30);
+  const [toAmpm, setToAmpm] = React.useState<"AM" | "PM">("PM");
+
+  const from = `${fromHour}:${pad2(fromMinute)} ${fromAmpm}`;
+  const to = `${toHour}:${pad2(toMinute)} ${toAmpm}`;
+
+  // ---- helpers ----
+  const parseTime = (t: string) => {
+    // expects "h:mm AM" or "hh:mm PM"
+    const m = t.trim().match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/i);
+    if (!m) return null;
+    return {
+      hour: Number(m[1]),
+      minute: Number(m[2]),
+      ampm: m[3].toUpperCase() as "AM" | "PM",
+    };
+  };
+
+  const loadSlotToPicker = (slot: DayTimeSlotUI) => {
+    const pFrom = parseTime(slot.from);
+    const pTo = parseTime(slot.to);
+    if (!pFrom || !pTo) return;
+
+    setFromHour(pFrom.hour);
+    setFromMinute(pFrom.minute);
+    setFromAmpm(pFrom.ampm);
+
+    setToHour(pTo.hour);
+    setToMinute(pTo.minute);
+    setToAmpm(pTo.ampm);
+  };
+
+  const resetEditor = () => {
+    setEditIndex(null);
+    // optional: reset to defaults after editing
+    setFromHour(10);
+    setFromMinute(0);
+    setFromAmpm("AM");
+    setToHour(1);
+    setToMinute(30);
+    setToAmpm("PM");
+  };
+
+  // ---- actions ----
+const addSlot = () => {
+  setSlotError("");
+
+  const err = hasOverlappingSlot(value, from, to);
+  if (err) {
+    setSlotError(err);
+    return;
+  }
+
+  // if you ALSO want to block exact duplicates (same from-to), keep this:
+  const duplicate = value.some((s) => s.from === from && s.to === to);
+  if (duplicate) {
+    setSlotError("This exact slot already exists.");
+    return;
+  }
+
+  const next = [...value, { id: crypto.randomUUID(), from, to, activities: [] }];
+  onChange(next);
+  onSlotAdded(dayIdx, next.length - 1);
+};
+
+ const updateSlot = () => {
+  if (editIndex === null) return;
+  setSlotError("");
+
+  const current = value[editIndex];
+  const err = hasOverlappingSlot(value, from, to, current?.id);
+  if (err) {
+    setSlotError(err);
+    return;
+  }
+
+  const next = value.map((s, idx) =>
+    idx === editIndex ? { ...s, from, to } : s
+  );
+  onChange(next);
+  resetEditor();
+};
+
+
+  const removeSlot = (idx: number) => {
+    const next = value.filter((_, i) => i !== idx);
+    onChange(next);
+
+    // If removing the one being edited, exit edit mode
+    if (editIndex === idx) resetEditor();
+    if (editIndex !== null && idx < editIndex) setEditIndex(editIndex - 1);
+  };
+
+  const startEdit = (idx: number) => {
+    setEditIndex(idx);
+    loadSlotToPicker(value[idx]);
+  };
+
+  const TimeSelect = ({
+    hour,
+    setHour,
+    minute,
+    setMinute,
+    ampm,
+    setAmpm,
+  }: any) => (
+    <div className="grid grid-cols-3 gap-2">
+      <select
+        className="input w-full"
+        value={hour}
+        onChange={(e) => setHour(Number(e.target.value))}
+        disabled={disabled}
+      >
+        {HOURS.map((h) => (
+          <option key={h} value={h}>
+            {h}
+          </option>
+        ))}
+      </select>
+
+      <select
+        className="input w-full"
+        value={minute}
+        onChange={(e) => setMinute(Number(e.target.value))}
+        disabled={disabled}
+      >
+        {MINUTES.map((m) => (
+          <option key={m} value={m}>
+            {pad2(m)}
+          </option>
+        ))}
+      </select>
+
+      <select
+        className="input w-full"
+        value={ampm}
+        onChange={(e) => setAmpm(e.target.value as "AM" | "PM")}
+        disabled={disabled}
+      >
+        <option value="AM">AM</option>
+        <option value="PM">PM</option>
+      </select>
+    </div>
+  );
+
+  return (
+    <div className="rounded-xl border border-gray-300 bg-white px-3 py-2 shadow-sm">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <p className="text-xs font-semibold text-gray-700 mb-1">From</p>
+          <TimeSelect
+            hour={fromHour}
+            setHour={setFromHour}
+            minute={fromMinute}
+            setMinute={setFromMinute}
+            ampm={fromAmpm}
+            setAmpm={setFromAmpm}
+          />
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold text-gray-700 mb-1">To</p>
+          <TimeSelect
+            hour={toHour}
+            setHour={setToHour}
+            minute={toMinute}
+            setMinute={setToMinute}
+            ampm={toAmpm}
+            setAmpm={setToAmpm}
+          />
+        </div>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {editIndex === null ? (
+          <button
+            type="button"
+            onClick={addSlot}
+            disabled={disabled}
+            className={`px-3 py-2 text-xs font-semibold rounded-lg ${disabled
+                ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                : "bg-emerald-600 text-white hover:bg-emerald-700"
+              }`}
+          >
+            Add slot
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={updateSlot}
+              disabled={disabled}
+              className={`px-3 py-2 text-xs font-semibold rounded-lg ${disabled
+                  ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                  : "bg-amber-600 text-white hover:bg-amber-700"
+                }`}
+            >
+              Update slot
+            </button>
+
+            <button
+              type="button"
+              onClick={resetEditor}
+              disabled={disabled}
+              className={`px-3 py-2 text-xs font-semibold rounded-lg border ${disabled
+                  ? "border-gray-200 text-gray-400 cursor-not-allowed"
+                  : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                }`}
+            >
+              Cancel
+            </button>
+          </>
+        )}
+
+        <span className="text-[11px] text-gray-500">
+          Selected:{" "}
+          <span className="font-semibold">
+            {from} - {to}
+          </span>
+          {editIndex !== null && (
+            <span className="ml-2 text-[11px] font-semibold text-amber-700">
+              (Editing slot #{editIndex + 1})
+            </span>
+          )}
+        </span>
+      </div>
+
+      {value.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {value.map((s, idx) => {
+            const isEditing = editIndex === idx;
+            return (
+              <span
+                key={`${s.from}-${s.to}-${idx}`}
+                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs border cursor-pointer ${isEditing
+                    ? "bg-amber-50 text-amber-800 border-amber-300"
+                    : "bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200"
+                  }`}
+                onClick={() => {
+                  if (disabled) return;
+                  startEdit(idx); // ✅ click chip to edit
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (disabled) return;
+                  if (e.key === "Enter" || e.key === " ") startEdit(idx);
+                }}
+                title="Click to edit"
+              >
+                {s.from} - {s.to}
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation(); // ✅ don’t trigger edit when removing
+                    removeSlot(idx);
+                  }}
+                  disabled={disabled}
+                  className="flex items-center justify-center"
+                  title="Remove"
+                >
+                  <X className="w-3 h-3 text-gray-500 hover:text-gray-700" />
+                </button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
+
+const getItemModelForTitle = (title: string) => {
+  const mapped = ITEM_MODEL_BY_TITLE[title];
+  if (mapped) return mapped;
+
+  const k = normalizeKey(title);
+  if (k === "hotel" || k === "hotels") return "Hotel_mains";
+  if (k === "foodservice" || k === "foodservices") return "foodservices";
+  if (k === "pickdrop" || k === "pickupanddrop") return "PickupDrop";
+  return "";
+};
+
+/* =========================
+   Card content mapping
+   ========================= */
+
+const getServiceCardContent = (categoryKey: string, item: ServiceMetaItem) => {
+  const key = categoryKey || "";
+
+  const firstImage =
+    item.thumbnail ||
+    item.thumbnailUrl ||
+    item.banner ||
+    item.images?.[0]
+
+
+  const rating =
+    item.rating ??
+      item.ratingCount ??
+      item.reviewCount
+      ? `${item.rating?.toFixed?.(1) ?? ""}★ (${item.reviewCount ?? item.ratingCount
+      } reviews)`
+      : "";
+
+  // ✅ Hotels branch (helps rendering if hotel data differs)
+  if (key === "hotels" || key === "hotel") {
+    const price =
+      item.priceBreakdown?.totalPrice ??
+      item.priceBreakdown?.basePrice ??
+      item.price;
+
+      const galleryImages = item?.media_gallery?.room?.[0]|| "";
+    return {
+      mediaUrl: galleryImages,
+      title: item.metaTitle || item.title || item.name || "Hotel",
+      subtitle: [item.destination, item.location?.city, item.city]
+        .filter(Boolean)
+        .join(" • "),
+      chip: item.rating ? `${Number(item.rating).toFixed(1)}★` : "",
+      priceLabel: price ? `From ₹${price}` : "",
+      ratingLabel: rating,
+    };
+  }
+
+  if (key === "rentals") {
+    const price =
+      item.sellerPricing?.oneDay ??
+      item.sellerPricing?.threePlusPerDay ??
+      item.vendorPricing?.oneDay ??
+      item.priceBreakdown?.totalPrice;
+
+    return {
+      mediaUrl: firstImage,
+      title: item.metaTitle || item.variant || item.vehicleId || "Rental vehicle",
+      subtitle: [item.vehicleType, item.seaterCapacity].filter(Boolean).join(" • "),
+      chip: item.mileage || item.distanceLimitPerDay || "",
+      priceLabel: price ? `₹${price} / day` : "",
+      ratingLabel: rating,
+    };
+  }
+
+  if (key === "foodservices") {
+    const price =
+      item.priceBreakdown?.totalPrice ??
+      item.priceBreakdown?.basePrice ??
+      item.price;
+
+    return {
+      mediaUrl: firstImage,
+      title: item.metaTitle || item.name || "Food item",
+      subtitle: item.category
+        ? Array.isArray(item.category)
+          ? item.category.join(", ")
+          : String(item.category)
+        : item.cuisine
+          ? (item.cuisine as string[]).join(", ")
+          : "",
+      chip: item.dietaryInfo?.vegetarian ? "Veg" : "",
+      priceLabel: price ? `₹${price} per person` : "",
+      ratingLabel: rating,
+    };
+  }
+
+  if (key === "activities" || key === "leisureactivities") {
+    const price =
+      item.priceBreakdown?.totalPrice ??
+      item.priceBreakdown?.basePrice ??
+      item.price;
+
+    return {
+      mediaUrl: firstImage,
+      title: item.metaTitle || item.title || "Activity",
+      subtitle: [
+        item.destination,
+        item.duration ? `${item.duration} ${item.durationType || "min"}` : undefined,
+      ]
+        .filter(Boolean)
+        .join(" • "),
+      chip: Array.isArray(item.category) ? item.category.join(", ") : item.category || "",
+      priceLabel: price ? `From ₹${price}` : "",
+      ratingLabel: rating,
+    };
+  }
+
+  if (key === "nightlife") {
+    const price =
+      item.priceBreakdown?.totalPrice ??
+      item.priceBreakdown?.basePrice ??
+      item.price;
+
+    return {
+      mediaUrl: firstImage,
+      title: item.metaTitle || item.title || "Nightlife",
+      subtitle: [item.destination, item.timing].filter(Boolean).join(" • "),
+      chip: item.type || "",
+      priceLabel: price ? `From ₹${price}` : "",
+      ratingLabel: rating,
+    };
+  }
+
+  if (key === "sightseeingpackages") {
+    const price =
+      item.priceBreakdown?.totalPrice ??
+      item.priceBreakdown?.basePrice ??
+      item.price;
+
+    return {
+      mediaUrl: firstImage,
+      title: item.metaTitle || item.title || "Sightseeing",
+      subtitle: [item.destination, item.vehicleType].filter(Boolean).join(" • "),
+      chip: item.groupSize || "",
+      priceLabel: price ? `From ₹${price}` : "",
+      ratingLabel: rating,
+    };
+  }
+
+  if (key === "pickupanddrop") {
+    const v = item.vehicleOption || item.vehicleOptions?.[0];
+
+    const price = v?.sellerBasePrice ?? v?.basePrice ?? item.priceBreakdown?.totalPrice;
+
+    return {
+      mediaUrl: v?.images?.[0] || firstImage,
+      title: v?.vehiclename || item.metaTitle || "Pickup & Drop",
+      subtitle: [v?.vehicleType, `Max ${v?.maxPax || ""} pax`].filter(Boolean).join(" • "),
+      chip: v?.availabilityStatus || "",
+      priceLabel: price ? `From ₹${price}` : "",
+      ratingLabel: v?.ratings
+        ? `${v.ratings.average?.toFixed?.(1) ?? ""}★ (${v.ratings.totalReviews} reviews)`
+        : "",
+    };
+  }
+
+  if (key === "tourmanager") {
+    const price = item.price_breakdown?.totalPrice ?? item.priceBreakdown?.totalPrice;
+
+    return {
+      mediaUrl: item.tourManagerProfiles?.[0]?.profilePic || firstImage,
+      title: item.metaTitle || item.title || "Tour Manager",
+      subtitle: item.general_info ? "Full tour management for Goa" : "",
+      chip: item.timings ? `${item.timings.from} – ${item.timings.to}` : "",
+      priceLabel: price ? `From ₹${price}` : "",
+      ratingLabel: "",
+    };
+  }
+
+  const price =
+    item.priceBreakdown?.totalPrice ?? item.priceBreakdown?.basePrice ?? item.price;
+
+  return {
+    mediaUrl: firstImage,
+    title: item.metaTitle || item.title || item.name || "Service item",
+    subtitle: item.destination || item.location?.city || item.location?.address || "",
+    chip: "",
+    priceLabel: price ? `From ₹${price}` : "",
+    ratingLabel: rating,
+  };
+};
+
+const TOUR_CATEGORIES = [
+  "Adventure",
+  "Honeymoon",
+  "Family",
+  "Wildlife",
+  "Cultural",
+  "Beach",
+  "Weekend",
+  "Luxury",
+  "Budget",
+] as const;
+
+
+/* ========== Constants / Defaults ========== */
+
+
+
+const DEFAULT_SURCHARGE: Surcharge = {
+  windowType: "single",
+  singleDate: "",
+  startDate: "",
+  endDate: "",
+  amount: "",
+  currency: "INR",
+};
+
+const BLANK_IT_ACTIVITY: ItineraryActivityUI = {
+  serviceId: "",
+  serviceItemId: "",
+  itemModel: "",
+  isRemovable: true,
+};
+
+const BLANK_IT_DAY: ItineraryDayUI = {
+  day: "1",
+  title: "",
+  description: "",
+  timeSlots: DEFAULT_DAY_SLOTS.map(s => ({ ...s, activities: [] })),
+};
+
+
+
+
+
+
+const BLANK_TOUR_PACKAGE: TourPackageUI = {
+  name: "",
+  category: "Luxury",
+  descriptionHtml: "Experience luxury in Goa on a short getaway with this holiday package!",
+  thumbnail: { file: null },
+
+  minPax: "2",
+  maxPax: "6",
+  totalDays: "4",
+  totalNights: "3",
+  startDate: "",
+  endDate: "",
+  services: [],
+  itinerary: [{ ...BLANK_IT_DAY, day: "1", title: "", description: "" }],
+  surcharges: [DEFAULT_SURCHARGE],
+  exclusions: ["Airfare", "Personal Expenses", "Anything not mentioned in inclusions"],
+  hasTourGuide: false,
+  hasTransport: false,
+};
+
+const STEPS = [
+  { key: "basic", label: "Basic Details", icon: <FileText className="size-4" /> },
+  { key: "services", label: "Itinerary", icon: <ListChecks className="size-4" /> },
+  { key: "surcharges", label: "Surcharges", icon: <IndianRupee className="size-4" /> },
+] as const;
+
+type StepKey = (typeof STEPS)[number]["key"];
+const LAST_INDEX = STEPS.length - 1;
+
+const sanitizeHtml = (html: string) => html.replace(/[\n\r]/g, "").replace(/>\s+</g, "><");
+const stripHtmlToText = (html: string) => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+
+
+
+/* =========================
+   Component
+   ========================= */
+
+export default function AddTourPackagePage() {
+  const router = useRouter();
+  const [data, setData] = useState<TourPackageUI>({ ...BLANK_TOUR_PACKAGE });
+  const [stepIndex, setStepIndex] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+
+  const step = STEPS[stepIndex];
+
+  const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
+  const [loadingServiceCategories, setLoadingServiceCategories] = useState(false);
+
+  const [servicesMeta, setServicesMeta] = useState<ServicesMetaMap>({});
+  const [loadingServicesMeta, setLoadingServicesMeta] = useState(false);
+
+
+  const tabsScrollRef = React.useRef<HTMLDivElement | null>(null);
+
+const scrollTabsToStart = () => {
+  const el = tabsScrollRef.current;
+  if (!el) return;
+  el.scrollTo({ left: 0, behavior: "smooth" });
+};
+
+const scrollTabsToEnd = () => {
+  const el = tabsScrollRef.current;
+  if (!el) return;
+  el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+};
+
+  const [slotEditor, setSlotEditor] = useState<{
+  open: boolean;
+  dayIdx: number | null;
+  slotId: string | null; // which slot is being edited
+}>({ open: false, dayIdx: null, slotId: null });
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
+const MINUTES = Array.from({ length: 60 }, (_, i) => i);
+
+const [fromHour, setFromHour] = useState(10);
+const [fromMinute, setFromMinute] = useState(0);
+const [fromAmpm, setFromAmpm] = useState<"AM" | "PM">("AM");
+
+const [toHour, setToHour] = useState(1);
+const [toMinute, setToMinute] = useState(30);
+const [toAmpm, setToAmpm] = useState<"AM" | "PM">("PM");
+
+const fromVal = `${fromHour}:${pad2(fromMinute)} ${fromAmpm}`;
+const toVal = `${toHour}:${pad2(toMinute)} ${toAmpm}`;
+
+const parseTime = (t: string) => {
+  const m = (t || "").trim().match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/i);
+  if (!m) return null;
+  return {
+    hour: Number(m[1]),
+    minute: Number(m[2]),
+    ampm: m[3].toUpperCase() as "AM" | "PM",
+  };
+};
+
+const loadSlotToEditor = (slot: DayTimeSlotUI) => {
+  const pf = parseTime(slot.from);
+  const pt = parseTime(slot.to);
+  if (!pf || !pt) return;
+
+  setFromHour(pf.hour);
+  setFromMinute(pf.minute);
+  setFromAmpm(pf.ampm);
+
+  setToHour(pt.hour);
+  setToMinute(pt.minute);
+  setToAmpm(pt.ampm);
+};
+
+const closeSlotEditor = () =>
+  setSlotEditor({ open: false, dayIdx: null, slotId: null });
+
+const TimeSelect = ({
+  hour,
+  setHour,
+  minute,
+  setMinute,
+  ampm,
+  setAmpm,
+}: any) => (
+  <div className="grid grid-cols-3 gap-2">
+    <select className="input w-full" value={hour} onChange={(e) => setHour(Number(e.target.value))} disabled={submitting}>
+      {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
+    </select>
+
+    <select className="input w-full" value={minute} onChange={(e) => setMinute(Number(e.target.value))} disabled={submitting}>
+      {MINUTES.map((m) => <option key={m} value={m}>{pad2(m)}</option>)}
+    </select>
+
+    <select className="input w-full" value={ampm} onChange={(e) => setAmpm(e.target.value as "AM" | "PM")} disabled={submitting}>
+      <option value="AM">AM</option>
+      <option value="PM">PM</option>
+    </select>
+  </div>
+);
+
+
+  const addSurcharge = () =>
+    setData((p) => ({ ...p, surcharges: [...p.surcharges, { ...DEFAULT_SURCHARGE }] }));
+
+  const removeSurcharge = (idx: number) =>
+    setData((p) => {
+      if (p.surcharges.length <= 1) return { ...p, surcharges: [{ ...DEFAULT_SURCHARGE }] };
+      return { ...p, surcharges: p.surcharges.filter((_, i) => i !== idx) };
+    });
+
+  const updateSurcharge = (idx: number, next: Partial<Surcharge>) =>
+    setData((p) => ({
+      ...p,
+      surcharges: p.surcharges.map((s, i) => (i === idx ? { ...s, ...next } : s)),
+    }));
+
+
+  const setTour = (next: Partial<TourPackageUI>) => setData((prev) => ({ ...prev, ...next }));
+
+  /* ---------- fetch service categories & meta ---------- */
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        setLoadingServiceCategories(true);
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}tour-packages/services`);
+        if (!res.ok) throw new Error("Failed to fetch service categories");
+        const json = await res.json();
+        setServiceCategories(Array.isArray(json.data) ? json.data : []);
+      } catch (err) {
+        console.error("Error fetching service categories:", err);
+      } finally {
+        setLoadingServiceCategories(false);
+      }
+    };
+
+    const fetchMeta = async () => {
+      try {
+        setLoadingServicesMeta(true);
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}tour-packages/services/meta`);
+        if (!res.ok) throw new Error("Failed to fetch services meta");
+        const json = await res.json();
+        setServicesMeta(json.data || {});
+      } catch (err) {
+        console.error("Error fetching services meta:", err);
+      } finally {
+        setLoadingServicesMeta(false);
+      }
+    };
+
+    fetchCategories();
+    fetchMeta();
+  }, []);
+
+
+
+  /* ---------- Validation ---------- */
+  const canContinueBasic = useMemo(
+    () => !!data.name.trim() && !!data.category.trim() && !!stripHtmlToText(data.descriptionHtml),
+    [data.name, data.category, data.descriptionHtml]
+  );
+
+
+  const isStepValid = (k: StepKey) => {
+    switch (k) {
+      case "basic":
+        return canContinueBasic;
+      case "surcharges":
+        return true;
+      default:
+        return true;
+    }
+  };
+
+  const canGoNext = isStepValid(step.key);
+  const progress = ((stepIndex + 1) / STEPS.length) * 100;
+
+  const goNext = () => {
+    if (submitting || !canGoNext) return;
+    if (stepIndex >= LAST_INDEX) {
+      void handleSubmit();
+      return;
+    }
+    setStepIndex((i) => Math.min(i + 1, LAST_INDEX));
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const goBack = () => {
+    if (submitting) return;
+    setStepIndex((i) => Math.max(i - 1, 0));
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  /* ---------- Thumbnail upload ---------- */
+  const handleThumbnailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const preview = URL.createObjectURL(file);
+    setData((p) => {
+      if (p.thumbnail.preview) URL.revokeObjectURL(p.thumbnail.preview);
+      return { ...p, thumbnail: { file, preview } };
+    });
+    e.target.value = "";
+  };
+
+
+
+
+
+  /* ---------- Itinerary (days) ---------- */
+  const [openDays, setOpenDays] = useState<Record<number, boolean>>({ 0: true });
+
+  const toggleDayOpen = (idx: number) =>
+    setOpenDays((prev) => ({ ...prev, [idx]: !prev[idx] }));
+
+  const ensureDayOpen = (idx: number) =>
+    setOpenDays((prev) => ({ ...prev, [idx]: true }));
+
+  const addItineraryDay = () => {
+    setData((p) => {
+      const nextIndex = p.itinerary.length;
+      setOpenDays((prev) => ({ ...prev, [nextIndex]: true }));
+      return {
+        ...p,
+        itinerary: [...p.itinerary, { ...BLANK_IT_DAY, day: String(nextIndex + 1) }],
+      };
+    });
+  };
+
+  const updateItineraryDay = (idx: number, next: Partial<ItineraryDayUI>) =>
+    setData((p) => ({
+      ...p,
+      itinerary: p.itinerary.map((d, i) => (i === idx ? { ...d, ...next } : d)),
+    }));
+
+  const removeItineraryDay = (idx: number) =>
+    setData((p) => ({
+      ...p,
+      itinerary: p.itinerary.length <= 1 ? [{ ...BLANK_IT_DAY }] : p.itinerary.filter((_, i) => i !== idx),
+    }));
+
+  const updateItineraryActivity = (
+    dayIdx: number,
+    slotIdx: number,
+    activityIdx: number,
+    next: Partial<ItineraryActivityUI>
+  ) =>
+    setData((p) => ({
+      ...p,
+      itinerary: p.itinerary.map((d, i) => {
+        if (i !== dayIdx) return d;
+
+        const timeSlots = (d.timeSlots || []).map((slot, sIdx) => {
+          if (sIdx !== slotIdx) return slot;
+
+          const activities = (slot.activities || []).map((a, aIdx) =>
+            aIdx === activityIdx ? { ...a, ...next } : a
+          );
+
+          return { ...slot, activities };
+        });
+
+        return { ...d, timeSlots };
+      }),
+    }));
+
+  const removeItineraryActivity = (
+    dayIdx: number,
+    slotIdx: number,
+    activityIdx: number
+  ) =>
+    setData((p) => ({
+      ...p,
+      itinerary: p.itinerary.map((d, i) => {
+        if (i !== dayIdx) return d;
+
+        const timeSlots = (d.timeSlots || []).map((slot, sIdx) => {
+          if (sIdx !== slotIdx) return slot;
+
+          return {
+            ...slot,
+            activities: (slot.activities || []).filter((_, aIdx) => aIdx !== activityIdx),
+          };
+        });
+
+        return { ...d, timeSlots };
+      }),
+    }));
+
+  /* ---------- Service picker modal state ---------- */
+  const [servicePicker, setServicePicker] = useState<{
+    open: boolean;
+    dayIdx: number | null;
+    slotIdx: number | null; // ✅ NEW
+    activeCategoryId: string | null;
+    selected: { categoryId: string; categoryTitle: string; itemId: string }[];
+  }>({ open: false, dayIdx: null, slotIdx: null, activeCategoryId: null, selected: [] });
+
+
+
+
+  const openServicePicker = (dayIdx: number, slotIdx: number) => {
+    const fallbackCategoryId = serviceCategories[0]?._id || null;
+    setServicePicker({ open: true, dayIdx, slotIdx, activeCategoryId: fallbackCategoryId, selected: [] });
+  };
+
+
+  const closeServicePicker = () =>
+    setServicePicker({ open: false, dayIdx: null, slotIdx: null, activeCategoryId: null, selected: [] });
+
+  const handleServicePickerDone = () => {
+    if (servicePicker.dayIdx === null || servicePicker.slotIdx === null) {
+      closeServicePicker();
+      return;
+    }
+
+    const selections = servicePicker.selected;
+    if (!selections.length) {
+      closeServicePicker();
+      return;
+    }
+
+    setData((prev) => ({
+      ...prev,
+      itinerary: prev.itinerary.map((day, dayIdx) => {
+        if (dayIdx !== servicePicker.dayIdx) return day;
+
+        return {
+          ...day,
+          timeSlots: day.timeSlots.map((slot, sIdx) => {
+            if (sIdx !== servicePicker.slotIdx) return slot;
+
+            const newActs: ItineraryActivityUI[] = selections.map((sel) => {
+              const cat = serviceCategories.find((c) => c._id === sel.categoryId);
+              const itemModel = cat ? (ITEM_MODEL_BY_TITLE[cat.title] ?? getItemModelForTitle(cat.title)) : "";
+              return { ...BLANK_IT_ACTIVITY, serviceId: sel.categoryId, serviceItemId: sel.itemId, itemModel };
+            });
+
+            return { ...slot, activities: [...(slot.activities || []), ...newActs] };
+          }),
+        };
+      }),
+    }));
+
+    closeServicePicker();
+  };
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const handleAddActivityForDay = (dayIdx: number, slotIdx: number) => {
+    ensureDayOpen(dayIdx);
+    openServicePicker(dayIdx, slotIdx);
+  };
+
+
+
+    const removeTimeSlot = (dayIdx: number, slotId: string) => {
+  setData((prev) => ({
+    ...prev,
+    itinerary: prev.itinerary.map((day, i) => {
+      if (i !== dayIdx) return day;
+      return {
+        ...day,
+        timeSlots: (day.timeSlots || []).filter((s) => s.id !== slotId),
+      };
+    }),
+  }));
+
+  // if editor is open for this slot, close it
+  setSlotEditor((prev) =>
+    prev.slotId === slotId ? { open: false, dayIdx: null, slotId: null } : prev
+  );
+};
+
+
+  /* ---------- Submit ---------- */
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (stepIndex < LAST_INDEX) {
+      if (isStepValid(step.key)) goNext();
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+
+      const descHtmlClean = sanitizeHtml(data.descriptionHtml || "");
+
+      const servicesFromActivities: { serviceId: string; serviceItemId: string; itemModel: string }[] = [];
+      const serviceKeySet = new Set<string>();
+
+      data.itinerary.forEach((day) => {
+        (day.timeSlots || []).forEach((slot) => {
+          (slot.activities || []).forEach((a) => {
+            if (a.serviceId || a.serviceItemId || a.itemModel) {
+              const key = `${a.serviceId || ""}|${a.serviceItemId || ""}|${a.itemModel || ""}`;
+              if (!serviceKeySet.has(key)) {
+                serviceKeySet.add(key);
+                servicesFromActivities.push({
+                  serviceId: a.serviceId,
+                  serviceItemId: a.serviceItemId,
+                  itemModel: a.itemModel,
+                });
+              }
+            }
+          });
+        });
+      });
+
+
+      const totalDaysCount = data.itinerary.length || 1;
+      const checkInDay = 1;
+      const checkOutDay = totalDaysCount;
+
+      const payload = {
+        name: data.name.trim(),
+        category: data.category.trim(),
+        description: descHtmlClean,
+        has_tour_guide: !!data.hasTourGuide,
+        has_transport: !!data.hasTransport,
+        check_in_day: checkInDay,
+        check_out_day: checkOutDay,
+        start_date: data.startDate || undefined,
+        end_date: data.endDate || undefined,
+
+        min_pax: Number(data.minPax) || 0,
+        max_pax: Number(data.maxPax) || 0,
+        total_days: Number(data.totalDays) || 0,
+        total_nights: Number(data.totalNights) || 0,
+
+        services: servicesFromActivities.map((s) => ({
+          serviceId: s.serviceId || undefined,
+          serviceItemId: s.serviceItemId || undefined,
+          itemModel: s.itemModel || undefined,
+        })),
+
+
+        itinerary: data.itinerary.map((d, idx) => {
+          const numericDay = Number(d.day) || idx + 1;
+          const isFirstDay = idx === 0;
+          const isLastDay = idx === data.itinerary.length - 1;
+
+          let title = d.title || "";
+          if (!title.trim()) {
+            if (isFirstDay) title = `Check-in Day ${checkInDay}`;
+            else if (isLastDay) title = `Check-out Day ${checkOutDay}`;
+            else title = `Day ${numericDay}`;
+          }
+
+          return {
+            day: numericDay,
+            title,
+            description: d.description,
+
+            timeSlots: (d.timeSlots || [])
+              .filter((s) => s.from && s.to)
+              .map((s) => ({
+                from: s.from,
+                to: s.to,
+
+                // ✅ slot-wise activities
+                activities: (s.activities || [])
+                  .filter((a) => a.itemModel || a.serviceItemId)
+                  .map((a) => ({
+                    serviceId: a.serviceId || undefined,
+                    serviceItemId: a.serviceItemId || undefined,
+                    itemModel: a.itemModel || undefined,
+                    isRemovable: a.isRemovable ?? false,
+                  })),
+              })),
+          };
+
+
+        }),
+
+        surcharges: data.surcharges
+          .map((s) => ({
+            windowType: s.windowType,
+            amount: s.amount ? Number(s.amount) : 0,
+            currency: s.currency,
+            singleDate: s.windowType === "single" ? s.singleDate || undefined : undefined,
+            startDate: s.windowType === "range" ? s.startDate || undefined : undefined,
+            endDate: s.windowType === "range" ? s.endDate || undefined : undefined,
+          }))
+          .filter((s) => s.amount > 0),
+
+        exclusions: data.exclusions,
+      };
+
+      const fd = new FormData();
+      fd.append("payload", JSON.stringify(payload));
+
+      if (data.thumbnail.file) fd.append("thumbnail_file", data.thumbnail.file, data.thumbnail.file.name);
+
+
+      const url = `${process.env.NEXT_PUBLIC_API_BASE}tour-packages/create`;
+      const res = await fetch(url, { method: "POST", body: fd });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || "Request failed");
+      }
+
+      alert("Tour package created successfully! 🎉");
+      router.push("/dashboard/tour-packages");
+    } catch (err: any) {
+      console.error(err);
+      alert(`An error occurred: ${err?.message || err}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const title = data.name.trim() || "New Tour Package";
+  /* ---------- Render ---------- */
+
+  return (
+    <form className="min-h-screen bg-gray-50" onSubmit={handleSubmit}>
+      {/* Header */}
+      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-gray-200">
+        <div className="px-4 py-3 sm:px-6 max-w-4xl mx-auto">
+          <div className="flex items-center gap-3">
+            <div className="size-9 rounded-lg bg-emerald-600 text-white grid place-items-center text-sm font-bold shadow">
+              {title[0]?.toUpperCase() || "T"}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-base font-semibold text-gray-900 truncate">
+                Add Tour Package — {title}
+              </h1>
+              <p className="text-[11px] text-gray-500 truncate">
+                Create a Goa holiday package with services & dynamic pricing.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setData({ ...BLANK_TOUR_PACKAGE })}
+              disabled={submitting}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${submitting
+                  ? "border-gray-200 text-gray-400"
+                  : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                }`}
+            >
+              Reset
+            </button>
+          </div>
+
+          {/* Stepper */}
+          <div className="mt-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
+            {STEPS.map((s, i) => {
+              const active = i === stepIndex;
+              const done = i < stepIndex;
+              return (
+                <button
+                  key={s.key}
+                  type="button"
+                  onClick={() => {
+                    if (submitting) return;
+                    const allPrevValid =
+                      i <= stepIndex
+                        ? true
+                        : STEPS.slice(0, i).every((st) =>
+                          isStepValid(st.key)
+                        );
+                    if (allPrevValid) setStepIndex(i);
+                    if (typeof window !== "undefined") {
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }
+                  }}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs whitespace-nowrap ${active
+                      ? "bg-emerald-50 border-emerald-500 text-emerald-700"
+                      : done
+                        ? "bg-green-50 border-green-500 text-green-700"
+                        : "bg-white border-gray-200 text-gray-700"
+                    }`}
+                  disabled={submitting}
+                >
+                  <span className="grid place-items-center">
+                    {done ? <CheckCircle2 className="size-4" /> : s.icon}
+                  </span>
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Progress */}
+          <div className="mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className={`h-full transition-all ${submitting ? "bg-emerald-400" : "bg-emerald-600"
+                }`}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      </header>
+
+      {/* Content */}
+      <main className="max-w-4xl mx-auto sm:p-6 pb-36 lg:pb-64">
+        {/* BASIC */}
+        {step.key === "basic" && (
+          <>
+            <SectionCard
+              title="Basic Details"
+              subtitle="Core information about this tour package."
+              icon={<FileText className="size-5 text-emerald-600" />}
+              requiredHint
+            >
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Field label="Package Name *" required>
+                    <input
+                      type="text"
+                      className="input"
+                      value={data.name}
+                      onChange={(e) => setTour({ name: e.target.value })}
+                      placeholder="Luxury Goa Getaway"
+                      disabled={submitting}
+                    />
+                  </Field>
+
+                  <Field label="Category *" required>
+                    <div className="relative">
+                      <select
+                        className="input appearance-none pr-10 bg-white text-sm touch-manipulation"
+                        value={data.category}
+                        onChange={(e) => setTour({ category: e.target.value })}
+                        disabled={submitting}
+                      >
+                        {TOUR_CATEGORIES.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                    </div>
+                  </Field>
+
+
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Field label="Min Pax *" required>
+                    <input
+                      type="number"
+                      min={1}
+                      className="input"
+                      value={data.minPax}
+                      onChange={(e) => setTour({ minPax: e.target.value })}
+                      placeholder="2"
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="Max Pax">
+                    <input
+                      type="number"
+                      min={0}
+                      className="input"
+                      value={data.maxPax}
+                      onChange={(e) => setTour({ maxPax: e.target.value })}
+                      placeholder="6"
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="Total Days *" required>
+                    <input
+                      type="number"
+                      min={1}
+                      className="input"
+                      value={data.totalDays}
+                      onChange={(e) => setTour({ totalDays: e.target.value })}
+                      placeholder="4"
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="Total Nights *" required>
+                    <input
+                      type="number"
+                      min={0}
+                      className="input"
+                      value={data.totalNights}
+                      onChange={(e) => setTour({ totalNights: e.target.value })}
+                      placeholder="3"
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="Start Date *" required>
+                    <input
+                      type="date"
+                      className="input"
+                      value={data.startDate}
+                      min={today}                 // ✅ prevents past dates
+                      onChange={(e) => {
+                        const start = e.target.value;
+                        setTour({
+                          startDate: start,
+                          // auto-clear endDate if it becomes invalid
+                          endDate:
+                            data.endDate && data.endDate < start ? "" : data.endDate,
+                        });
+                      }}
+                      disabled={submitting}
+                    />
+                  </Field>
+                  <Field label="End Date *" required>
+                    <input
+                      type="date"
+                      className="input"
+                      value={data.endDate}
+                      min={data.startDate || today}   // ✅ cannot be before start date
+                      onChange={(e) => setTour({ endDate: e.target.value })}
+                      disabled={submitting}
+                    />
+                  </Field>
+
+                </div>
+
+                <Field label="Description *" required>
+                  <div className="rounded-xl border border-gray-300 bg-white shadow-sm">
+                  <TinyMCETextEditor
+  value={data.descriptionHtml || ""}
+  onChange={(html) => setTour({ descriptionHtml: html })}
+  placeholder="Experience luxury in Goa on a short getaway with this holiday package..."
+/>
+                  </div>
+                </Field>
+
+                {/* Thumbnail */}
+                <Field
+                  label="Thumbnail Image"
+                  hint="Used as main card image (file only)."
+                >
+                  <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                    <label className="block">
+                      <div className="flex items-center gap-3 px-3 py-2 border-2 border-dashed border-emerald-300 rounded-xl cursor-pointer hover:border-emerald-500 bg-emerald-50/50">
+                        <ImageIcon className="size-5 text-emerald-600" />
+                        <div>
+                          <p className="text-xs font-semibold text-emerald-900">
+                            {data.thumbnail.file?.name || "Upload thumbnail"}
+                          </p>
+                          <p className="text-[10px] text-emerald-900/70">
+                            JPG / PNG / WebP
+                          </p>
+                        </div>
+                      </div>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleThumbnailChange}
+                        disabled={submitting}
+                      />
+                    </label>
+
+                    {data.thumbnail.preview && (
+                      <div className="w-24 h-24 rounded-xl overflow-hidden border bg-white">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={data.thumbnail.preview}
+                          alt="Thumbnail preview"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </Field>
+              </div>
+            </SectionCard>
+
+          </>
+        )}
+
+        {step.key === "services" && (
+          <SectionCard
+            title="Itinerary"
+            subtitle="Define day-wise flow & map activities to services."
+            icon={<ListChecks className="size-5 text-emerald-600" />}
+          >
+            <div className="space-y-6">
+              <div className=" border-gray-200 bg-white">
+
+                <div className="space-y-3">
+                  {data.itinerary.map((d, idx) => {
+                    const isOpen = openDays[idx] ?? true;
+                    return (
+                      <div
+                        key={idx}
+                        className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden"
+                      >
+                        {/* Day Header */}
+                        <div className=" py-3 border-b border-gray-100 bg-white sticky top-0 z-10">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                            {/* Left: Day Toggle */}
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleDayOpen(idx)}
+                                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition ${isOpen
+                                    ? "bg-emerald-50 border-emerald-500 text-emerald-700"
+                                    : "bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100"
+                                  }`}
+                                aria-expanded={isOpen}
+                              >
+                                <ChevronDown
+                                  className={`size-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                                />
+                                <span>Itinerary Day {idx + 1}</span>
+                              </button>
+                            </div>
+
+                            {/* Middle: Title */}
+                            <div className="flex-1">
+                              <input
+                                type="text"
+                                className="input"
+                                value={d.title}
+                                onChange={(e) => updateItineraryDay(idx, { title: e.target.value })}
+                                placeholder="Arrival in Goa"
+                                disabled={submitting}
+                              />
+                            </div>
+
+                            {/* Right: Actions */}
+                            <div className="flex gap-2 sm:justify-end">
+                              <button
+                                type="button"
+                                onClick={() => removeItineraryDay(idx)}
+                                disabled={submitting}
+                                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-3 py-2 text-xs font-semibold rounded-xl border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                              >
+                                <X className="size-3.5" />
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Collapsible body */}
+                        {isOpen && (
+                          <div className="p-3 sm:p-4 space-y-4 bg-gray-50/40">
+                            {/* Description */}
+                            <div className="rounded-xl border border-gray-200 bg-white p-3">
+                              <Field label="Description">
+                                <textarea
+                                  className="textarea w-full"
+                                  value={d.description}
+                                  onChange={(e) => updateItineraryDay(idx, { description: e.target.value })}
+                                  placeholder="Arrive at Goa airport. Private transfer..."
+                                  disabled={submitting}
+                                />
+                              </Field>
+
+                            </div>
+
+
+                            {/* Activities */}
+                            <div className="rounded-xl border border-gray-200 bg-white">
+                              <div className="flex items-center justify-between mb-3">
+                                <p className="text-sm font-semibold text-gray-900">
+                                  Activities{" "}
+                                  <span className="text-xs text-gray-500">
+                                    (
+                                    {(d.timeSlots || []).reduce(
+                                      (sum, s) => sum + (s.activities?.length || 0),
+                                      0
+                                    )}
+                                    )
+                                  </span>
+                                </p>
+                                
+                              </div>
+
+                              <div className="space-y-4">
+                                {(d.timeSlots || []).map((slot, slotIdx) => (
+                                  <div
+                                    key={slot.id || `${idx}-${slotIdx}`}
+                                    className="rounded-xl border border-gray-200 bg-white p-3"
+                                  >
+        <div className="flex items-center justify-between mb-2">
+  <p className="text-sm font-semibold text-gray-900">
+    Slot: {slot.from} - {slot.to}
+    <span className="text-xs text-gray-500 ml-2">
+      ({slot.activities?.length || 0})
+    </span>
+  </p>
+
+  <div className="flex items-center gap-2">
+    {/* ✏️ Edit slot */}
+    <button
+      type="button"
+      disabled={submitting}
+      onClick={() => {
+        loadSlotToEditor(slot);
+        setSlotEditor({ open: true, dayIdx: idx, slotId: slot.id });
+      }}
+      className="inline-flex items-center justify-center size-9 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
+      title="Edit slot time"
+    >
+      <Pencil  className="size-4 text-gray-700" />
+    </button>
+
+    {/* ➕ Add activity */}
+    <button
+      type="button"
+      onClick={() => openServicePicker(idx, slotIdx)}
+      disabled={submitting}
+      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+    >
+      <Plus className="size-3.5" />
+      Add
+    </button>
+
+    {/* 🗑️ Remove slot */}
+    <button
+      type="button"
+      disabled={submitting}
+      onClick={() => {
+        if (
+          slot.activities?.length &&
+          !confirm("This slot has activities. Remove anyway?")
+        ) {
+          return;
+        }
+        removeTimeSlot(idx, slot.id);
+      }}
+      className="inline-flex items-center justify-center size-9 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+      title="Remove slot"
+    >
+      <Trash2 className="size-4" />
+    </button>
+  </div>
+</div>
+
+
+{slotEditor.open &&
+  slotEditor.dayIdx === idx &&
+  slotEditor.slotId === slot.id && (
+    <div className="rounded-xl border border-gray-200 bg-white p-3 mb-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <p className="text-xs font-semibold text-gray-700 mb-1">From</p>
+          <TimeSelect
+            hour={fromHour}
+            setHour={setFromHour}
+            minute={fromMinute}
+            setMinute={setFromMinute}
+            ampm={fromAmpm}
+            setAmpm={setFromAmpm}
+          />
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold text-gray-700 mb-1">To</p>
+          <TimeSelect
+            hour={toHour}
+            setHour={setToHour}
+            minute={toMinute}
+            setMinute={setToMinute}
+            ampm={toAmpm}
+            setAmpm={setToAmpm}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+       <button
+  type="button"
+  disabled={submitting}
+  onClick={() => {
+    const err = hasOverlappingSlot(d.timeSlots || [], fromVal, toVal, slot.id);
+    if (err) {
+      alert(err);
+      return;
+    }
+
+    updateItineraryDay(idx, {
+      timeSlots: (d.timeSlots || []).map((s) =>
+        s.id === slot.id ? { ...s, from: fromVal, to: toVal } : s
+      ),
+    });
+    closeSlotEditor();
+  }}
+  className="px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+>
+  Update slot
+</button>
+
+
+        <button
+          type="button"
+          disabled={submitting}
+          onClick={closeSlotEditor}
+          className="px-3 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+
+        <span className="text-[11px] text-gray-500 ml-auto">
+          Selected: <span className="font-semibold">{fromVal} - {toVal}</span>
+        </span>
+      </div>
+    </div>
+)}
+
+
+
+                                    <div className="space-y-3">
+                                      {(slot.activities || []).map((a, aIdx) => {
+                                        const selectedCategory = serviceCategories.find(
+                                          (c) => c._id === a.serviceId
+                                        );
+
+                                        const metaKey = selectedCategory
+                                          ? SERVICE_META_KEY_BY_TITLE[selectedCategory.title] || ""
+                                          : "";
+
+                                        const itemsForCategory =
+                                          metaKey && servicesMeta[metaKey] ? servicesMeta[metaKey] : [];
+
+                                        const selectedItem = itemsForCategory.find(
+                                          (item) => item._id === a.serviceItemId
+                                        );
+
+                                        const card = selectedItem
+                                          ? getServiceCardContent(metaKey, selectedItem)
+                                          : null;
+
+                                        return (
+                                          <div
+                                            key={`${idx}-${slotIdx}-${aIdx}`}
+                                            className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden"
+                                          >
+                                            {/* Activity top row */}
+                                            <div className="px-3 sm:px-4 py-3 border-b border-gray-100 flex items-start gap-3">
+                                              {/* Thumbnail */}
+                                              <div className="shrink-0">
+                                                <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-100 border border-gray-200">
+                                                  {card?.mediaUrl ? (
+                                                    // eslint-disable-next-line @next/next/no-img-element
+                                                    <img
+                                                      src={card.mediaUrl}
+                                                      alt={card.title}
+                                                      className="w-full h-full object-cover"
+                                                    />
+                                                  ) : (
+                                                    <div className="w-full h-full grid place-items-center text-[10px] text-gray-400">
+                                                      N/A
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+
+                                              {/* Title + meta */}
+                                              <div className="flex-1 min-w-0">
+                                                <div className="flex items-center justify-between gap-2">
+                                                  <p className="text-sm font-semibold text-gray-900 truncate">
+                                                    {card?.title || "Selected via Add Activity modal"}
+                                                  </p>
+
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      removeItineraryActivity(idx, slotIdx, aIdx)
+                                                    }
+                                                    disabled={submitting}
+                                                    className="inline-flex items-center justify-center size-8 rounded-xl border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                                                    aria-label="Remove activity"
+                                                  >
+                                                    <X className="size-4" />
+                                                  </button>
+                                                </div>
+
+                                                <p className="text-[11px] text-gray-500 truncate mt-0.5">
+                                                  {card?.subtitle ||
+                                                    (a.serviceItemId
+                                                      ? `ID: ${a.serviceItemId}`
+                                                      : "No item selected")}
+                                                </p>
+
+                                                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                                  {card?.priceLabel && (
+                                                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                                      {card.priceLabel}
+                                                    </span>
+                                                  )}
+
+                                                  <label className="inline-flex items-center gap-2 text-[11px] text-gray-700 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">
+                                                    <input
+                                                      type="checkbox"
+                                                      className="h-3.5 w-3.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                                                      checked={!!a.isRemovable}
+                                                      onChange={(e) =>
+                                                        updateItineraryActivity(idx, slotIdx, aIdx, {
+                                                          isRemovable: e.target.checked,
+                                                        })
+                                                      }
+                                                      disabled={submitting}
+                                                    />
+                                                    Customer can remove
+                                                  </label>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+
+                                      {(slot.activities || []).length === 0 && (
+                                        <div className="text-xs text-gray-500 py-2">
+                                          No activities added for this slot.
+                                        </div>
+                                      )}
+                                    </div>
+                                    
+                                  </div>
+                                ))}
+                                 <button
+      type="button"
+      disabled={submitting}
+      onClick={() => {
+        const newSlot: DayTimeSlotUI = {
+          id: crypto.randomUUID(),
+          from: "10:00 AM",
+          to: "1:30 PM",
+          activities: [],
+        };
+
+        // add slot to this day
+        setData((prev) => ({
+          ...prev,
+          itinerary: prev.itinerary.map((day, i) => {
+            if (i !== idx) return day;
+            return { ...day, timeSlots: [...(day.timeSlots || []), newSlot] };
+          }),
+        }));
+
+        // open this day + open editor for the new slot
+        ensureDayOpen(idx);
+        loadSlotToEditor(newSlot);
+        setSlotEditor({ open: true, dayIdx: idx, slotId: newSlot.id });
+      }}
+      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+    >
+      <Plus className="size-3.5" />
+      Add Slot
+    </button>
+                              </div>
+                            </div>
+
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+
+                <div className="flex justify-end gap-2 pt-2">
+  {/* Add Day */}
+  <button
+    type="button"
+    onClick={addItineraryDay}
+    disabled={submitting}
+    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+  >
+    <Plus className="size-3.5" />
+    Add Day
+  </button>
+</div>
+
+                </div>
+              </div>
+            </div>
+          </SectionCard>
+        )}
+
+
+
+
+
+        {/* PRICING */}
+        {step.key === "surcharges" && (
+          <SectionCard
+            title="Surcharges"
+            subtitle="Map per-service prices & compute per-person total."
+            icon={<IndianRupee className="size-5 text-emerald-600" />}
+            requiredHint
+          >
+            <div className="space-y-6">
+              <div className="rounded-xl border border-gray-200 bg-white p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Exclusions" hint="Matches 'exclusions' array.">
+                  <TagsInput
+                    items={data.exclusions}
+                    onChange={(items) => setTour({ exclusions: items })}
+                    placeholder="Airfare"
+                    disabled={submitting}
+                  />
+                </Field>
+              </div>
+
+              <div className="mt-3 border-t border-gray-100 pt-3">
+                <p className="text-xs font-semibold text-gray-700 mb-2">
+                  Tour manager and Tranpsort
+                </p>
+                <div className="flex flex-wrap gap-4">
+                  <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                      checked={data.hasTourGuide}
+                      onChange={(e) =>
+                        setTour({ hasTourGuide: e.target.checked })
+                      }
+                      disabled={submitting}
+                    />
+                    <span>Tour Guide Included</span>
+                  </label>
+
+                  <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                      checked={data.hasTransport}
+                      onChange={(e) =>
+                        setTour({ hasTransport: e.target.checked })
+                      }
+                      disabled={submitting}
+                    />
+                    <span>Transport Included</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-gray-900">Surge Charges</h3>
+                <button
+                  type="button"
+                  onClick={addSurcharge}
+                  disabled={submitting}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                >
+                  <Plus className="size-3.5" />
+                  Add surge
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {data.surcharges.map((s, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 sm:p-4"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-semibold text-amber-900">
+                        Surge #{idx + 1}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => removeSurcharge(idx)}
+                        disabled={submitting}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                      >
+                        <X className="size-3.5" />
+                        Remove
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Surge window type + dates */}
+                      <div>
+                        <p className="text-xs font-semibold text-gray-700 mb-1.5">
+                          Surge window
+                        </p>
+                        <div className="flex items-center gap-4 text-xs mb-3">
+                          <label className="inline-flex items-center gap-1.5">
+                            <input
+                              type="radio"
+                              name={`surcharge-window-${idx}`}
+                              className="size-3"
+                              checked={s.windowType === "single"}
+                              onChange={() =>
+                                updateSurcharge(idx, {
+                                  windowType: "single",
+                                  startDate: "",
+                                  endDate: "",
+                                })
+                              }
+                              disabled={submitting}
+                            />
+                            <span>Single date</span>
+                          </label>
+                          <label className="inline-flex items-center gap-1.5">
+                            <input
+                              type="radio"
+                              name={`surcharge-window-${idx}`}
+                              className="size-3"
+                              checked={s.windowType === "range"}
+                              onChange={() =>
+                                updateSurcharge(idx, {
+                                  windowType: "range",
+                                  singleDate: "",
+                                })
+                              }
+                              disabled={submitting}
+                            />
+                            <span>Date range</span>
+                          </label>
+                        </div>
+
+                        {s.windowType === "single" ? (
+                          <Field label="Date">
+                            <input
+                              type="date"
+                              className="input"
+                              value={s.singleDate}
+                              onChange={(e) =>
+                                updateSurcharge(idx, { singleDate: e.target.value })
+                              }
+                              disabled={submitting}
+                            />
+                          </Field>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2">
+                            <Field label="Start date">
+                              <input
+                                type="date"
+                                className="input"
+                                value={s.startDate}
+                                onChange={(e) =>
+                                  updateSurcharge(idx, { startDate: e.target.value })
+                                }
+                                disabled={submitting}
+                              />
+                            </Field>
+                            <Field label="End date">
+                              <input
+                                type="date"
+                                className="input"
+                                value={s.endDate}
+                                onChange={(e) =>
+                                  updateSurcharge(idx, { endDate: e.target.value })
+                                }
+                                disabled={submitting}
+                              />
+                            </Field>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Surge amount */}
+                      <Field label="Surge amount">
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            min={0}
+                            inputMode="decimal"
+                            className="input"
+                            value={s.amount}
+                            onChange={(e) =>
+                              updateSurcharge(idx, { amount: e.target.value })
+                            }
+                            placeholder="enter amount"
+                            disabled={submitting}
+                          />
+                          <select
+                            className="input w-24"
+                            value={s.currency}
+                            onChange={(e) =>
+                              updateSurcharge(idx, { currency: e.target.value })
+                            }
+                            disabled={submitting}
+                          >
+                            <option value="INR">INR</option>
+                            <option value="USD">USD</option>
+                            <option value="AED">AED</option>
+                          </select>
+                        </div>
+                      </Field>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </SectionCard>
+        )}
+
+      </main>
+
+      {/* Service Picker Modal for itinerary activities */}
+      {servicePicker.open &&
+        servicePicker.dayIdx !== null &&
+        (() => {
+
+          const titleNorm = (t: string) => normalizeTitle(t);
+
+          // current selected (categoryId + itemId) -> category title
+          const selectedWithTitle = servicePicker.selected.map((s) => ({
+            ...s,
+            categoryTitleNorm: titleNorm(s.categoryTitle),
+          }));
+
+          const hasSelectedIn = (titles: string[]) => {
+            const set = new Set(titles.map(titleNorm));
+            return selectedWithTitle.some((s) => set.has(s.categoryTitleNorm));
+          };
+
+          const selectedCountIn = (titles: string[]) => {
+            const set = new Set(titles.map(titleNorm));
+            return selectedWithTitle.filter((s) => set.has(s.categoryTitleNorm)).length;
+          };
+
+          // ✅ your rules
+          const CAT = {
+            HOTELS: "hotels",
+            ACTIVITIES: "activities",
+            LEISURE: "leisure activities",
+            NIGHTLIFE: "nightlife",
+            SIGHTSEEING: "sightseeing",
+          };
+
+          // Daytime (<= 6 PM): only one across Activities + Leisure, and only one Hotel
+          const daytimeExclusiveGroup = [CAT.ACTIVITIES, CAT.LEISURE];
+          const hotelSingle = [CAT.HOTELS];
+
+          // After 6 PM: only one across Nightlife + Leisure
+          const nightExclusiveGroup = [CAT.NIGHTLIFE, CAT.LEISURE];
+
+          const isCategoryTabDisabled = (catTitle: string) => {
+            const t = titleNorm(catTitle);
+
+            if (isDaytime) {
+              // If one selected in Activities, disable Leisure tab and vice versa
+              if (t === CAT.ACTIVITIES) return hasSelectedIn([CAT.LEISURE]);
+              if (t === CAT.LEISURE) return hasSelectedIn([CAT.ACTIVITIES]);
+              return false;
+            }
+
+            // after 6pm
+            if (t === CAT.NIGHTLIFE) return hasSelectedIn([CAT.LEISURE]);
+            if (t === CAT.LEISURE) return hasSelectedIn([CAT.NIGHTLIFE]);
+            return false;
+          };
+
+          // 1) Hide Tour Package tab completely (and prevent it from being active)
+          const day = data.itinerary?.[servicePicker.dayIdx ?? -1];
+          const slot = day?.timeSlots?.[servicePicker.slotIdx ?? -1];
+
+          const slotStartMin = slot?.from ? timeToMinutes(slot.from) : null;
+
+          // "Daytime" means <= 6:00 PM
+          const isDaytime = slotStartMin !== null ? slotStartMin <= 18 * 60 : true;
+
+          const filteredCategories = (serviceCategories || []).filter((c) => {
+            const title = normalizeTitle(c?.title);
+
+            // Always hide Tour Package
+            if (title === "tour packages") return false;
+
+            if (isDaytime) {
+              // 7AM - 6PM: hide Nightlife
+              if (title === "nightlife") return false;
+              return true;
+            }
+
+            // After 6PM: show ONLY Nightlife + Leisure Activities
+            return title === "nightlife" || title === "leisure activities";
+          });
+
+
+          const safeActiveCategoryId =
+            servicePicker.activeCategoryId &&
+              filteredCategories.some((c) => c._id === servicePicker.activeCategoryId)
+              ? servicePicker.activeCategoryId
+              : filteredCategories[0]?._id;
+
+          const activeCategory =
+            (safeActiveCategoryId && filteredCategories.find((c) => c._id === safeActiveCategoryId)) ||
+            filteredCategories[0];
+
+          const activeMetaKey = activeCategory ? SERVICE_META_KEY_BY_TITLE[activeCategory.title] || "" : "";
+          const activeItemsForCategory: ServiceMetaItem[] =
+            activeMetaKey && servicesMeta[activeMetaKey] ? servicesMeta[activeMetaKey] : [];
+
+
+
+          const toggleSelectItem = (category: ServiceCategory, item: ServiceMetaItem) => {
+            setServicePicker((prev) => {
+              if (!item._id) return prev;
+
+              const catTitleNorm = titleNorm(category.title);
+
+              const existsIdx = prev.selected.findIndex(
+                (s) => s.categoryId === category._id && s.itemId === item._id
+              );
+
+              // If already selected -> unselect
+              if (existsIdx >= 0) {
+                const nextSel = [...prev.selected];
+                nextSel.splice(existsIdx, 1);
+                return { ...prev, selected: nextSel };
+              }
+
+              // ✅ Rules:
+              // 1) Daytime: Activities + Leisure = only one TOTAL across both
+              // 2) Daytime: Hotels = only one
+              // 3) After 6pm: Nightlife + Leisure = only one TOTAL across both
+              let nextSel = [...prev.selected];
+
+              if (isDaytime) {
+                // remove other selection if picking inside Activities/Leisure group
+                if (daytimeExclusiveGroup.includes(catTitleNorm)) {
+                  nextSel = nextSel.filter((s) => {
+                    const t = titleNorm(s.categoryTitle);
+                    return !daytimeExclusiveGroup.includes(t);
+                  });
+                }
+
+                // Hotels only one
+                if (hotelSingle.includes(catTitleNorm)) {
+                  nextSel = nextSel.filter((s) => titleNorm(s.categoryTitle) !== CAT.HOTELS);
+                }
+              } else {
+                // after 6pm: Nightlife + Leisure only one total
+                if (nightExclusiveGroup.includes(catTitleNorm)) {
+                  nextSel = nextSel.filter((s) => {
+                    const t = titleNorm(s.categoryTitle);
+                    return !nightExclusiveGroup.includes(t);
+                  });
+                }
+              }
+
+              // Sightseeing remains multi-select (no removal here)
+
+              nextSel.push({
+                categoryId: category._id,
+                categoryTitle: category.title,
+                itemId: item._id,
+              });
+
+              return { ...prev, selected: nextSel };
+            });
+          };
+
+
+          return (
+            <div
+              className="fixed inset-0 z-[9999]"
+              aria-modal="true"
+              role="dialog"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") closeServicePicker();
+              }}
+            >
+              {/* Backdrop */}
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={closeServicePicker}
+                className="absolute inset-0 bg-black/50"
+              />
+
+              {/* Panel (Bottom sheet on mobile, centered modal on md+) */}
+              <div className="absolute inset-x-0 bottom-0 md:inset-0 md:flex md:items-center md:justify-center p-0 md:p-6">
+                <div
+                  className={`
+                  relative w-full md:max-w-4xl lg:max-w-5xl
+                   bg-white rounded-3xl
+                   shadow-2xl
+                   max-h-[88vh] md:max-h-[84vh]
+                   flex flex-col
+                 `}
+                >
+                  {/* Mobile grab handle */}
+                  <div className="md:hidden flex justify-center pt-3">
+                    <div className="h-1 w-12 rounded-full bg-gray-300" />
+                  </div>
+
+                  {/* Header */}
+                  <div className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-gray-100 px-4 md:px-5 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="text-sm md:text-base font-semibold text-gray-900 truncate">
+                          Select Activities for Day {servicePicker.dayIdx + 1}
+                        </h3>
+                        <p className="text-[11px] md:text-xs text-gray-500 mt-0.5">
+                          Pick one or more services and tap <span className="font-semibold">Done</span>.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={closeServicePicker}
+                        className="shrink-0 inline-flex items-center justify-center size-9 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-[0.98]"
+                      >
+                        <X className="size-4" />
+                      </button>
+                    </div>
+
+                    {/* Tabs */}
+                  <div className="mt-3 relative">
+  {/* Left arrow (mobile) */}
+  <button
+    type="button"
+    onClick={scrollTabsToStart}
+    className="md:hidden absolute left-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center justify-center size-8 rounded-full bg-white border border-gray-200 shadow"
+    aria-label="Scroll tabs to start"
+  >
+    <ChevronLeft className="size-4 text-gray-700" />
+  </button>
+
+  {/* Right arrow (mobile) */}
+  <button
+    type="button"
+    onClick={scrollTabsToEnd}
+    className="md:hidden absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center justify-center size-8 rounded-full bg-white border border-gray-200 shadow"
+    aria-label="Scroll tabs to end"
+  >
+    <ChevronRight className="size-4 text-gray-700" />
+  </button>
+
+  {/* Tabs */}
+  <div
+    ref={tabsScrollRef}
+    className="flex gap-2 overflow-x-auto no-scrollbar pb-1 px-10 md:px-0"
+  >
+    {filteredCategories.map((cat) => {
+      const isActive = activeCategory && activeCategory._id === cat._id;
+      const tabDisabled = isCategoryTabDisabled(cat.title);
+
+      return (
+        <button
+          key={cat._id}
+          type="button"
+          disabled={tabDisabled}
+          onClick={() => {
+            if (tabDisabled) return;
+            setServicePicker((prev) => ({ ...prev, activeCategoryId: cat._id }));
+          }}
+          className={[
+            "px-3 py-1.5 rounded-full border text-xs font-semibold whitespace-nowrap transition",
+            tabDisabled
+              ? "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
+              : isActive
+                ? "bg-emerald-50 border-emerald-400 text-emerald-700 shadow-sm"
+                : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100",
+          ].join(" ")}
+          title={tabDisabled ? "Disabled due to selection rule" : undefined}
+        >
+          {cat.title}
+        </button>
+      );
+    })}
+  </div>
+</div>
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 overflow-y-auto px-4 md:px-5 py-4">
+                    {!activeCategory || loadingServicesMeta ? (
+                      <div className="py-10 text-center">
+                        <p className="text-sm text-gray-600">Loading services…</p>
+                      </div>
+                    ) : activeItemsForCategory.length === 0 ? (
+                      <div className="py-10 text-center">
+                        <p className="text-sm text-gray-600">
+                          No service items found for <span className="font-semibold">{activeCategory.title}</span>.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {activeItemsForCategory.map((item) => {
+                          if (!item._id) return null;
+
+                          const isSelected = servicePicker.selected.some(
+                            (s) => s.categoryId === activeCategory._id && s.itemId === item._id
+                          );
+
+                          const isNonFoodCategory = activeCategory.title !== "Food Service";
+
+                          const isUsedOnAnotherDay =
+                            isNonFoodCategory &&
+                            data.itinerary.some((day, dayIdx) => {
+                              if (dayIdx === servicePicker.dayIdx) return false;
+
+                              return (day.timeSlots || []).some((slot) =>
+                                (slot.activities || []).some(
+                                  (act) =>
+                                    act.serviceItemId === item._id &&
+                                    act.serviceId === activeCategory._id
+                                )
+                              );
+                            });
+
+                          const disabled = isUsedOnAnotherDay;
+
+                          const { mediaUrl, title, subtitle, chip, priceLabel, ratingLabel } = getServiceCardContent(
+                            activeMetaKey,
+                            item
+                          );
+
+                          return (
+                            <button
+                              key={item._id}
+                              type="button"
+                              disabled={disabled}
+                              onClick={() => {
+                                if (disabled) return;
+                                toggleSelectItem(activeCategory, item);
+                              }}
+                              className={[
+                                "group w-full text-left rounded-2xl border p-3 transition",
+                                "focus:outline-none focus:ring-2 focus:ring-emerald-500/30",
+                                disabled
+                                  ? "border-gray-200 bg-gray-100 opacity-60 cursor-not-allowed"
+                                  : isSelected
+                                    ? "border-emerald-400 bg-emerald-50 shadow-sm"
+                                    : "border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300",
+                              ].join(" ")}
+                            >
+                              <div className="flex gap-3">
+                                {/* Image */}
+                                <div className="shrink-0 w-16 h-16 rounded-xl overflow-hidden bg-gray-100 border border-gray-200">
+                                  {mediaUrl ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={mediaUrl} alt={title} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-[10px] text-gray-400">
+                                      No image
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Info */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-semibold text-gray-900 truncate">
+                                        {title || "(Untitled item)"}
+                                      </p>
+                                      {subtitle && <p className="text-xs text-gray-500 truncate">{subtitle}</p>}
+                                      {disabled && (
+                                        <p className="text-[11px] text-red-600 mt-1">Already used on another day</p>
+                                      )}
+                                    </div>
+
+                                    <div className="shrink-0 flex flex-col items-end gap-1">
+                                      {priceLabel && (
+                                        <span className="text-xs font-semibold text-emerald-700 whitespace-nowrap">
+                                          {priceLabel}
+                                        </span>
+                                      )}
+                                      <span className="inline-flex items-center justify-center">
+                                        {!disabled && isSelected ? (
+                                          <CheckCircle2 className="size-5 text-emerald-600" />
+                                        ) : (
+                                          <span className="size-5 rounded-full border border-gray-300 inline-block" />
+                                        )}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                                    <span className="inline-flex items-center gap-1 text-[11px] text-gray-500">
+                                      {activeCategory.title} • {ITEM_MODEL_BY_TITLE[activeCategory.title] ?? "Item model"}
+                                    </span>
+
+                                    {chip && (
+                                      <span className="inline-flex px-2 py-0.5 rounded-full bg-gray-100 text-[11px] text-gray-700">
+                                        {chip}
+                                      </span>
+                                    )}
+
+                                    {ratingLabel && (
+                                      <span className="inline-flex px-2 py-0.5 rounded-full bg-amber-50 text-[11px] text-amber-800">
+                                        {ratingLabel}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="sticky bottom-0 bg-white/90 backdrop-blur border-t border-gray-100 px-4 md:px-5 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-gray-600">
+                        Selected: <span className="font-semibold text-gray-900">{servicePicker.selected.length}</span>
+                      </p>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={closeServicePicker}
+                          className="px-4 py-2 text-xs md:text-sm font-semibold rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-50 active:scale-[0.98]"
+                        >
+                          Cancel
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleServicePickerDone}
+                          disabled={servicePicker.selected.length === 0}
+                          className={[
+                            "px-4 py-2 text-xs md:text-sm font-semibold rounded-xl text-white active:scale-[0.98] transition",
+                            servicePicker.selected.length === 0
+                              ? "bg-emerald-300 cursor-not-allowed"
+                              : "bg-emerald-600 hover:bg-emerald-700",
+                          ].join(" ")}
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+
+
+      {/* Sticky footer nav */}
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 z-40 w-full max-w-4xl bg-gray-50/95 backdrop-blur safe-bottom pt-2">
+        <div className="mx-auto max-w-4xl px-4 sm:px-6 pb-2">
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-xl shadow-gray-900/5">
+            <div className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+              <span className="inline-flex items-center gap-2 text-xs text-gray-600 bg-gray-100 rounded-full px-3 py-1.5 font-semibold self-start sm:self-auto">
+                <span
+                  className={`size-2 rounded-full ${isStepValid(step.key) ? "bg-green-500" : "bg-amber-500"
+                    }`}
+                />
+                {isStepValid(step.key)
+                  ? "Looks good"
+                  : "Complete required fields"}
+              </span>
+
+              <div className="flex w-full sm:w-auto gap-2 sm:ml-auto">
+                <button
+                  type="button"
+                  onClick={goBack}
+                  disabled={stepIndex === 0 || submitting}
+                  className={`flex-1 sm:flex-none px-4 py-3 text-sm font-medium rounded-xl border ${stepIndex === 0 || submitting
+                      ? "border-gray-200 text-gray-400"
+                      : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                    }`}
+                >
+                  Back
+                </button>
+
+                <button
+                  type="button"
+                  onClick={goNext}
+                  disabled={!canGoNext || submitting}
+                  className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${!canGoNext || submitting
+                      ? "bg-emerald-300 cursor-not-allowed"
+                      : "bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800"
+                    }`}
+                  aria-busy={submitting ? "true" : "false"}
+                >
+                  {stepIndex < LAST_INDEX ? (
+                    "Continue"
+                  ) : (
+                    <span className="inline-flex items-center gap-2">
+                      {submitting && (
+                        <Loader2
+                          className="size-4 animate-spin"
+                          aria-hidden="true"
+                        />
+                      )}
+                      {submitting ? "Creating..." : "Create Tour Package"}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Local styles */}
+      <style jsx>{`
+        .input {
+          @apply w-full h-10 px-3 py-2 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-[14px] leading-none placeholder:text-gray-400 transition-all;
+          -webkit-tap-highlight-color: transparent;
+        }
+        .textarea {
+          @apply w-full min-h-[100px] px-3 py-2 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-[14px] placeholder:text-gray-400 transition-all resize-y;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+        .safe-bottom {
+          padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem);
+        }
+      `}</style>
+    </form>
+  );
+}
+
+/* ---------- Reusable components ---------- */
+
+function SectionCard({
+  title,
+  subtitle,
+  requiredHint,
+  icon,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  requiredHint?: boolean;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mt-6 first:mt-0">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-md overflow-visible">
+        <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="size-8 grid place-items-center bg-emerald-50 rounded-lg">
+              {icon}
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-gray-900">{title}</h2>
+              {subtitle && (
+                <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
+              )}
+            </div>
+          </div>
+          {requiredHint && (
+            <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">
+              * Required
+            </span>
+          )}
+        </div>
+        <div className="p-4 sm:p-5">{children}</div>
+      </div>
+    </section>
+  );
+}
+
+function Field({
+  label,
+  required,
+  hint,
+  children,
+  className = "",
+}: {
+  label: string;
+  required?: boolean;
+  hint?: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <label className={`block ${className}`}>
+      <div className="flex items-center justify-between mb-1">
+        <span className="block text-sm font-medium text-gray-700">
+          {label} {required && <span className="text-red-600">*</span>}
+        </span>
+        {hint && (
+          <span className="text-[11px] text-gray-500 text-right">{hint}</span>
+        )}
+      </div>
+      {children}
+    </label>
+  );
+}
+
+/* ---------- TagsInput (inclusions/exclusions/meals) ---------- */
+
+function TagsInput({
+  items,
+  onChange,
+  placeholder,
+  disabled,
+}: {
+  items: string[];
+  onChange: (items: string[]) => void;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const [value, setValue] = useState("");
+
+  const addTag = () => {
+    const v = value.trim();
+    if (!v) return;
+    if (items.includes(v)) {
+      setValue("");
+      return;
+    }
+    onChange([...items, v]);
+    setValue("");
+  };
+
+  const removeTag = (idx: number) => {
+    onChange(items.filter((_, i) => i !== idx));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (!disabled) addTag();
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-gray-300 bg-white px-3 py-2 shadow-sm">
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          className="flex-1 border-none outline-none focus:ring-0 text-sm placeholder:text-gray-400"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          disabled={disabled}
+        />
+        <button
+          type="button"
+          onClick={addTag}
+          disabled={disabled || !value.trim()}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${disabled || !value.trim()
+              ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+              : "bg-emerald-600 text-white hover:bg-emerald-700"
+            }`}
+        >
+          Add
+        </button>
+      </div>
+      {items.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {items.map((tag, idx) => (
+            <span
+              key={`${tag}-${idx}`}
+              className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-800"
+            >
+              {tag}
+              <button
+                type="button"
+                onClick={() => removeTag(idx)}
+                disabled={disabled}
+                className="flex items-center justify-center"
+              >
+                <X className="size-3 text-gray-500 hover:text-gray-700" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

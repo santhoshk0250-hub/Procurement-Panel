@@ -19,13 +19,10 @@ import {
   HelpCircle,
 } from "lucide-react";
 
-// Rich text editor deps
-import "react-draft-wysiwyg/dist/react-draft-wysiwyg.css";
-import { EditorState, ContentState, convertFromHTML } from "draft-js";
-import { stateToHTML } from "draft-js-export-html";
-import { Editor } from "react-draft-wysiwyg";
-
 import { useSightseeingPlaceStore } from "@/store/usesightseeingplace";
+
+// ✅ TinyMCE (your component)
+import TinyMCETextEditor from "@/components/TinyMCETextEditor";
 
 /* =========================
    Types
@@ -69,6 +66,18 @@ interface TimelineItem {
 interface NearbyPlaces {
   name: string;
   distance: string;
+}
+
+interface ImageFile {
+  file: File;
+  preview: string;
+}
+
+interface SegregatedImageGroup {
+  id: string;
+  category: string;
+  existingImages: string[]; // URLs from backend
+  images: ImageFile[]; // newly uploaded files
 }
 
 type FAQ = { q: string; a: string };
@@ -134,6 +143,9 @@ interface SightseeingPlace {
 
   images?: string[];
   thumbnail?: string;
+
+  // ✅ your backend key (adjust if different)
+  segregated_images?: Array<{ category?: string; urls?: string[] }>;
 }
 
 // UI state for the form
@@ -179,7 +191,6 @@ interface PlaceUI {
   facilities: string[];
   highlights: string[];
   tips: string[];
-  llm_chips: FAQ[];
 
   accessibility_wheelchair: boolean;
   accessibility_difficulty: string;
@@ -250,24 +261,30 @@ const BLANK_PLACE: PlaceUI = {
   duration_max: "",
   estimated_duration: "",
   bestTimeToVisit: "",
+
   desc: "",
   history: "",
+
   price_type: "",
   price: "",
   price_source: "",
-  llm_chips: [{ q: "", a: "" }],
+
   facilities: [],
   highlights: [],
   tips: [],
 
   accessibility_wheelchair: false,
   accessibility_difficulty: "",
+
   rating: "",
   reviewCount: "",
+
   itinerary: [{ time: "", title: "", description: "" }],
   nearbyPlaces: [{ name: "", distance: "" }],
+
   thumbnail: undefined,
   newThumbnail: null,
+
   existingImages: [],
   newImages: [],
 };
@@ -278,41 +295,23 @@ const STEPS = [
   { key: "meta", label: "Meta", icon: <ListChecks className="size-4" /> },
   { key: "content", label: "Content", icon: <MapPin className="size-4" /> },
   { key: "media", label: "Media", icon: <ImageIcon className="size-4" /> },
+  { key: "segregatedMedia", label: "Segregated Images", icon: <ImageIcon className="size-4" /> },
 ] as const;
 
 type StepKey = (typeof STEPS)[number]["key"];
 const LAST_INDEX = STEPS.length - 1;
-
-const sanitizeHtml = (html: string) =>
-  html.replace(/[\n\r]/g, "").replace(/>\s+</g, "><");
-
-const htmlToEditorState = (html?: string) => {
-  const safe = (html ?? "").trim();
-  if (!safe) return EditorState.createEmpty();
-  const blocks = convertFromHTML(safe);
-  const content = ContentState.createFromBlockArray(
-    blocks.contentBlocks,
-    blocks.entityMap
-  );
-  return EditorState.createWithContent(content);
-};
 
 const sightseeingToUI = (p: SightseeingPlace): PlaceUI => ({
   name: p.name ?? "",
   type: p.type ?? "",
   category: p.category ?? "",
   area: p.area ?? "",
+
   city: p.location?.city ?? "",
   state: p.location?.state ?? "",
   country: p.location?.country ?? "",
-  latitude:
-    typeof p.location?.latitude === "number"
-      ? String(p.location.latitude)
-      : "",
-  longitude:
-    typeof p.location?.longitude === "number"
-      ? String(p.location.longitude)
-      : "",
+  latitude: typeof p.location?.latitude === "number" ? String(p.location.latitude) : "",
+  longitude: typeof p.location?.longitude === "number" ? String(p.location.longitude) : "",
 
   hours_open: p.hours?.open ?? "",
   hours_close: p.hours?.close ?? "",
@@ -320,12 +319,13 @@ const sightseeingToUI = (p: SightseeingPlace): PlaceUI => ({
   hours_days: p.hours?.days ?? "",
 
   map_url: p.mapUrl ?? "",
-  duration_min:
-    typeof p.duration?.min === "number" ? String(p.duration.min) : "",
-  duration_max:
-    typeof p.duration?.max === "number" ? String(p.duration.max) : "",
+
+  duration_min: typeof p.duration?.min === "number" ? String(p.duration.min) : "",
+  duration_max: typeof p.duration?.max === "number" ? String(p.duration.max) : "",
   estimated_duration: p.duration?.text ?? "",
+
   bestTimeToVisit: p.bestTimeToVisit ?? "",
+
   desc: p.description ?? "",
   history: p.history ?? "",
 
@@ -336,8 +336,6 @@ const sightseeingToUI = (p: SightseeingPlace): PlaceUI => ({
   facilities: p.facilities ?? [],
   highlights: p.highlights ?? [],
   tips: p.tips ?? [],
-  llm_chips:
-    p.llm_chips && p.llm_chips.length ? p.llm_chips : [{ q: "", a: "" }],
 
   accessibility_wheelchair: !!p.accessibility?.wheelchairAccessible,
   accessibility_difficulty: p.accessibility?.difficultyLevel ?? "",
@@ -345,24 +343,15 @@ const sightseeingToUI = (p: SightseeingPlace): PlaceUI => ({
   rating: typeof p.rating === "number" ? String(p.rating) : "",
   reviewCount: typeof p.reviewCount === "number" ? String(p.reviewCount) : "",
 
-  itinerary:
-    p.itinerary && p.itinerary.length
-      ? p.itinerary
-      : [{ time: "", title: "", description: "" }],
-  nearbyPlaces:
-    p.nearbyPlaces && p.nearbyPlaces.length
-      ? p.nearbyPlaces
-      : [{ name: "", distance: "" }],
+  itinerary: p.itinerary?.length ? p.itinerary : [{ time: "", title: "", description: "" }],
+  nearbyPlaces: p.nearbyPlaces?.length ? p.nearbyPlaces : [{ name: "", distance: "" }],
 
   thumbnail: p.thumbnail ?? undefined,
   newThumbnail: null,
+
   existingImages: p.images ?? [],
   newImages: [],
 });
-
-/* =========================
-   Component
-   ========================= */
 
 export default function SightseeingPlaceUpsertMobile() {
   const router = useRouter();
@@ -372,9 +361,11 @@ export default function SightseeingPlaceUpsertMobile() {
   const [data, setData] = useState<PlaceUI>(() =>
     sightseeingPlace ? sightseeingToUI(sightseeingPlace as SightseeingPlace) : BLANK_PLACE
   );
+  const setPlace = (next: Partial<PlaceUI>) => setData((p) => ({ ...p, ...next }));
 
   const [stepIndex, setStepIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+
   const [addingType, setAddingType] = useState(false);
   const [customType, setCustomType] = useState("");
   const customTypeRef = useRef<HTMLInputElement | null>(null);
@@ -384,68 +375,132 @@ export default function SightseeingPlaceUpsertMobile() {
 
   const step = STEPS[stepIndex];
 
-  // Rich text editor for description
-  const [editorState, setEditorState] = useState<EditorState>(() =>
-    htmlToEditorState(sightseeingPlace?.description)
-  );
-
-  // LLM chips
+  // ✅ LLM chips (HTML stored in a)
   const [llmChips, setLlmChips] = useState<FAQ[]>(() =>
-    sightseeingPlace?.llm_chips?.length
-      ? sightseeingPlace.llm_chips
-      : BLANK_PLACE.llm_chips
-  );
-  const [llmChipEditors, setLlmChipEditors] = useState<EditorState[]>(() =>
-    (sightseeingPlace?.llm_chips?.length
-      ? sightseeingPlace.llm_chips
-      : BLANK_PLACE.llm_chips
-    ).map((c) => htmlToEditorState(c.a))
+    sightseeingPlace?.llm_chips?.length ? sightseeingPlace.llm_chips : [{ q: "", a: "" }]
   );
 
-  // When store place changes (e.g. navigating into edit page)
-  useEffect(() => {
-    if (!sightseeingPlace) return;
-    const ui = sightseeingToUI(sightseeingPlace as SightseeingPlace);
-    setData(ui);
-    setEditorState(htmlToEditorState(sightseeingPlace.description));
-    const chips =
-      sightseeingPlace.llm_chips && sightseeingPlace.llm_chips.length
-        ? sightseeingPlace.llm_chips
-        : [{ q: "", a: "" }];
-    setLlmChips(chips);
-    setLlmChipEditors(chips.map((c) => htmlToEditorState(c.a)));
-  }, [sightseeingPlace]);
+  // ✅ Segregated Images
+  const [segregatedGroups, setSegregatedGroups] = useState<SegregatedImageGroup[]>(() => {
+    const seg = (sightseeingPlace as SightseeingPlace | undefined)?.segregated_images;
+    if (Array.isArray(seg) && seg.length > 0) {
+      return seg.map((g, idx) => ({
+        id: `seg-${idx}`,
+        category: (g.category || "").trim(),
+        existingImages: Array.isArray(g.urls) ? g.urls : [],
+        images: [],
+      }));
+    }
+    return [{ id: "seg-0", category: "", existingImages: [], images: [] }];
+  });
 
   useEffect(() => {
     if (addingType) customTypeRef.current?.focus();
   }, [addingType]);
 
+  // When store place changes (edit page)
+  useEffect(() => {
+    if (!sightseeingPlace) return;
+
+    const p = sightseeingPlace as SightseeingPlace;
+    setData(sightseeingToUI(p));
+
+    setLlmChips(p.llm_chips?.length ? p.llm_chips : [{ q: "", a: "" }]);
+
+    const seg = p.segregated_images;
+    if (Array.isArray(seg) && seg.length > 0) {
+      setSegregatedGroups(
+        seg.map((g, idx) => ({
+          id: `seg-${idx}`,
+          category: (g.category || "").trim(),
+          existingImages: Array.isArray(g.urls) ? g.urls : [],
+          images: [],
+        }))
+      );
+    } else {
+      setSegregatedGroups([{ id: "seg-0", category: "", existingImages: [], images: [] }]);
+    }
+  }, [sightseeingPlace]);
+
   // Revoke previews on unmount
   useEffect(() => {
     return () => {
       data.newImages.forEach((i) => i.preview && URL.revokeObjectURL(i.preview));
-      if (data.newThumbnail?.preview) {
-        URL.revokeObjectURL(data.newThumbnail.preview);
-      }
+      if (data.newThumbnail?.preview) URL.revokeObjectURL(data.newThumbnail.preview);
+
+      segregatedGroups.forEach((g) => g.images.forEach((img) => img.preview && URL.revokeObjectURL(img.preview)));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const setPlace = (next: Partial<PlaceUI>) =>
-    setData((p) => ({ ...p, ...next }));
+  /* ---------- Segregated helpers ---------- */
+  const addSegGroup = () => {
+    setSegregatedGroups((prev) => [
+      ...prev,
+      { id: `seg-${prev.length}`, category: "", existingImages: [], images: [] },
+    ]);
+  };
 
+  const removeSegGroup = (id: string) => {
+    setSegregatedGroups((prev) => {
+      const toRemove = prev.find((g) => g.id === id);
+      toRemove?.images.forEach((img) => URL.revokeObjectURL(img.preview));
+      const next = prev.filter((g) => g.id !== id);
+      return next.length ? next : [{ id: "seg-0", category: "", existingImages: [], images: [] }];
+    });
+  };
+
+  const updateSegGroupCategory = (id: string, category: string) => {
+    setSegregatedGroups((prev) => prev.map((g) => (g.id === id ? { ...g, category } : g)));
+  };
+
+  const handleSegImagesUpload = (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (!files.length) return;
+
+    const mapped: ImageFile[] = files.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+
+    setSegregatedGroups((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, images: [...g.images, ...mapped] } : g))
+    );
+    e.target.value = "";
+  };
+
+  const removeSegImage = (groupId: string, idx: number) => {
+    setSegregatedGroups((prev) =>
+      prev.map((g) => {
+        if (g.id !== groupId) return g;
+        const img = g.images[idx];
+        if (img?.preview) URL.revokeObjectURL(img.preview);
+        return { ...g, images: g.images.filter((_, i) => i !== idx) };
+      })
+    );
+  };
+
+  const removeExistingSegImage = (groupId: string, url: string) => {
+    setSegregatedGroups((prev) =>
+      prev.map((g) => (g.id === groupId ? { ...g, existingImages: g.existingImages.filter((u) => u !== url) } : g))
+    );
+  };
+
+  /* ---------- LLM chips helpers ---------- */
+  const addLlmChip = () => setLlmChips((p) => [...p, { q: "", a: "" }]);
+  const remLlmChip = (idx: number) =>
+    setLlmChips((p) => (p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)));
+  const setLlmChip = (idx: number, next: Partial<FAQ>) =>
+    setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
+
+  /* ---------- Validation / nav ---------- */
   const canContinueDetails = useMemo(
-    () =>
-      !!data.name.trim() && !!data.area.trim() && !!data.type && !!data.category,
+    () => !!data.name.trim() && !!data.area.trim() && !!data.type && !!data.category,
     [data.name, data.area, data.type, data.category]
   );
 
   const isValidUrl = (s: string) => /^$|^https?:\/\/.+/i.test(s.trim());
-
-  const canContinueMeta = useMemo(
-    () => isValidUrl(data.map_url),
-    [data.map_url]
-  );
+  const canContinueMeta = useMemo(() => isValidUrl(data.map_url), [data.map_url]);
 
   const isStepValid = (k: StepKey) => {
     switch (k) {
@@ -458,23 +513,6 @@ export default function SightseeingPlaceUpsertMobile() {
     }
   };
 
-  const addLlmChip = () => {
-    setLlmChips((p) => [...p, { q: "", a: "" }]);
-    setLlmChipEditors((p) => [...p, EditorState.createEmpty()]);
-  };
-
-  const remLlmChip = (idx: number) => {
-    setLlmChips((p) =>
-      p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)
-    );
-    setLlmChipEditors((p) =>
-      p.length <= 1 ? [EditorState.createEmpty()] : p.filter((_, i) => i !== idx)
-    );
-  };
-
-  const setLlmChip = (idx: number, next: Partial<FAQ>) =>
-    setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
-
   const canGoNext = isStepValid(step.key);
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
 
@@ -485,140 +523,92 @@ export default function SightseeingPlaceUpsertMobile() {
       return;
     }
     setStepIndex((i) => Math.min(i + 1, LAST_INDEX));
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const goBack = () => {
     if (submitting) return;
     setStepIndex((i) => Math.max(i - 1, 0));
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  /* ---------- Thumbnail handling ---------- */
+  /* ---------- Thumbnail ---------- */
   const handleThumbnailUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (data.newThumbnail?.preview) {
-      URL.revokeObjectURL(data.newThumbnail.preview);
-    }
-
+    if (data.newThumbnail?.preview) URL.revokeObjectURL(data.newThumbnail.preview);
     const preview = URL.createObjectURL(file);
-    setPlace({
-      newThumbnail: { file, preview },
-      thumbnail: "",
-    });
+
+    setPlace({ newThumbnail: { file, preview }, thumbnail: "" });
+    if (thumbnailInputRef.current) thumbnailInputRef.current.value = "";
   };
 
   const removeThumbnail = () => {
-    if (data.newThumbnail?.preview) {
-      URL.revokeObjectURL(data.newThumbnail.preview);
-    }
-    setPlace({
-      newThumbnail: null,
-      thumbnail: "",
-    });
+    if (data.newThumbnail?.preview) URL.revokeObjectURL(data.newThumbnail.preview);
+    setPlace({ newThumbnail: null, thumbnail: "" });
   };
 
-  /* ---------- Images handling ---------- */
+  /* ---------- Images (main) ---------- */
   const handleImagesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    const toAdd = files.map((f) => ({
-      file: f,
-      preview: URL.createObjectURL(f),
-    }));
+
+    const toAdd = files.map((f) => ({ file: f, preview: URL.createObjectURL(f) }));
     setPlace({ newImages: [...data.newImages, ...toAdd] });
+
+    if (imagesInputRef.current) imagesInputRef.current.value = "";
   };
 
   const removeNewImage = (idx: number) => {
     const item = data.newImages[idx];
     if (item?.preview) URL.revokeObjectURL(item.preview);
-    setPlace({
-      newImages: data.newImages.filter((_, i) => i !== idx),
-    });
+    setPlace({ newImages: data.newImages.filter((_, i) => i !== idx) });
   };
 
   const removeExistingImage = (idx: number) => {
-    setPlace({
-      existingImages: (data.existingImages || []).filter((_, i) => i !== idx),
-    });
+    setPlace({ existingImages: (data.existingImages || []).filter((_, i) => i !== idx) });
   };
 
-  /* ---------- Dynamic type options (supports custom) ---------- */
+  /* ---------- Dynamic type options ---------- */
   const TYPE_OPTIONS = useMemo(() => {
     const base = [...PLACE_TYPES];
-    if (data.type && !base.includes(data.type)) {
-      base.push(data.type);
-    }
+    if (data.type && !base.includes(data.type)) base.push(data.type);
     return base;
   }, [data.type]);
 
-  // itinerary handlers
+  /* ---------- Itinerary ---------- */
   const addItineraryItem = () =>
-    setData((p) => ({
-      ...p,
-      itinerary: [...p.itinerary, { time: "", title: "", description: "" }],
-    }));
+    setData((p) => ({ ...p, itinerary: [...p.itinerary, { time: "", title: "", description: "" }] }));
 
   const removeItineraryItem = (idx: number) =>
     setData((p) => {
-      if (p.itinerary.length <= 1) {
-        return {
-          ...p,
-          itinerary: [{ time: "", title: "", description: "" }],
-        };
-      }
-      return {
-        ...p,
-        itinerary: p.itinerary.filter((_, i) => i !== idx),
-      };
+      if (p.itinerary.length <= 1) return { ...p, itinerary: [{ time: "", title: "", description: "" }] };
+      return { ...p, itinerary: p.itinerary.filter((_, i) => i !== idx) };
     });
 
   const updateItineraryItem = (idx: number, next: Partial<TimelineItem>) =>
-    setData((p) => ({
-      ...p,
-      itinerary: p.itinerary.map((it, i) =>
-        i === idx ? { ...it, ...next } : it
-      ),
-    }));
+    setData((p) => ({ ...p, itinerary: p.itinerary.map((it, i) => (i === idx ? { ...it, ...next } : it)) }));
 
-  // nearby places handlers
+  /* ---------- Nearby ---------- */
   const addnearbyplacesItem = () =>
-    setData((p) => ({
-      ...p,
-      nearbyPlaces: [...p.nearbyPlaces, { name: "", distance: "" }],
-    }));
+    setData((p) => ({ ...p, nearbyPlaces: [...p.nearbyPlaces, { name: "", distance: "" }] }));
 
   const removenearbyplacesItem = (idx: number) =>
     setData((p) => {
-      if (p.nearbyPlaces.length <= 1) {
-        return {
-          ...p,
-          nearbyPlaces: [{ name: "", distance: "" }],
-        };
-      }
-      return {
-        ...p,
-        nearbyPlaces: p.nearbyPlaces.filter((_, i) => i !== idx),
-      };
+      if (p.nearbyPlaces.length <= 1) return { ...p, nearbyPlaces: [{ name: "", distance: "" }] };
+      return { ...p, nearbyPlaces: p.nearbyPlaces.filter((_, i) => i !== idx) };
     });
 
   const updatenearbyplacesItem = (idx: number, next: Partial<NearbyPlaces>) =>
-    setData((p) => ({
-      ...p,
-      nearbyPlaces: p.nearbyPlaces.map((it, i) =>
-        i === idx ? { ...it, ...next } : it
-      ),
-    }));
+    setData((p) => ({ ...p, nearbyPlaces: p.nearbyPlaces.map((it, i) => (i === idx ? { ...it, ...next } : it)) }));
 
-  /* ---------- Submit: create or update ---------- */
+  /* =========================
+     Submit (Create / Update)
+     ========================= */
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+
     if (stepIndex < LAST_INDEX) {
       if (isStepValid(step.key)) goNext();
       return;
@@ -627,15 +617,16 @@ export default function SightseeingPlaceUpsertMobile() {
     try {
       setSubmitting(true);
 
-      const descHtml = stateToHTML(editorState.getCurrentContent()).trim();
-
       const cooked = {
         name: data.name.trim(),
         type: (data.type || "other").toLowerCase(),
         category: (data.category || "other").toLowerCase(),
         area: data.area.trim(),
-        description: descHtml,
+
+        // ✅ TinyMCE HTML
+        description: (data.desc || "").trim(),
         history: data.history.trim(),
+
         location: {
           city: data.city.trim(),
           state: data.state.trim(),
@@ -643,31 +634,39 @@ export default function SightseeingPlaceUpsertMobile() {
           latitude: data.latitude ? Number(data.latitude) : undefined,
           longitude: data.longitude ? Number(data.longitude) : undefined,
         },
+
         hours: {
           open: data.hours_open.trim(),
           close: data.hours_close.trim(),
           days: data.hours_days.trim(),
           note: data.hours_note.trim(),
         },
+
         mapUrl: data.map_url.trim(),
+
         duration: {
           min: data.duration_min ? Number(data.duration_min) : undefined,
           max: data.duration_max ? Number(data.duration_max) : undefined,
           text: data.estimated_duration.trim(),
         },
+
         bestTimeToVisit: data.bestTimeToVisit.trim(),
+
         price: {
           type: (data.price_type || "mixed") as "free" | "paid" | "mixed",
           text: data.price.trim(),
           source: data.price_source.trim(),
         },
+
         facilities: data.facilities,
         highlights: data.highlights,
         tips: data.tips,
+
         accessibility: {
           wheelchairAccessible: !!data.accessibility_wheelchair,
           difficultyLevel: data.accessibility_difficulty.trim(),
         },
+
         itinerary: data.itinerary
           .map((it) => ({
             time: (it.time || "").trim(),
@@ -675,27 +674,30 @@ export default function SightseeingPlaceUpsertMobile() {
             description: (it.description || "").trim(),
           }))
           .filter((it) => it.time || it.title || it.description),
+
         nearbyPlaces: data.nearbyPlaces
           .map((it) => ({
             name: (it.name || "").trim(),
             distance: (it.distance || "").trim(),
           }))
           .filter((it) => it.name || it.distance),
+
+        // ✅ TinyMCE HTML for answers too
         llm_chips: llmChips
-          .map((c, idx) => {
-            const editor = llmChipEditors[idx] || EditorState.createEmpty();
-            const content = editor.getCurrentContent();
-            const hasText = content.hasText();
-            const rawHtml = stateToHTML(content);
-            const html = hasText ? sanitizeHtml(rawHtml) : "";
-            return {
-              q: (c.q || "").trim(),
-              a: html.trim(),
-            };
-          })
+          .map((c) => ({ q: (c.q || "").trim(), a: (c.a || "").trim() }))
           .filter((c) => c.q || c.a),
+
+        // ✅ keep existing segregated urls in payload; new files sent in FormData below
+        segregated_images: segregatedGroups
+          .map((g) => ({
+            category: g.category.trim(),
+            urls: g.existingImages,
+          }))
+          .filter((g) => g.category || (g.urls?.length || 0) > 0),
+
         rating: data.rating ? Number(data.rating) : undefined,
         reviewCount: data.reviewCount ? Number(data.reviewCount) : undefined,
+
         images: data.existingImages || [],
         thumbnail: data.thumbnail || undefined,
       };
@@ -705,24 +707,32 @@ export default function SightseeingPlaceUpsertMobile() {
         "payload",
         JSON.stringify({
           place: cooked,
-          // If you need updatedAt for edit, you can add that here
           createdAt: !isEdit ? new Date().toISOString() : undefined,
+          updatedAt: isEdit ? new Date().toISOString() : undefined,
         })
       );
 
-      for (const item of data.newImages) {
-        fd.append("images", item.file, item.file.name);
-      }
-      if (data.newThumbnail) {
-        fd.append("thumbnail", data.newThumbnail.file, data.newThumbnail.file.name);
-      }
+      // main images
+      for (const item of data.newImages) fd.append("images", item.file, item.file.name);
+
+      // thumbnail
+      if (data.newThumbnail) fd.append("thumbnail", data.newThumbnail.file, data.newThumbnail.file.name);
+
+      // segregated uploads (backend should map index->category using payload.segregated_images[gIdx].category)
+      segregatedGroups.forEach((group, gIdx) => {
+        group.images.forEach((img) => fd.append(`segregated_images_${gIdx}`, img.file, img.file.name));
+      });
 
       const base = process.env.NEXT_PUBLIC_API_BASE;
       const url = isEdit
         ? `${base}sightseeing-places/update/${(sightseeingPlace as SightseeingPlace)._id}`
         : `${base}sightseeing-places/create`;
 
-      const res = await fetch(url, { method: "PATCH", body: fd });
+      const res = await fetch(url, {
+        method: isEdit ? "PATCH" : "POST",
+        body: fd,
+      });
+
       if (!res.ok) {
         const t = await res.text();
         throw new Error(t || "Request failed");
@@ -731,6 +741,7 @@ export default function SightseeingPlaceUpsertMobile() {
       alert(isEdit ? "Place updated successfully! 🎉" : "Place created successfully! 🎉");
       router.push("/dashboard/Sightseeing");
     } catch (err: any) {
+      // eslint-disable-next-line no-console
       console.error(err);
       alert(`An error occurred: ${err?.message || err}`);
     } finally {
@@ -757,14 +768,46 @@ export default function SightseeingPlaceUpsertMobile() {
                 {isEdit ? "Update sightseeing place" : "Create a sightseeing place"}
               </p>
             </div>
+
             <button
               type="button"
-              onClick={() => setData(sightseeingPlace ? sightseeingToUI(sightseeingPlace as SightseeingPlace) : BLANK_PLACE)}
+              onClick={() => {
+                if (submitting) return;
+
+                // revoke previews before reset
+                data.newImages.forEach((i) => i.preview && URL.revokeObjectURL(i.preview));
+                if (data.newThumbnail?.preview) URL.revokeObjectURL(data.newThumbnail.preview);
+                segregatedGroups.forEach((g) => g.images.forEach((img) => img.preview && URL.revokeObjectURL(img.preview)));
+
+                if (sightseeingPlace) {
+                  const p = sightseeingPlace as SightseeingPlace;
+                  setData(sightseeingToUI(p));
+                  setLlmChips(p.llm_chips?.length ? p.llm_chips : [{ q: "", a: "" }]);
+
+                  const seg = p.segregated_images;
+                  if (Array.isArray(seg) && seg.length > 0) {
+                    setSegregatedGroups(
+                      seg.map((g, idx) => ({
+                        id: `seg-${idx}`,
+                        category: (g.category || "").trim(),
+                        existingImages: Array.isArray(g.urls) ? g.urls : [],
+                        images: [],
+                      }))
+                    );
+                  } else {
+                    setSegregatedGroups([{ id: "seg-0", category: "", existingImages: [], images: [] }]);
+                  }
+                } else {
+                  setData(BLANK_PLACE);
+                  setLlmChips([{ q: "", a: "" }]);
+                  setSegregatedGroups([{ id: "seg-0", category: "", existingImages: [], images: [] }]);
+                }
+
+                setStepIndex(0);
+              }}
               disabled={submitting}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${
-                submitting
-                  ? "border-gray-200 text-gray-400"
-                  : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                submitting ? "border-gray-200 text-gray-400" : "border-gray-300 text-gray-700 hover:bg-gray-50"
               }`}
             >
               Reset
@@ -783,13 +826,9 @@ export default function SightseeingPlaceUpsertMobile() {
                   onClick={() => {
                     if (submitting) return;
                     const allPrevValid =
-                      i <= stepIndex
-                        ? true
-                        : STEPS.slice(0, i).every((st) => isStepValid(st.key));
+                      i <= stepIndex ? true : STEPS.slice(0, i).every((st) => isStepValid(st.key));
                     if (allPrevValid) setStepIndex(i);
-                    if (typeof window !== "undefined") {
-                      window.scrollTo({ top: 0, behavior: "smooth" });
-                    }
+                    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs whitespace-nowrap ${
                     active
@@ -800,9 +839,7 @@ export default function SightseeingPlaceUpsertMobile() {
                   }`}
                   disabled={submitting}
                 >
-                  <span className="grid place-items-center">
-                    {done ? <CheckCircle2 className="size-4" /> : s.icon}
-                  </span>
+                  <span className="grid place-items-center">{done ? <CheckCircle2 className="size-4" /> : s.icon}</span>
                   {s.label}
                 </button>
               );
@@ -812,9 +849,7 @@ export default function SightseeingPlaceUpsertMobile() {
           {/* Progress */}
           <div className="mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
             <div
-              className={`h-full transition-all ${
-                submitting ? "bg-emerald-400" : "bg-emerald-600"
-              }`}
+              className={`h-full transition-all ${submitting ? "bg-emerald-400" : "bg-emerald-600"}`}
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -911,9 +946,7 @@ export default function SightseeingPlaceUpsertMobile() {
                         }}
                         disabled={submitting}
                         className={`size-10 grid place-items-center rounded-full text-white transition ${
-                          submitting
-                            ? "bg-red-300 cursor-not-allowed"
-                            : "bg-red-600 hover:bg-red-700 active:bg-red-800"
+                          submitting ? "bg-red-300 cursor-not-allowed" : "bg-red-600 hover:bg-red-700 active:bg-red-800"
                         }`}
                         title="Cancel"
                         aria-label="Cancel add type"
@@ -923,8 +956,7 @@ export default function SightseeingPlaceUpsertMobile() {
                     </div>
                   )}
                   <p className="text-[11px] text-gray-500 mt-2">
-                    Can’t find it? Choose{" "}
-                    <span className="font-medium">“Add a custom type…”</span>
+                    Can’t find it? Choose <span className="font-medium">“Add a custom type…”</span>
                   </p>
                 </Field>
 
@@ -932,9 +964,7 @@ export default function SightseeingPlaceUpsertMobile() {
                   <select
                     className="input"
                     value={data.category}
-                    onChange={(e) =>
-                      setPlace({ category: e.target.value as PlaceCategory | "" })
-                    }
+                    onChange={(e) => setPlace({ category: e.target.value as PlaceCategory | "" })}
                     disabled={submitting}
                   >
                     <option value="">Select category</option>
@@ -961,7 +991,7 @@ export default function SightseeingPlaceUpsertMobile() {
           </SectionCard>
         )}
 
-        {/* LLM CHIPS */}
+        {/* LLM CHIPS (TinyMCE) */}
         {step.key === "llmChips" && (
           <SectionCard
             title="LLM Chips & FAQs"
@@ -970,9 +1000,7 @@ export default function SightseeingPlaceUpsertMobile() {
           >
             <div className="mb-6">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-semibold text-gray-800">
-                  LLM chips
-                </span>
+                <span className="text-sm font-semibold text-gray-800">LLM chips</span>
                 <button
                   type="button"
                   onClick={addLlmChip}
@@ -986,14 +1014,9 @@ export default function SightseeingPlaceUpsertMobile() {
 
               <div className="space-y-3">
                 {llmChips.map((c, i) => (
-                  <div
-                    key={`llm-chip-${i}`}
-                    className="rounded-xl border border-gray-200 p-3"
-                  >
+                  <div key={`llm-chip-${i}`} className="rounded-xl border border-gray-200 p-3">
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs font-semibold text-gray-600">
-                        Chip #{i + 1}
-                      </p>
+                      <p className="text-xs font-semibold text-gray-600">Chip #{i + 1}</p>
                       <button
                         type="button"
                         onClick={() => remLlmChip(i)}
@@ -1004,6 +1027,7 @@ export default function SightseeingPlaceUpsertMobile() {
                         Remove
                       </button>
                     </div>
+
                     <div className="space-y-3">
                       <Field label="Question / Prompt">
                         <input
@@ -1015,34 +1039,15 @@ export default function SightseeingPlaceUpsertMobile() {
                           disabled={submitting}
                         />
                       </Field>
+
                       <Field label="Answer / Response">
-                        <div className="rounded-xl border border-gray-300 bg-white p-2">
-                          <Editor
-                            editorState={
-                              llmChipEditors[i] || EditorState.createEmpty()
-                            }
-                            onEditorStateChange={(next) =>
-                              setLlmChipEditors((eds) =>
-                                eds.map((ed, idx) => (idx === i ? next : ed))
-                              )
-                            }
-                            toolbar={{
-                              options: ["inline", "list"],
-                              inline: {
-                                options: [
-                                  "bold",
-                                  "italic",
-                                  "underline",
-                                  "strikethrough",
-                                ],
-                              },
-                              list: { options: ["unordered", "ordered"] },
-                            }}
-                            toolbarClassName="border-b"
-                            wrapperClassName="rounded-xl overflow-hidden"
-                            editorClassName="min-h-[100px] px-3"
-                          />
-                        </div>
+                        <TinyMCETextEditor
+                          value={c.a || ""}
+                          onChange={(html) => setLlmChip(i, { a: html })}
+                          disabled={submitting}
+                          height={160}
+                          placeholder="Write the answer..."
+                        />
                       </Field>
                     </div>
                   </div>
@@ -1103,10 +1108,7 @@ export default function SightseeingPlaceUpsertMobile() {
                   />
                 </Field>
 
-                <Field
-                  label="Hours (note)"
-                  hint='e.g., "Sunday opening at 10:30 AM" (hours.note)'
-                >
+                <Field label="Hours (note)" hint='e.g., "Sunday opening at 10:30 AM" (hours.note)'>
                   <input
                     type="text"
                     className="input"
@@ -1144,17 +1146,12 @@ export default function SightseeingPlaceUpsertMobile() {
                   />
                 </Field>
 
-                <Field
-                  label="Duration (display text)"
-                  hint='duration.text (e.g., "60–90 min")'
-                >
+                <Field label="Duration (display text)" hint='duration.text (e.g., "60–90 min")'>
                   <input
                     type="text"
                     className="input"
                     value={data.estimated_duration}
-                    onChange={(e) =>
-                      setPlace({ estimated_duration: e.target.value })
-                    }
+                    onChange={(e) => setPlace({ estimated_duration: e.target.value })}
                     placeholder="60–90 min"
                     disabled={submitting}
                   />
@@ -1167,9 +1164,7 @@ export default function SightseeingPlaceUpsertMobile() {
                   <div className="relative">
                     <input
                       type="url"
-                      className={`input pr-9 ${
-                        isValidUrl(data.map_url) ? "" : "ring-2 ring-amber-300"
-                      }`}
+                      className={`input pr-9 ${isValidUrl(data.map_url) ? "" : "ring-2 ring-amber-300"}`}
                       value={data.map_url}
                       onChange={(e) => setPlace({ map_url: e.target.value })}
                       placeholder="https://maps.google.com/..."
@@ -1184,9 +1179,7 @@ export default function SightseeingPlaceUpsertMobile() {
                     type="text"
                     className="input"
                     value={data.bestTimeToVisit}
-                    onChange={(e) =>
-                      setPlace({ bestTimeToVisit: e.target.value })
-                    }
+                    onChange={(e) => setPlace({ bestTimeToVisit: e.target.value })}
                     placeholder="e.g., October to March"
                     disabled={submitting}
                   />
@@ -1257,12 +1250,7 @@ export default function SightseeingPlaceUpsertMobile() {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() =>
-                        setPlace({
-                          accessibility_wheelchair:
-                            !data.accessibility_wheelchair,
-                        })
-                      }
+                      onClick={() => setPlace({ accessibility_wheelchair: !data.accessibility_wheelchair })}
                       className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-medium ${
                         data.accessibility_wheelchair
                           ? "border-emerald-500 bg-emerald-50 text-emerald-700"
@@ -1284,16 +1272,11 @@ export default function SightseeingPlaceUpsertMobile() {
                   </div>
                 </Field>
 
-                <Field
-                  label="Difficulty Level"
-                  hint="e.g., easy / medium / hard"
-                >
+                <Field label="Difficulty Level" hint="e.g., easy / medium / hard">
                   <select
                     className="input"
                     value={data.accessibility_difficulty}
-                    onChange={(e) =>
-                      setPlace({ accessibility_difficulty: e.target.value })
-                    }
+                    onChange={(e) => setPlace({ accessibility_difficulty: e.target.value })}
                     disabled={submitting}
                   >
                     <option value="">Select</option>
@@ -1325,9 +1308,7 @@ export default function SightseeingPlaceUpsertMobile() {
                     min="0"
                     className="input"
                     value={data.reviewCount}
-                    onChange={(e) =>
-                      setPlace({ reviewCount: e.target.value })
-                    }
+                    onChange={(e) => setPlace({ reviewCount: e.target.value })}
                     placeholder="e.g., 320"
                     disabled={submitting}
                   />
@@ -1337,7 +1318,7 @@ export default function SightseeingPlaceUpsertMobile() {
           </SectionCard>
         )}
 
-        {/* CONTENT */}
+        {/* CONTENT (TinyMCE for Description) */}
         {step.key === "content" && (
           <SectionCard
             title="Content"
@@ -1346,27 +1327,13 @@ export default function SightseeingPlaceUpsertMobile() {
           >
             <div className="rounded-xl border border-gray-200 p-4 space-y-6">
               <Field label="Description" hint="Rich text supported">
-                <div className="rounded-xl border border-gray-300 bg-white shadow-sm">
-                  <Editor
-                    editorState={editorState}
-                    onEditorStateChange={(next) => {
-                      setEditorState(next);
-                      const html = stateToHTML(next.getCurrentContent());
-                      setPlace({ desc: html });
-                    }}
-                    placeholder="What makes this place special? Atmosphere, history, vibe, etc."
-                    toolbar={{
-                      options: ["inline", "list", "link", "history"],
-                      inline: { options: ["bold", "italic", "underline"] },
-                      list: { options: ["unordered", "ordered"] },
-                      link: { defaultTargetOption: "_blank" },
-                    }}
-                    editorClassName="px-4 py-3 min-h-[140px]"
-                    toolbarClassName="border-b"
-                    wrapperClassName="rounded-xl overflow-hidden"
-                    readOnly={submitting}
-                  />
-                </div>
+                <TinyMCETextEditor
+                  value={data.desc || ""}
+                  onChange={(html) => setPlace({ desc: html })}
+                  disabled={submitting}
+                  height={240}
+                  placeholder="What makes this place special? Atmosphere, history, vibe, etc."
+                />
               </Field>
 
               <Field label="History" hint="Shown as a short history paragraph">
@@ -1400,9 +1367,7 @@ export default function SightseeingPlaceUpsertMobile() {
                     type="text"
                     className="input"
                     value={data.price_source}
-                    onChange={(e) =>
-                      setPlace({ price_source: e.target.value })
-                    }
+                    onChange={(e) => setPlace({ price_source: e.target.value })}
                     placeholder="e.g., Goa Tourism / Ticket counter"
                     disabled={submitting}
                   />
@@ -1413,9 +1378,7 @@ export default function SightseeingPlaceUpsertMobile() {
                 <select
                   className="input"
                   value={data.price_type}
-                  onChange={(e) =>
-                    setPlace({ price_type: e.target.value as PriceType })
-                  }
+                  onChange={(e) => setPlace({ price_type: e.target.value as PriceType })}
                   disabled={submitting}
                 >
                   <option value="">Select type</option>
@@ -1428,9 +1391,7 @@ export default function SightseeingPlaceUpsertMobile() {
               {/* Itinerary */}
               <div className="border-t border-gray-100 pt-4">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold text-gray-900">
-                    Itinerary
-                  </h3>
+                  <h3 className="text-sm font-semibold text-gray-900">Itinerary</h3>
                   <button
                     type="button"
                     onClick={addItineraryItem}
@@ -1441,16 +1402,12 @@ export default function SightseeingPlaceUpsertMobile() {
                     Add step
                   </button>
                 </div>
+
                 <div className="space-y-3">
                   {data.itinerary.map((it, idx) => (
-                    <div
-                      key={idx}
-                      className="rounded-xl border border-gray-200 p-3"
-                    >
+                    <div key={idx} className="rounded-xl border border-gray-200 p-3">
                       <div className="flex items-center justify-between mb-2">
-                        <p className="text-xs font-semibold text-gray-600">
-                          Step #{idx + 1}
-                        </p>
+                        <p className="text-xs font-semibold text-gray-600">Step #{idx + 1}</p>
                         <button
                           type="button"
                           onClick={() => removeItineraryItem(idx)}
@@ -1461,46 +1418,37 @@ export default function SightseeingPlaceUpsertMobile() {
                           Remove
                         </button>
                       </div>
+
                       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                         <Field label="Time" className="sm:col-span-1">
                           <input
                             type="text"
                             className="input"
                             value={it.time}
-                            onChange={(e) =>
-                              updateItineraryItem(idx, {
-                                time: e.target.value,
-                              })
-                            }
+                            onChange={(e) => updateItineraryItem(idx, { time: e.target.value })}
                             placeholder="7:00 AM"
                             disabled={submitting}
                           />
                         </Field>
+
                         <Field label="Title" className="sm:col-span-3">
                           <input
                             type="text"
                             className="input"
                             value={it.title}
-                            onChange={(e) =>
-                              updateItineraryItem(idx, {
-                                title: e.target.value,
-                              })
-                            }
+                            onChange={(e) => updateItineraryItem(idx, { title: e.target.value })}
                             placeholder="Pickup from Hotel"
                             disabled={submitting}
                           />
                         </Field>
                       </div>
+
                       <div className="mt-2 grid grid-cols-1 sm:grid-cols-4 gap-3">
                         <Field label="Description" className="sm:col-span-3">
                           <textarea
                             className="textarea w-full"
                             value={it.description}
-                            onChange={(e) =>
-                              updateItineraryItem(idx, {
-                                description: e.target.value,
-                              })
-                            }
+                            onChange={(e) => updateItineraryItem(idx, { description: e.target.value })}
                             placeholder="Guests are picked up from hotels near Calangute, Baga, Candolim."
                             disabled={submitting}
                           />
@@ -1514,9 +1462,7 @@ export default function SightseeingPlaceUpsertMobile() {
               {/* Nearby places */}
               <div className="border-t border-gray-100 pt-4">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold text-gray-900">
-                    Near by Places
-                  </h3>
+                  <h3 className="text-sm font-semibold text-gray-900">Near by Places</h3>
                   <button
                     type="button"
                     onClick={addnearbyplacesItem}
@@ -1527,16 +1473,12 @@ export default function SightseeingPlaceUpsertMobile() {
                     Add step
                   </button>
                 </div>
+
                 <div className="space-y-3">
                   {data.nearbyPlaces.map((it, idx) => (
-                    <div
-                      key={idx}
-                      className="rounded-xl border border-gray-200 p-3"
-                    >
+                    <div key={idx} className="rounded-xl border border-gray-200 p-3">
                       <div className="flex items-center justify-between mb-2">
-                        <p className="text-xs font-semibold text-gray-600">
-                          Step #{idx + 1}
-                        </p>
+                        <p className="text-xs font-semibold text-gray-600">Step #{idx + 1}</p>
                         <button
                           type="button"
                           onClick={() => removenearbyplacesItem(idx)}
@@ -1547,17 +1489,14 @@ export default function SightseeingPlaceUpsertMobile() {
                           Remove
                         </button>
                       </div>
+
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <Field label="Name">
                           <input
                             type="text"
                             className="input"
                             value={it.name}
-                            onChange={(e) =>
-                              updatenearbyplacesItem(idx, {
-                                name: e.target.value,
-                              })
-                            }
+                            onChange={(e) => updatenearbyplacesItem(idx, { name: e.target.value })}
                             placeholder="Place name"
                             disabled={submitting}
                           />
@@ -1568,11 +1507,7 @@ export default function SightseeingPlaceUpsertMobile() {
                             type="text"
                             className="input"
                             value={it.distance}
-                            onChange={(e) =>
-                              updatenearbyplacesItem(idx, {
-                                distance: e.target.value,
-                              })
-                            }
+                            onChange={(e) => updatenearbyplacesItem(idx, { distance: e.target.value })}
                             placeholder="Distance"
                             disabled={submitting}
                           />
@@ -1626,9 +1561,7 @@ export default function SightseeingPlaceUpsertMobile() {
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 sm:p-4">
               {/* Thumbnail */}
               <div className="mb-4">
-                <h4 className="text-xs font-semibold text-emerald-900 mb-2">
-                  Thumbnail / Cover Image
-                </h4>
+                <h4 className="text-xs font-semibold text-emerald-900 mb-2">Thumbnail / Cover Image</h4>
                 <div className="flex flex-wrap items-center gap-3">
                   {data.newThumbnail?.preview || data.thumbnail ? (
                     <div className="relative w-32 h-32 rounded-xl overflow-hidden border-2 border-emerald-400 bg-white">
@@ -1653,12 +1586,8 @@ export default function SightseeingPlaceUpsertMobile() {
                     <label className="w-32 h-32">
                       <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-emerald-300 rounded-xl cursor-pointer hover:border-emerald-500 transition-colors bg-white hover:bg-emerald-50">
                         <ImageIcon className="size-6 text-emerald-500" />
-                        <p className="mt-1 text-xs font-medium text-emerald-900 text-center">
-                          Upload Thumbnail
-                        </p>
-                        <p className="text-[10px] text-emerald-800/70 text-center">
-                          Recommended 4:3 or 16:9
-                        </p>
+                        <p className="mt-1 text-xs font-medium text-emerald-900 text-center">Upload Thumbnail</p>
+                        <p className="text-[10px] text-emerald-800/70 text-center">Recommended 4:3 or 16:9</p>
                       </div>
                       <input
                         ref={thumbnailInputRef}
@@ -1672,17 +1601,14 @@ export default function SightseeingPlaceUpsertMobile() {
                   )}
 
                   <p className="text-[11px] text-emerald-900/80 max-w-xs">
-                    This image will be used as the main cover photo for the place
-                    (card, listing, etc.).
+                    This image will be used as the main cover photo for the place (card, listing, etc.).
                   </p>
                 </div>
               </div>
 
               {(data.existingImages?.length || 0) > 0 && (
                 <>
-                  <h4 className="text-xs font-semibold text-emerald-900 mb-2">
-                    Existing
-                  </h4>
+                  <h4 className="text-xs font-semibold text-emerald-900 mb-2">Existing</h4>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-4">
                     {data.existingImages!.map((url, i) => (
                       <div
@@ -1690,11 +1616,7 @@ export default function SightseeingPlaceUpsertMobile() {
                         className="relative aspect-square rounded-xl overflow-hidden border-2 border-emerald-300 bg-white"
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={url}
-                          alt={`Image ${i + 1}`}
-                          className="w-full h-full object-cover"
-                        />
+                        <img src={url} alt={`Image ${i + 1}`} className="w-full h-full object-cover" />
                         <button
                           type="button"
                           onClick={() => removeExistingImage(i)}
@@ -1711,21 +1633,12 @@ export default function SightseeingPlaceUpsertMobile() {
                 </>
               )}
 
-              <h4 className="text-xs font-semibold text-emerald-900 mb-2">
-                New Uploads
-              </h4>
+              <h4 className="text-xs font-semibold text-emerald-900 mb-2">New Uploads</h4>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {data.newImages.map((img, i) => (
-                  <div
-                    key={i}
-                    className="relative aspect-square rounded-xl overflow-hidden border-2 border-emerald-400 bg-white"
-                  >
+                  <div key={i} className="relative aspect-square rounded-xl overflow-hidden border-2 border-emerald-400 bg-white">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={img.preview}
-                      alt={`New ${i + 1}`}
-                      className="w-full h-full object-cover"
-                    />
+                    <img src={img.preview} alt={`New ${i + 1}`} className="w-full h-full object-cover" />
                     <button
                       type="button"
                       onClick={() => removeNewImage(i)}
@@ -1743,12 +1656,8 @@ export default function SightseeingPlaceUpsertMobile() {
                 <label className="block aspect-square">
                   <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-emerald-300 rounded-xl cursor-pointer hover:border-emerald-500 transition-colors bg-white hover:bg-emerald-50">
                     <Plus className="size-6 text-emerald-500" />
-                    <p className="mt-1 text-sm font-medium text-emerald-900">
-                      Add Images
-                    </p>
-                    <p className="text-[11px] text-emerald-800/70">
-                      JPG/PNG/WebP
-                    </p>
+                    <p className="mt-1 text-sm font-medium text-emerald-900">Add Images</p>
+                    <p className="text-[11px] text-emerald-800/70">JPG/PNG/WebP</p>
                   </div>
                   <input
                     ref={imagesInputRef}
@@ -1764,22 +1673,144 @@ export default function SightseeingPlaceUpsertMobile() {
             </div>
           </SectionCard>
         )}
+
+        {/* SEGREGATED MEDIA */}
+        {step.key === "segregatedMedia" && (
+          <SectionCard
+            title="Segregated Images"
+            subtitle="Group images by category (e.g., Nature, Waterfall, Guest Images)."
+            icon={<ImageIcon className="size-5 text-blue-600" />}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-900">Categories & Images</h3>
+              <button
+                type="button"
+                onClick={addSegGroup}
+                disabled={submitting}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+              >
+                <Plus className="size-3.5" />
+                Add Category
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {segregatedGroups.map((group, idx) => (
+                <div key={group.id} className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-semibold text-gray-700">Category #{idx + 1}</p>
+                    <button
+                      type="button"
+                      onClick={() => removeSegGroup(group.id)}
+                      disabled={submitting}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                    >
+                      <X className="size-3.5" />
+                      Remove
+                    </button>
+                  </div>
+
+                  <Field label="Category name" required>
+                    <input
+                      type="text"
+                      className="input"
+                      value={group.category}
+                      onChange={(e) => updateSegGroupCategory(group.id, e.target.value)}
+                      placeholder="e.g., nature, waterfall, guest_images"
+                      disabled={submitting}
+                    />
+                  </Field>
+
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold text-gray-700 mb-1.5">
+                      Images ({group.existingImages.length + group.images.length})
+                    </p>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                      {/* Existing URLs */}
+                      {group.existingImages.map((url) => (
+                        <div
+                          key={url}
+                          className="relative aspect-square rounded-xl overflow-hidden border border-gray-300 bg-gray-50 shadow-sm"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={url} alt="Existing" className="w-full h-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => removeExistingSegImage(group.id, url)}
+                            className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                            title="Remove image"
+                            aria-label="Remove image"
+                            disabled={submitting}
+                          >
+                            <X className="size-4" strokeWidth={3} />
+                          </button>
+                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                            <p className="text-white text-[10px] font-medium">EXISTING</p>
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Newly uploaded files */}
+                      {group.images.map((img, imgIdx) => (
+                        <div
+                          key={img.preview}
+                          className="relative aspect-square rounded-xl overflow-hidden border-2 border-dashed border-blue-400 bg-blue-50"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={img.preview}
+                            alt={`Segregated ${idx + 1}-${imgIdx + 1}`}
+                            className="w-full h-full object-cover opacity-80"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeSegImage(group.id, imgIdx)}
+                            className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                            title="Remove image"
+                            aria-label="Remove image"
+                            disabled={submitting}
+                          >
+                            <X className="size-4" strokeWidth={3} />
+                          </button>
+                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                            <p className="text-white text-[10px] font-medium truncate">NEW</p>
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* uploader */}
+                      <label className="block aspect-square">
+                        <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-gray-50">
+                          <ImageIcon className="size-6 text-gray-400" />
+                          <p className="mt-1 text-sm font-medium text-gray-700">Add Image</p>
+                        </div>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => handleSegImagesUpload(group.id, e)}
+                          disabled={submitting}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+        )}
       </main>
 
       {/* Sticky step navigation */}
-      <div className="fixed inset-x-0 bottom-0 z-40 bg-gray-50/95 backdrop-blur safe-bottom pt-2">
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 z-40 w-full max-w-4xl bg-gray-50/95 backdrop-blur safe-bottom pt-2">
         <div className="mx-auto max-w-3xl px-4 sm:px-6 pb-2">
           <div className="rounded-2xl border border-gray-200 bg-white shadow-xl shadow-gray-900/5">
             <div className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
               <span className="inline-flex items-center gap-2 text-xs text-gray-600 bg-gray-100 rounded-full px-3 py-1.5 font-semibold self-start sm:self-auto">
-                <span
-                  className={`size-2 rounded-full ${
-                    isStepValid(step.key) ? "bg-green-500" : "bg-amber-500"
-                  }`}
-                />
-                {isStepValid(step.key)
-                  ? "Looks good"
-                  : "Complete required fields"}
+                <span className={`size-2 rounded-full ${isStepValid(step.key) ? "bg-green-500" : "bg-amber-500"}`} />
+                {isStepValid(step.key) ? "Looks good" : "Complete required fields"}
               </span>
 
               <div className="flex w-full sm:w-auto gap-2 sm:ml-auto">
@@ -1788,9 +1819,7 @@ export default function SightseeingPlaceUpsertMobile() {
                   onClick={goBack}
                   disabled={stepIndex === 0 || submitting}
                   className={`flex-1 sm:flex-none px-4 py-3 text-sm font-medium rounded-xl border ${
-                    stepIndex === 0 || submitting
-                      ? "border-gray-200 text-gray-400"
-                      : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                    stepIndex === 0 || submitting ? "border-gray-200 text-gray-400" : "border-gray-300 text-gray-700 hover:bg-gray-50"
                   }`}
                 >
                   Back
@@ -1811,19 +1840,8 @@ export default function SightseeingPlaceUpsertMobile() {
                     "Continue"
                   ) : (
                     <span className="inline-flex items-center gap-2">
-                      {submitting && (
-                        <Loader2
-                          className="size-4 animate-spin"
-                          aria-hidden="true"
-                        />
-                      )}
-                      {submitting
-                        ? isEdit
-                          ? "Updating..."
-                          : "Creating..."
-                        : isEdit
-                        ? "Update Place"
-                        : "Create Place"}
+                      {submitting && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+                      {submitting ? (isEdit ? "Updating..." : "Creating...") : isEdit ? "Update Place" : "Create Place"}
                     </span>
                   )}
                 </button>
@@ -1885,21 +1903,13 @@ function SectionCard({
       <div className="bg-white rounded-xl border border-gray-200 shadow-md overflow-visible">
         <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="size-8 grid place-items-center bg-emerald-50 rounded-lg">
-              {icon}
-            </div>
+            <div className="size-8 grid place-items-center bg-emerald-50 rounded-lg">{icon}</div>
             <div>
               <h2 className="text-base font-bold text-gray-900">{title}</h2>
-              {subtitle && (
-                <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
-              )}
+              {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
             </div>
           </div>
-          {requiredHint && (
-            <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">
-              * Required
-            </span>
-          )}
+          {requiredHint && <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">* Required</span>}
         </div>
         <div className="p-4 sm:p-5">{children}</div>
       </div>
@@ -1994,6 +2004,7 @@ function TagsInput({
           Add
         </button>
       </div>
+
       {items.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
           {items.map((tag, idx) => (

@@ -34,7 +34,12 @@ interface Fuel {
   type?: string | null;
   status?: string | null;
 }
-
+interface SegregatedImageGroup {
+  id: string;
+  category: string;
+  existingImages: string[]; // URLs from backend
+  images: ImageFile[];      // newly uploaded files
+}
 /* Multi-surge (UI row) */
 type SurgeMode = "single" | "range";
 interface SurgeItem {
@@ -134,6 +139,7 @@ const STEPS = [
   { key: "specs", label: "Specs", icon: <Gauge className="size-4" /> },
   { key: "locs", label: "Locations", icon: <MapPin className="size-4" /> },
   { key: "images", label: "Images", icon: <ImageIcon className="size-4" /> },
+   { key: "segregatedMedia", label: "Segregated Images", icon: <ImageIcon className="size-4" /> },
 ] as const;
 
 type StepKey = (typeof STEPS)[number]["key"];
@@ -200,6 +206,88 @@ export default function EditRentalFormMobile() {
   // dynamic lists for pickup & drop
   const [pickupList, setPickupList] = useState<string[]>([""]);
   const [dropList, setDropList] = useState<string[]>([""]);
+
+
+    // segregated images (category-wise)
+  
+      const [segregatedGroups, setSegregatedGroups] = useState<SegregatedImageGroup[]>([
+    { id: "seg-0", category: "", existingImages: [], images: [] },
+  ]);
+  
+    
+    const addSegGroup = () => {
+    setSegregatedGroups((prev) => [
+      ...prev,
+      {
+        id: `seg-${prev.length}`,
+        category: "",
+        existingImages: [],
+        images: [],
+      },
+    ]);
+  };
+  
+  const removeSegGroup = (id: string) => {
+    setSegregatedGroups((prev) => {
+      const toRemove = prev.find((g) => g.id === id);
+      toRemove?.images.forEach((img) => URL.revokeObjectURL(img.preview));
+  
+      const next = prev.filter((g) => g.id !== id);
+      return next.length
+        ? next
+        : [{ id: "seg-0", category: "", existingImages: [], images: [] }];
+    });
+  };
+  
+    
+      const updateSegGroupCategory = (id: string, category: string) => {
+        setSegregatedGroups((prev) =>
+          prev.map((g) => (g.id === id ? { ...g, category } : g))
+        );
+      };
+    
+      const handleSegImagesUpload = (
+        id: string,
+        e: React.ChangeEvent<HTMLInputElement>
+      ) => {
+        const files = e.target.files ? Array.from(e.target.files) : [];
+        if (!files.length) return;
+        const mapped: ImageFile[] = files.map((file) => ({
+          file,
+          preview: URL.createObjectURL(file),
+        }));
+        setSegregatedGroups((prev) =>
+          prev.map((g) =>
+            g.id === id ? { ...g, images: [...g.images, ...mapped] } : g
+          )
+        );
+        e.target.value = "";
+      };
+    
+      const removeSegImage = (groupId: string, idx: number) => {
+        setSegregatedGroups((prev) =>
+          prev.map((g) => {
+            if (g.id !== groupId) return g;
+            const img = g.images[idx];
+            if (img?.preview) URL.revokeObjectURL(img.preview);
+            return {
+              ...g,
+              images: g.images.filter((_, i) => i !== idx),
+            };
+          })
+        );
+      };
+  
+      const removeExistingSegImage = (groupId: string, url: string) => {
+    setSegregatedGroups((prev) =>
+      prev.map((g) =>
+        g.id === groupId
+          ? { ...g, existingImages: g.existingImages.filter((u) => u !== url) }
+          : g
+      )
+    );
+  };
+  
 
   /* ---------- Hydrate from store ---------- */
   useEffect(() => {
@@ -318,6 +406,30 @@ export default function EditRentalFormMobile() {
     setExistingImageUrls(hydrated.images || []);
     setExistingThumbnailUrl(hydrated.thumbnailUrl || null);
     setRemovedImageUrls([]);
+
+     const rawSeg =
+    Array.isArray(vehicle.segregated_images)
+      ? vehicle.segregated_images
+      : Array.isArray((vehicle as any).segregatedImages)
+      ? (vehicle as any).segregatedImages
+      : [];
+
+  if (rawSeg.length > 0) {
+    const segGroups: SegregatedImageGroup[] = rawSeg.map(
+      (g: any, idx: number): SegregatedImageGroup => ({
+        id: `seg-${idx}`,
+        category: g?.category || "",
+        existingImages: Array.isArray(g?.urls) ? g.urls : [],
+        images: [], // no local uploads initially
+      })
+    );
+    setSegregatedGroups(segGroups);
+  } else {
+    // fallback: at least one empty group so UI doesn't look empty
+    setSegregatedGroups([
+      { id: "seg-0", category: "", existingImages: [], images: [] },
+    ]);
+  }
   }, [vehicle]);
 
   /* ---------- Updaters ---------- */
@@ -560,6 +672,14 @@ export default function EditRentalFormMobile() {
 
         // NEW payloads
         surgeCharges: cleanedSurges,
+         segregated_images: segregatedGroups
+  .map((g) => ({
+    category: g.category.trim(),
+    // match DB shape: { category, urls: string[] }
+    urls: g.existingImages,
+    // later you can also append uploaded files here once backend supports it
+  }))
+  .filter((g) => g.category || g.urls.length > 0),
       };
 
       // keep price books
@@ -579,7 +699,12 @@ export default function EditRentalFormMobile() {
       submitFormData.append("images_removed", JSON.stringify(removedImageUrls));
 
       newImages.forEach((img) => submitFormData.append("images", img.file));
-
+    segregatedGroups.forEach((group, gIdx) => {
+        group.images.forEach((img) => {
+          // backend can use field name + index to know which category it belongs to
+          submitFormData.append(`segregated_images_${gIdx}`, img.file);
+        });
+      });
       if (newThumbnail?.file) {
         submitFormData.append("thumbnail", newThumbnail.file);
       }
@@ -1433,6 +1558,139 @@ export default function EditRentalFormMobile() {
             )}
           </SectionCard>
         )}
+          {step.key === "segregatedMedia" && (
+                          <SectionCard
+                            title="Segregated Images"
+                            subtitle="Group images by category (e.g., Nature, Waterfall, Guest Images)."
+                            icon={<ImageIcon className="size-5 text-blue-600" />}
+                          >
+                            <div className="flex items-center justify-between mb-3">
+                              <h3 className="text-sm font-semibold text-gray-900">
+                                Categories & Images
+                              </h3>
+                              <button
+                                type="button"
+                                onClick={addSegGroup}
+                                disabled={submitting}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                              >
+                                <Plus className="size-3.5" />
+                                Add Category
+                              </button>
+                            </div>
+                
+                            <div className="space-y-4">
+                              {segregatedGroups.map((group, idx) => (
+                                <div
+                                  key={group.id}
+                                  className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4"
+                                >
+                                  <div className="flex items-center justify-between mb-3">
+                                    <p className="text-xs font-semibold text-gray-700">
+                                      Category #{idx + 1}
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeSegGroup(group.id)}
+                                      disabled={submitting}
+                                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                                    >
+                                      <X className="size-3.5" />
+                                      Remove
+                                    </button>
+                                  </div>
+                
+                                  <Field label="Category name" required>
+                                    <input
+                                      type="text"
+                                      className="input"
+                                      value={group.category}
+                                      onChange={(e) =>
+                                        updateSegGroupCategory(group.id, e.target.value)
+                                      }
+                                      placeholder="e.g., nature, waterfall, guest_images"
+                                      disabled={submitting}
+                                    />
+                                  </Field>
+                
+                                 <div className="mt-3">
+          <p className="text-xs font-semibold text-gray-700 mb-1.5">
+            Images ({group.existingImages.length + group.images.length})
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {/* Existing URLs from backend */}
+            {group.existingImages.map((url) => (
+              <div
+                key={url}
+                className="relative aspect-square rounded-xl overflow-hidden border border-gray-300 bg-gray-50 shadow-sm"
+              >
+                <img src={url} alt="Existing" className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => removeExistingSegImage(group.id, url)}
+                  className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                  title="Remove image"
+                  aria-label="Remove image"
+                  disabled={submitting}
+                >
+                  <X className="size-4" strokeWidth={3} />
+                </button>
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                  <p className="text-white text-[10px] font-medium">EXISTING</p>
+                </div>
+              </div>
+            ))}
+        
+            {/* Newly uploaded (local) files */}
+            {group.images.map((img, imgIdx) => (
+              <div
+                key={img.preview}
+                className="relative aspect-square rounded-xl overflow-hidden border-2 border-dashed border-blue-400 bg-blue-50"
+              >
+                <img
+                  src={img.preview}
+                  alt={`Segregated ${idx + 1}-${imgIdx + 1}`}
+                  className="w-full h-full object-cover opacity-80"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeSegImage(group.id, imgIdx)}
+                  className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                  title="Remove image"
+                  aria-label="Remove image"
+                  disabled={submitting}
+                >
+                  <X className="size-4" strokeWidth={3} />
+                </button>
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                  <p className="text-white text-[10px] font-medium truncate">NEW</p>
+                </div>
+              </div>
+            ))}
+        
+            {/* Uploader */}
+            <label className="block aspect-square">
+              <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-gray-50">
+                <ImageIcon className="size-6 text-gray-400" />
+                <p className="mt-1 text-sm font-medium text-gray-700">Add Image</p>
+              </div>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => handleSegImagesUpload(group.id, e)}
+                disabled={submitting}
+              />
+            </label>
+          </div>
+        </div>
+        
+                                </div>
+                              ))}
+                            </div>
+                          </SectionCard>
+                        )}
       </main>
 
       {/* Sticky step navigation */}
