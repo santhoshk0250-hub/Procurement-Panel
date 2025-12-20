@@ -22,6 +22,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const isPublic = useMemo(() => PUBLIC_ROUTES.includes(pathname ?? ""), [pathname]);
 
   useEffect(() => {
+    // Only check auth once on mount, not on every pathname change
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     const hasToken = !!token;
 
@@ -30,11 +31,24 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     if (!hasToken && !isPublic) {
       router.replace("/login");
     } else if (hasToken && isPublic) {
-      router.replace("/dashboard/calendar"); // adjust target if needed
+      router.replace("/dashboard/calendar");
     }
 
     setReady(true);
-  }, [router, isPublic, pathname]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run on mount
+
+  // Separate effect for pathname changes (only redirect if needed)
+  useEffect(() => {
+    if (!ready) return;
+    
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const hasToken = !!token;
+
+    if (!hasToken && !isPublic) {
+      router.replace("/login");
+    }
+  }, [pathname, isPublic, ready, router]);
 
   // While deciding/redirecting, avoid UI flicker
   if (!ready) {
@@ -60,12 +74,12 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
       {/* Content wrapper:
           - No left margin on mobile (so no white space)
-          - Reserve 16rem only ≥ md */}
-      <div className="md:ml-64 transition-[margin]">
+          - Reserve 260px only ≥ md */}
+      <div className="md:ml-[260px] transition-[margin]">
         <Topbar />
 
         {/* Page content */}
-        <main className="px-3 sm:px-4 py-6">
+        <main className="px-2 sm:px-4 md:px-6 py-3 sm:py-6">
           {children}
         </main>
       </div>

@@ -131,7 +131,14 @@ const CalendarDetails: React.FC = () => {
   );
 
   return (
-    <Box sx={{ p: 3, backgroundColor: "white", minHeight: "70vh" }}>
+    <Box sx={{ 
+      p: { xs: 2, sm: 3 }, 
+      backgroundColor: "white", 
+      minHeight: "70vh",
+      maxWidth: { xs: "100%", sm: "100%", md: "1400px" },
+      mx: "auto",
+      width: "100%"
+    }}>
       {/* Top bar */}
       <Box
         sx={{
@@ -139,8 +146,8 @@ const CalendarDetails: React.FC = () => {
           flexDirection: { xs: "column", sm: "row" },
           justifyContent: "space-between",
           alignItems: { xs: "stretch", sm: "center" },
-          gap: 2,
-          mb: 3,
+          gap: { xs: 1.5, sm: 2 },
+          mb: { xs: 2, sm: 3 },
         }}
       >
         <TextField
@@ -151,19 +158,31 @@ const CalendarDetails: React.FC = () => {
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
-                <Search />
+                <Search sx={{ fontSize: { xs: 20, sm: 24 } }} />
               </InputAdornment>
             ),
           }}
-          sx={{ width: { xs: "100%", sm: "300px" } }}
+          sx={{ 
+            width: { xs: "100%", sm: "300px" },
+            "& .MuiOutlinedInput-root": {
+              fontSize: { xs: "14px", sm: "16px" },
+              height: { xs: "40px", sm: "40px" }
+            }
+          }}
         />
 
-        <Link href="/dashboard/calendar/Addhotel">
+        <Link href="/dashboard/calendar/Addhotel" style={{ width: "100%", display: "block" }}>
           <Button
             fullWidth={true}
-            sx={{ width: { xs: "100%", sm: "auto" } }}
+            sx={{ 
+              width: { xs: "100%", sm: "auto" },
+              minHeight: { xs: "44px", sm: "40px" },
+              fontSize: { xs: "14px", sm: "16px" },
+              px: { xs: 2, sm: 3 },
+              py: { xs: 1.25, sm: 1 }
+            }}
             variant="contained"
-            startIcon={<PlaylistAddRounded />}
+            startIcon={<PlaylistAddRounded sx={{ fontSize: { xs: 18, sm: 20 } }} />}
           >
             Add Hotel
           </Button>
@@ -178,19 +197,39 @@ const CalendarDetails: React.FC = () => {
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            height: "50vh",
+            height: { xs: "40vh", sm: "50vh" },
             gap: 2,
+            py: { xs: 4, sm: 6 }
           }}
         >
-          <CircularProgress size={50} />
-          <Typography variant="h6" color="text.secondary">
-            <Flight sx={{ mr: 1, verticalAlign: "middle" }} />
+          <CircularProgress size={40} sx={{ display: { xs: "block", sm: "none" } }} />
+          <CircularProgress size={50} sx={{ display: { xs: "none", sm: "block" } }} />
+          <Typography 
+            variant="h6" 
+            color="text.secondary"
+            sx={{ 
+              fontSize: { xs: "14px", sm: "16px" },
+              textAlign: "center",
+              px: 2
+            }}
+          >
+            <Flight sx={{ mr: 1, verticalAlign: "middle", fontSize: { xs: 18, sm: 24 } }} />
             Finding the best hotels for your journey...
           </Typography>
         </Box>
       ) : (
         <>
-          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+          <Box sx={{ 
+            display: "grid",
+            gridTemplateColumns: { 
+              xs: "1fr", 
+              sm: "repeat(2, 1fr)", 
+              md: "repeat(3, 1fr)",
+              lg: "repeat(4, 1fr)"
+            },
+            gap: { xs: 2, sm: 2.5, md: 3 },
+            width: "100%"
+          }}>
             {filteredHotels.map((hotel) => {
               const mainImage =
                 hotel.media_gallery?.room?.[0] ||
@@ -198,48 +237,133 @@ const CalendarDetails: React.FC = () => {
                 "https://picsum.photos/200";
 
               return (
-                <Card key={hotel._id} sx={{ width: 300 }}>
-                  <Box sx={{ position: "relative" }}>
+                <Card 
+                  key={hotel._id} 
+                  sx={{ 
+                    width: "100%",
+                    display: "flex",
+                    flexDirection: "column",
+                    borderRadius: { xs: 2, sm: 2 },
+                    boxShadow: { xs: "0 2px 8px rgba(0,0,0,0.1)", sm: 2 },
+                    overflow: "hidden",
+                    transition: "transform 0.2s, box-shadow 0.2s",
+                    "&:hover": {
+                      transform: { xs: "none", sm: "translateY(-2px)" },
+                      boxShadow: { xs: "0 2px 8px rgba(0,0,0,0.1)", sm: 4 }
+                    }
+                  }}
+                >
+                  <Box sx={{ 
+                    width: "100%", 
+                    height: { xs: 180, sm: 200, md: 220 },
+                    overflow: "hidden",
+                    flexShrink: 0,
+                    backgroundColor: "#f5f5f5"
+                  }}>
                     <CardMedia
                       component="img"
-                      height="140"
                       image={mainImage}
                       alt={hotel.property_name}
                       sx={{
-                        objectFit: "cover",
                         width: "100%",
-                        height: 140,
-                        borderRadius: 1,
+                        height: "100%",
+                        objectFit: "cover",
+                        display: "block"
                       }}
                     />
                   </Box>
 
-                  <CardContent>
-                    <Typography variant="h6">{hotel.property_name}</Typography>
-                    <Typography variant="body2" color="text.secondary">
+                  <CardContent sx={{ 
+                    p: { xs: 2, sm: 2.5 },
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    backgroundColor: "white",
+                    minHeight: 0,
+                    overflow: "visible"
+                  }}>
+                    <Typography 
+                      variant="h6" 
+                      sx={{ 
+                        fontSize: { xs: "16px", sm: "18px" },
+                        fontWeight: 600,
+                        mb: 0.5,
+                        lineHeight: 1.3,
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden"
+                      }}
+                    >
+                      {hotel.property_name}
+                    </Typography>
+                    <Typography 
+                      variant="body2" 
+                      color="text.secondary"
+                      sx={{ 
+                        fontSize: { xs: "12px", sm: "14px" },
+                        mb: 0.5
+                      }}
+                    >
                       {hotel?.chain_brand} • {hotel?.star_category}⭐
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography 
+                      variant="body2" 
+                      color="text.secondary"
+                      sx={{ 
+                        fontSize: { xs: "12px", sm: "14px" },
+                        mb: 1
+                      }}
+                    >
                       {hotel?.location?.city}, {hotel?.location?.country}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" mt={1}>
+                    <Typography 
+                      variant="body2" 
+                      color="text.secondary"
+                      sx={{ 
+                        fontSize: { xs: "12px", sm: "14px" },
+                        mb: 1.5
+                      }}
+                    >
                       Rooms: {hotel?.rooms?.length} | Bed:{" "}
                       {hotel?.rooms[0]?.bed_type || "-"} | Price:{" "}
                       {hotel.rooms[0]?.pricing?.currency}{" "}
-                      {hotel.rooms[0]?.pricing?.hotel_bf_price}
+                      {hotel.rooms[0]?.pricing?.hotel_bf_price || 0}
                     </Typography>
-                    <CardActions sx={{ justifyContent: "space-between", px: 2, pb: 2, pt: 0.5 }}>
-                      <Stack direction="row" spacing={1}>
+                    <CardActions sx={{ 
+                      justifyContent: "space-between", 
+                      px: 0, 
+                      pb: 0, 
+                      pt: 0,
+                      mt: "auto"
+                    }}>
+                      <Stack direction="row" spacing={1} sx={{ width: "100%" }}>
                         <Button
                           key="edit"
                           component={Link as any}
                           href={`/dashboard/calendar/Edithotel`}
                           onClick={() => handleEdit(hotel)}
                           size="small"
+                          sx={{
+                            flex: 1,
+                            fontSize: { xs: "13px", sm: "14px" },
+                            py: { xs: 1, sm: 0.75 },
+                            minHeight: { xs: "40px", sm: "36px" }
+                          }}
                         >
                           Edit
                         </Button>
-                        <Button color="error" size="small" onClick={handleDelete}>
+                        <Button 
+                          color="error" 
+                          size="small" 
+                          onClick={handleDelete}
+                          sx={{
+                            flex: 1,
+                            fontSize: { xs: "13px", sm: "14px" },
+                            py: { xs: 1, sm: 0.75 },
+                            minHeight: { xs: "40px", sm: "36px" }
+                          }}
+                        >
                           Delete
                         </Button>
                       </Stack>
@@ -251,12 +375,25 @@ const CalendarDetails: React.FC = () => {
           </Box>
 
           {/* Pagination */}
-          <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
+          <Box sx={{ 
+            display: "flex", 
+            justifyContent: "center", 
+            mt: { xs: 3, sm: 4 },
+            mb: { xs: 2, sm: 0 }
+          }}>
             <Pagination
               count={totalPages}
               page={page}
               onChange={(e, value) => setPage(value)}
               color="primary"
+              size="small"
+              sx={{
+                "& .MuiPaginationItem-root": {
+                  fontSize: { xs: "13px", sm: "14px" },
+                  minWidth: { xs: "32px", sm: "40px" },
+                  height: { xs: "32px", sm: "40px" }
+                }
+              }}
             />
           </Box>
         </>

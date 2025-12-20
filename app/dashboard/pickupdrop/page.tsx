@@ -829,14 +829,14 @@ export default function EditTransferRouteMobile() {
     <form className="min-h-screen bg-gray-50" onSubmit={handleSubmit}>
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-gray-200">
-        <div className="px-4 py-3 sm:px-6 max-w-3xl mx-auto">
+        <div className="px-2 py-2 sm:px-6 sm:py-3 w-full sm:max-w-3xl sm:mx-auto">
           {/* Top row: avatar/title/stepper actions */}
           <div className="flex items-center gap-3">
             <div className="flex-1 min-w-0">
-              <h1 className="text-base font-semibold text-gray-900 truncate">
+              <h1 className="text-sm sm:text-base font-semibold text-gray-900 truncate">
                 Edit Transfer Route — {titlePickup} → {titleDrop}
               </h1>
-              <p className="text-[11px] text-gray-500 truncate">
+              <p className="text-[10px] sm:text-[11px] text-gray-500 truncate">
                 Update pickup/drop, vehicles, images, surge,
               </p>
 
@@ -850,10 +850,11 @@ export default function EditTransferRouteMobile() {
                 aria-label="Add services"
                 sx={{
                   display: { xs: "flex", sm: "none" },
-                  mt: 1.5,
+                  mt: 1,
                   borderRadius: 2,
                   textTransform: "none",
-                  py: 1.25,
+                  py: 1,
+                  fontSize: "0.75rem",
                 }}
               >
                 Add Services
@@ -884,7 +885,7 @@ export default function EditTransferRouteMobile() {
           </div>
 
           {/* Stepper */}
-          <div className="mt-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
+          <div className="mt-2 sm:mt-3 flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar">
             {STEPS.map((r, i) => {
               const active = i === stepIndex;
               const done = i < stepIndex;
@@ -895,7 +896,7 @@ export default function EditTransferRouteMobile() {
                   key={r.key}
                   type="button"
                   onClick={() => canJump && setStepIndex(i)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs whitespace-nowrap ${
+                  className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border text-xs whitespace-nowrap ${
                     active
                       ? "bg-blue-50 border-blue-500 text-blue-700"
                       : done
@@ -914,7 +915,7 @@ export default function EditTransferRouteMobile() {
           </div>
 
           {/* Progress */}
-          <div className="mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+          <div className="mt-2 sm:mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
             <div
               className={`h-full transition-all ${
                 submitting ? "bg-blue-400" : "bg-blue-600"
@@ -926,7 +927,7 @@ export default function EditTransferRouteMobile() {
       </header>
 
       {/* Content */}
-    <main className="max-w-3xl mx-auto p-4 sm:p-6 pb-36 lg:pb-64">
+    <main className="w-full sm:max-w-3xl sm:mx-auto p-2 sm:p-6 pb-36 lg:pb-64">
         {/* ROUTE + STEPS */}
         {step.key === "route" && (
           <>
@@ -936,28 +937,28 @@ export default function EditTransferRouteMobile() {
               icon={<MapPin className="size-5 text-blue-600" />}
               requiredHint
             >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-5">
                 {/* PICKUPS */}
                 <div className="rounded-xl border border-gray-200">
-                  <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-                    <p className="text-sm font-semibold text-gray-800 inline-flex items-center gap-2">
-                      <MapPin className="size-4 text-blue-600" /> Pickups
+                  <div className="px-2 py-1.5 sm:px-3 sm:py-2 border-b border-gray-100 flex items-center justify-between">
+                    <p className="text-xs sm:text-sm font-semibold text-gray-800 inline-flex items-center gap-1.5 sm:gap-2">
+                      <MapPin className="size-3.5 sm:size-4 text-blue-600" /> Pickups
                     </p>
 
                     <button
                       type="button"
                       onClick={addPickup}
                       disabled={submitting}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                      className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1 sm:py-1.5 text-[10px] sm:text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
                     >
                       <Plus className="size-3.5" />
                       Add pickup
                     </button>
                   </div>
 
-                  <div className="p-3 space-y-2">
+                  <div className="p-2 sm:p-3 space-y-1.5 sm:space-y-2">
                     {data.pickups.map((val, i) => (
-                      <div key={`pickup-${i}`} className="grid grid-cols-12 gap-2 items-end">
+                      <div key={`pickup-${i}`} className="grid grid-cols-12 gap-1.5 sm:gap-2 items-end">
                         <div className="col-span-9">
                           <Field
                             label={i === 0 ? "Pickup Location *" : "Pickup Location"}
@@ -1002,24 +1003,24 @@ export default function EditTransferRouteMobile() {
 
                 {/* DROPS */}
                 <div className="rounded-xl border border-gray-200">
-                  <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-                    <p className="text-sm font-semibold text-gray-800 inline-flex items-center gap-2">
-                      <Route className="size-4 text-emerald-600" /> Drops
+                  <div className="px-2 py-1.5 sm:px-3 sm:py-2 border-b border-gray-100 flex items-center justify-between">
+                    <p className="text-xs sm:text-sm font-semibold text-gray-800 inline-flex items-center gap-1.5 sm:gap-2">
+                      <Route className="size-3.5 sm:size-4 text-emerald-600" /> Drops
                     </p>
                     <button
                       type="button"
                       onClick={addDrop}
                       disabled={submitting}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
+                      className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1 sm:py-1.5 text-[10px] sm:text-xs font-semibold rounded-lg border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
                     >
                       <Plus className="size-3.5" />
                       Add drop
                     </button>
                   </div>
 
-                  <div className="p-3 space-y-2">
+                  <div className="p-2 sm:p-3 space-y-1.5 sm:space-y-2">
                     {data.drops.map((val, i) => (
-                      <div key={`drop-${i}`} className="grid grid-cols-12 gap-2 items-end">
+                      <div key={`drop-${i}`} className="grid grid-cols-12 gap-1.5 sm:gap-2 items-end">
                         <div className="col-span-9">
                           <Field
                             label={i === 0 ? "Drop Location *" : "Drop Location"}
@@ -1063,7 +1064,7 @@ export default function EditTransferRouteMobile() {
                 </div>
               </div>
 
-              <div className="mt-3 text-xs text-gray-500 flex items-center gap-2">
+              <div className="mt-2 sm:mt-3 text-xs text-gray-500 flex items-center gap-1.5 sm:gap-2">
                 <InfoIcon className="size-3.5" />
                 Pickups and drops are edited independently. On save, they’re flattened into{" "}
                 <code>pickups[]</code> and <code>drops[]</code>.
@@ -1082,7 +1083,7 @@ export default function EditTransferRouteMobile() {
             icon={<Truck className="size-5 text-blue-600" />}
             requiredHint
           >
-            <div className="space-y-6">
+            <div className="space-y-4 sm:space-y-6">
               {data.vehicleOptions.map((v, idx) => {
                 const setType = (vehicleType: VehicleType) => {
                   const choices = VEHICLE_TYPE_TO_MAX_PAX[vehicleType] || [];
@@ -1094,8 +1095,8 @@ export default function EditTransferRouteMobile() {
                   v.editorState ?? createEditorStateFromHTML(v.description || "");
 
                 return (
-                  <div key={idx} className="rounded-xl border border-gray-200 p-4">
-                    <div className="flex items-center justify-between mb-3">
+                  <div key={idx} className="rounded-xl border border-gray-200 p-2 sm:p-4">
+                    <div className="flex items-center justify-between mb-2 sm:mb-3">
                       <p className="text-sm font-semibold text-gray-800">
                         Option #{idx + 1}
                       </p>
@@ -1110,7 +1111,7 @@ export default function EditTransferRouteMobile() {
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                       <Field label="Vehicle Name">
                         <input
                           type="text"
@@ -1473,8 +1474,8 @@ export default function EditTransferRouteMobile() {
                     </div>
 
                     {/* Night Charges */}
-                    <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/40 p-3 sm:p-4">
-                      <div className="flex items-center justify-between gap-3 mb-2">
+                    <div className="mt-3 sm:mt-4 rounded-lg border border-blue-200 bg-blue-50/40 p-2 sm:p-4">
+                      <div className="flex items-center justify-between gap-2 sm:gap-3 mb-2">
                         <p className="text-sm font-semibold text-blue-900 inline-flex items-center gap-2">
                           <SunMoon className="size-4" /> Night Charges
                         </p>
@@ -1498,7 +1499,7 @@ export default function EditTransferRouteMobile() {
                       </div>
 
                       {v.nightCharge?.enabled && (
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                           <Field label="Amount">
                             <input
                               type="number"
@@ -1602,10 +1603,10 @@ export default function EditTransferRouteMobile() {
             subtitle="Manage galleries per vehicle option. No thumbnail."
             icon={<ImageIcon className="size-5 text-blue-600" />}
           >
-            <div className="space-y-6">
+            <div className="space-y-4 sm:space-y-6">
               {data.vehicleOptions.map((v, idx) => (
-                <div key={`images-${idx}`} className="rounded-xl border border-gray-200 p-4">
-                  <div className="flex items-center justify-between gap-3 mb-2">
+                <div key={`images-${idx}`} className="rounded-xl border border-gray-200 p-2 sm:p-4">
+                  <div className="flex items-center justify-between gap-2 sm:gap-3 mb-2">
                     <p className="text-sm font-semibold text-gray-900">
                       Vehicle Option #{idx + 1} {v.vehiclename ? `— ${v.vehiclename}` : ""}
                     </p>
@@ -1625,7 +1626,7 @@ export default function EditTransferRouteMobile() {
                     </label>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
                     {(v.imagesExisting || []).map((url, i) => (
                       <div
                         key={`ex-${idx}-${i}-${url}`}
@@ -1706,11 +1707,11 @@ export default function EditTransferRouteMobile() {
       </main>
 
       {/* Sticky Footer */}
-      <div className="fixed inset-x-0 bottom-0 z-40 bg-gray-50/95 backdrop-blur safe-bottom pt-2">
-        <div className="mx-auto max-w-3xl px-4 sm:px-6 pb-2">
+      <div className="fixed inset-x-0 bottom-0 z-40 bg-gray-50/95 backdrop-blur safe-bottom pt-1 sm:pt-2">
+        <div className="mx-auto w-full sm:max-w-3xl px-2 sm:px-6 pb-1 sm:pb-2">
           <div className="rounded-2xl border border-gray-200 bg-white shadow-xl shadow-gray-900/5">
-            <div className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-              <span className="inline-flex items-center gap-2 text-xs text-gray-600 bg-gray-100 rounded-full px-3 py-1.5 font-semibold self-start sm:self-auto">
+            <div className="p-2 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+              <span className="inline-flex items-center gap-1.5 sm:gap-2 text-xs text-gray-600 bg-gray-100 rounded-full px-2 sm:px-3 py-1 sm:py-1.5 font-semibold self-start sm:self-auto">
                 <span
                   className={`size-2 rounded-full ${
                     isStepValid(step.key) ? "bg-green-500" : "bg-amber-500"
@@ -1719,12 +1720,12 @@ export default function EditTransferRouteMobile() {
                 {isStepValid(step.key) ? "Looks good" : "Complete required fields"}
               </span>
 
-              <div className="flex w-full sm:w-auto gap-2 sm:ml-auto">
+              <div className="flex w-full sm:w-auto gap-1.5 sm:gap-2 sm:ml-auto">
                 <button
                   type="button"
                   onClick={goBack}
                   disabled={stepIndex === 0 || submitting}
-                  className={`flex-1 sm:flex-none px-4 py-3 text-sm font-medium rounded-xl border ${
+                  className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 sm:py-3 text-sm font-medium rounded-xl border ${
                     stepIndex === 0 || submitting
                       ? "border-gray-200 text-gray-400"
                       : "border-gray-300 text-gray-700 hover:bg-gray-50"
@@ -1737,7 +1738,7 @@ export default function EditTransferRouteMobile() {
                   type="button"
                   onClick={goNext}
                   disabled={!canGoNext || submitting}
-                  className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
+                  className={`flex-1 sm:flex-none px-3 sm:px-5 py-2 sm:py-3 text-sm font-semibold rounded-xl text-white ${
                     !canGoNext || submitting
                       ? "bg-blue-300 cursor-not-allowed"
                       : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
@@ -1822,17 +1823,17 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="mt-6 first:mt-0">
+    <section className="mt-3 sm:mt-6 first:mt-0">
       <div className="bg-white rounded-xl border border-gray-200 shadow-md overflow-visible">
-        <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="size-8 grid place-items-center bg-blue-50 rounded-lg">
+        <div className="px-2 py-2 sm:px-5 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="size-7 sm:size-8 grid place-items-center bg-blue-50 rounded-lg">
               {icon}
             </div>
             <div>
-              <h2 className="text-base font-bold text-gray-900">{title}</h2>
+              <h2 className="text-sm sm:text-base font-bold text-gray-900">{title}</h2>
               {subtitle && (
-                <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
+                <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5">{subtitle}</p>
               )}
             </div>
           </div>
@@ -1842,7 +1843,7 @@ function SectionCard({
             </span>
           )}
         </div>
-        <div className="p-4 sm:p-5">{children}</div>
+        <div className="p-2 sm:p-5">{children}</div>
       </div>
     </section>
   );
@@ -1864,10 +1865,10 @@ function Field({
   return (
     <label className={`block ${className}`}>
       <div className="flex items-center justify-between">
-        <span className="block text-sm font-medium text-gray-700 mb-1">
+        <span className="block text-sm font-medium text-gray-700 mb-0.5 sm:mb-1">
           {label} {required && <span className="text-red-600">*</span>}
         </span>
-        {hint && <span className="text-[11px] text-gray-500">{hint}</span>}
+        {hint && <span className="text-[10px] sm:text-[11px] text-gray-500">{hint}</span>}
       </div>
       {children}
     </label>
@@ -1909,10 +1910,10 @@ function SurgeChargesSection({
       subtitle="Choose Single/Range and set a surge price for each window."
       icon={<Calendar className="size-5 text-blue-600" />}
     >
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {data.vehicleOptions.map((v, idx) => (
-          <div key={idx} className="rounded-xl border border-gray-200 p-4">
-            <div className="flex items-center justify-between mb-3">
+          <div key={idx} className="rounded-xl border border-gray-200 p-2 sm:p-4">
+            <div className="flex items-center justify-between mb-2 sm:mb-3">
               <p className="text-sm font-semibold text-gray-800">
                 Vehicle Option #{idx + 1}
               </p>
@@ -1931,9 +1932,9 @@ function SurgeChargesSection({
               <p className="text-xs text-gray-500">No surge windows yet.</p>
             )}
 
-            <div className="space-y-3">
+            <div className="space-y-2 sm:space-y-3">
               {(v.surgeCharges || []).map((b, i) => (
-                <div key={i} className="rounded-lg border border-gray-200 p-3">
+                <div key={i} className="rounded-lg border border-gray-200 p-2 sm:p-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-semibold text-gray-700">
                       Surge #{i + 1}
@@ -1974,7 +1975,7 @@ function SurgeChargesSection({
                     </label>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
                     {b.mode === "single" ? (
                       <Field label="Date">
                         <input

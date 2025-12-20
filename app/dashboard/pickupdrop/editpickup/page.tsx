@@ -608,21 +608,23 @@ export default function EditTransferRouteMobile() {
 
   /* ============ Render ============ */
   return (
-    <form className="min-h-screen bg-gray-50" onSubmit={handleSubmit}>
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-gray-200">
-        <div className="px-4 py-3 sm:px-6 max-w-3xl mx-auto">
-          <div className="flex items-center gap-3">
-            <div className="size-9 rounded-lg bg-blue-600 text-white grid place-items-center text-sm font-bold shadow">
-              {titlePickup[0]?.toUpperCase() || "R"}
-            </div>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-base font-semibold text-gray-900 truncate">
-                Edit Transfer Route — {titlePickup} → {titleDrop}
-              </h1>
-              <p className="text-[11px] text-gray-500 truncate">
-                Update pickup/drop, vehicles, surge, media, policies & FAQs
-              </p>
+    <div className="flex min-h-screen bg-gray-100 px-0 sm:px-4 md:px-4">
+      <div className="w-full max-w-6xl ml-auto rounded-none sm:rounded-2xl bg-white p-0 sm:p-6 md:p-8 shadow-none sm:shadow-lg min-h-screen sm:min-h-0">
+        <form className="bg-white rounded-none sm:rounded-2xl shadow-none sm:shadow-md space-y-2 sm:space-y-6" onSubmit={handleSubmit}>
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-4 mb-2 sm:mb-6 px-3 sm:px-0 pt-3 sm:pt-0">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="size-9 rounded-lg bg-blue-600 text-white grid place-items-center text-sm font-bold shadow flex-shrink-0">
+                {titlePickup[0]?.toUpperCase() || "R"}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 truncate">
+                  Edit Transfer Route — {titlePickup} → {titleDrop}
+                </h1>
+                <p className="text-xs text-gray-500 truncate hidden sm:block">
+                  Update pickup/drop, vehicles, surge, media, policies & FAQs
+                </p>
+              </div>
             </div>
 
             <div className="hidden sm:flex items-center gap-2">
@@ -647,7 +649,7 @@ export default function EditTransferRouteMobile() {
           </div>
 
           {/* Stepper */}
-          <div className="mt-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
+          <div className="mt-2 sm:mt-4 flex items-center gap-2 overflow-x-auto no-scrollbar px-3 sm:px-0">
             {STEPS.map((r, i) => {
               const active = i === stepIndex;
               const done = i < stepIndex;
@@ -676,17 +678,16 @@ export default function EditTransferRouteMobile() {
           </div>
 
           {/* Progress */}
-          <div className="mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+          <div className="mt-2 sm:mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden px-3 sm:px-0">
             <div
               className={`h-full transition-all ${submitting ? "bg-blue-400" : "bg-blue-600"}`}
               style={{ width: `${progress}%` }}
             />
           </div>
         </div>
-      </header>
 
-      {/* Content */}
-      <main className="max-w-3xl mx-auto p-4 sm:p-6 pb-36">
+        {/* Content */}
+        <main className="pb-2 sm:pb-6 px-3 sm:px-0">
         {/* ROUTE */}
         {step.key === "route" && (
           <SectionCard
@@ -695,8 +696,8 @@ export default function EditTransferRouteMobile() {
             icon={<MapPin className="size-5 text-blue-600" />}
             requiredHint
           >
-            <div className="space-y-3">
-              <div className="space-y-2">
+            <div className="space-y-2 sm:space-y-3">
+              <div className="space-y-1.5 sm:space-y-2">
                 {data.routePairs.map((row, i) => (
                   <div
                     key={i}
@@ -1256,10 +1257,8 @@ export default function EditTransferRouteMobile() {
         )}
       </main>
 
-      {/* Sticky Footer */}
-      <div className="fixed inset-x-0 bottom-0 z-40 bg-gray-50/95 backdrop-blur safe-bottom pt-2">
-        <div className="mx-auto max-w-3xl px-4 sm:px-6 pb-2">
-          <div className="rounded-2xl border border-gray-200 bg-white shadow-xl shadow-gray-900/5">
+          {/* Sticky Footer */}
+          <div className="sticky bottom-0 z-40 mt-2 sm:mt-6 bg-white rounded-none sm:rounded-xl border-t sm:border border-gray-200 shadow-lg mx-0 sm:mx-0">
             <div className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
               <span className="inline-flex items-center gap-2 text-xs text-gray-600 bg-gray-100 rounded-full px-3 py-1.5 font-semibold self-start sm:self-auto">
                 <span
@@ -1275,10 +1274,10 @@ export default function EditTransferRouteMobile() {
                   type="button"
                   onClick={goBack}
                   disabled={stepIndex === 0 || submitting}
-                  className={`flex-1 sm:flex-none px-4 py-3 text-sm font-medium rounded-xl border ${
+                  className={`flex-1 sm:flex-none px-4 py-3 text-sm font-medium rounded-xl border touch-manipulation ${
                     stepIndex === 0 || submitting
                       ? "border-gray-200 text-gray-400"
-                      : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                      : "border-gray-300 text-gray-700 hover:bg-gray-50 active:bg-gray-100"
                   }`}
                 >
                   Back
@@ -1288,7 +1287,7 @@ export default function EditTransferRouteMobile() {
                   type="button"
                   onClick={goNext}
                   disabled={!canGoNext || submitting}
-                  className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
+                  className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white touch-manipulation transition-colors ${
                     !canGoNext || submitting
                       ? "bg-blue-300 cursor-not-allowed"
                       : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
@@ -1307,28 +1306,28 @@ export default function EditTransferRouteMobile() {
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Local styles */}
-      <style jsx>{`
-        .input {
-          @apply w-full h-12 px-4 py-3 rounded-xl border border-gray-300 bg-white
-          shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-          text-[16px] leading-none placeholder:text-gray-400 transition-all;
-          -webkit-tap-highlight-color: transparent;
-        }
-        .textarea {
-          @apply w-full min-h-[112px] px-4 py-3 rounded-xl border border-gray-300 bg-white
-          shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-          text-[16px] placeholder:text-gray-400 transition-all resize-y;
-        }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        .safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem); }
-        .suffix { position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:12px; color:#6b7280; }
-      `}</style>
-    </form>
+          {/* Local styles */}
+          <style jsx>{`
+            .input {
+              @apply w-full h-12 px-4 py-3 rounded-xl border border-gray-300 bg-white
+              shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+              text-base leading-none placeholder:text-gray-400 transition-all touch-manipulation;
+              -webkit-tap-highlight-color: transparent;
+            }
+            .textarea {
+              @apply w-full min-h-[112px] px-4 py-3 rounded-xl border border-gray-300 bg-white
+              shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+              text-base placeholder:text-gray-400 transition-all resize-y touch-manipulation;
+            }
+            .no-scrollbar::-webkit-scrollbar { display: none; }
+            .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+            .safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem); }
+            .suffix { position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:12px; color:#6b7280; }
+          `}</style>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -1347,21 +1346,21 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="mt-6 first:mt-0">
-      <div className="bg-white rounded-xl border border-gray-200 shadow-md overflow-visible">
-        <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="size-8 grid place-items-center bg-blue-50 rounded-lg">{icon}</div>
-            <div>
-              <h2 className="text-base font-bold text-gray-900">{title}</h2>
-              {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+    <section className="mt-2 sm:mt-6 first:mt-0">
+      <div className="bg-white rounded-none sm:rounded-xl border border-gray-200 shadow-md overflow-visible">
+        <div className="px-3 py-2 sm:px-5 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="size-6 sm:size-8 grid place-items-center bg-blue-50 rounded-lg flex-shrink-0">{icon}</div>
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-base font-bold text-gray-900">{title}</h2>
+              {subtitle && <p className="text-xs text-gray-500 mt-0.5 hidden sm:block">{subtitle}</p>}
             </div>
           </div>
           {requiredHint && (
-            <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">* Required</span>
+            <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap flex-shrink-0">* Required</span>
           )}
         </div>
-        <div className="p-4 sm:p-5">{children}</div>
+        <div className="p-2 sm:p-5">{children}</div>
       </div>
     </section>
   );

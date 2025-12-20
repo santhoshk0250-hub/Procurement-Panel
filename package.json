@@ -30,6 +30,7 @@
     "draft-js-export-html": "^1.4.1",
     "formik": "^2.4.6",
     "framer-motion": "^12.23.12",
+    "immutable": "^5.1.4",
     "lucide-react": "^0.468.0",
     "next": "15.5.2",
     "next-auth": "^4.24.11",

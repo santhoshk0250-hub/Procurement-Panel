@@ -394,42 +394,44 @@ export default function EditCouponFormMobile() {
   };
 
   return (
-    <form
-      ref={formRef}
-      className={`min-h-screen bg-gray-50 ${isSubmitting ? "cursor-wait" : ""}`}
-      onSubmit={handleSubmit}
-      // Prevent Enter from submitting unless on the last tab
-      onKeyDown={(e) => {
-        if (e.key === "Enter" && activeTab !== "images") {
-          e.preventDefault();
-        }
-      }}
-    >
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-gray-200 px-4 py-3 sm:px-6">
-        <div className="max-w-3xl mx-auto flex items-center gap-3">
-          <div className="size-9 rounded-xl bg-blue-600 text-white grid place-items-center text-sm font-semibold shadow-sm">
-            E{coupon.seq}
+    <div className="flex min-h-screen items-center justify-center bg-gray-100 px-0 sm:px-4 md:px-4">
+      <div className="w-full max-w-6xl ml-auto rounded-none sm:rounded-2xl bg-white p-4 sm:p-6 md:p-8 shadow-none sm:shadow-lg min-h-screen sm:min-h-0">
+        <form
+          ref={formRef}
+          className={`bg-white rounded-none sm:rounded-2xl shadow-none sm:shadow-md space-y-4 sm:space-y-6 ${isSubmitting ? "cursor-wait" : ""}`}
+          onSubmit={handleSubmit}
+          // Prevent Enter from submitting unless on the last tab
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && activeTab !== "images") {
+              e.preventDefault();
+            }
+          }}
+        >
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-4 mb-3 sm:mb-6">
+            <div className="flex items-center gap-3">
+              <div className="size-9 rounded-xl bg-blue-600 text-white grid place-items-center text-sm font-semibold shadow-sm">
+                E{coupon.seq}
+              </div>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 leading-tight">
+                  Edit Coupon: {coupon.coupon_code}
+                </h1>
+                <p className="text-xs text-gray-500 hidden sm:block">ID: {coupon._id.substring(0, 8)}... | Mobile-first</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={resetForm}
+              disabled={isSubmitting}
+              className="px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 active:scale-[.99] disabled:opacity-60 touch-manipulation"
+              aria-label="Reset form to original data"
+            >
+              Reset
+            </button>
           </div>
-          <div className="flex-1">
-            <h1 className="text-base font-semibold text-gray-900 leading-tight">
-              Edit Coupon: {coupon.coupon_code}
-            </h1>
-            <p className="text-xs text-gray-500">ID: {coupon._id.substring(0, 8)}... | Mobile-first</p>
-          </div>
-          <button
-            type="button"
-            onClick={resetForm}
-            disabled={isSubmitting}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 active:scale-[.99] disabled:opacity-60"
-            aria-label="Reset form to original data"
-          >
-            Reset
-          </button>
-        </div>
-      </header>
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 pb-28">
+          <main className="pb-4 sm:pb-6">
         {/* Tabs */}
         <div role="tablist" aria-label="Edit coupon sections" className="flex gap-3 mt-4">
           <TabPill label="Basics" isActive={activeTab === "basics"} onClick={() => setActiveTab("basics")} disabled={isSubmitting}/>
@@ -757,10 +759,10 @@ export default function EditCouponFormMobile() {
             </div>
           </SectionCard>
         )}
-      </main>
+          </main>
 
-      {/* Sticky action bar */}
-      <div className="fixed inset-x-0 bottom-0 z-40">
+          {/* Sticky action bar */}
+          <div className="sticky bottom-0 z-40 mt-4 sm:mt-6">
         <div className="mx-auto max-w-3xl px-4 sm:px-6 pb-4">
           <div className="rounded-2xl border border-gray-200 bg-white shadow-xl shadow-gray-900/5">
             <div className="p-3 sm:p-4 flex flex-col sm:flex-row gap-2 sm:gap-3 sm:items-center sm:justify-between">
@@ -839,7 +841,9 @@ export default function EditCouponFormMobile() {
           @apply w-full px-3 py-2 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-[15px];
         }
       `}</style>
-    </form>
+        </form>
+      </div>
+    </div>
   );
 }
 

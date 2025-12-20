@@ -100,3 +100,241 @@ input[type="date"]::-moz-calendar-picker-indicator {
 .scrollbar-hide::-webkit-scrollbar { 
   display: none;  /* Safari and Chrome */
 }
+
+/* Mobile optimizations */
+@media (max-width: 640px) {
+  /* Better touch targets for mobile */
+  button, a, input, select, textarea {
+    min-height: 44px; /* iOS recommended touch target size */
+  }
+  
+  /* Prevent text size adjustment on iOS */
+  input, select, textarea, button {
+    font-size: 16px !important;
+  }
+  
+  /* Better scrolling on mobile */
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Touch manipulation for better mobile performance */
+.touch-manipulation {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent zoom on input focus (iOS Safari) */
+@media screen and (max-width: 640px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="search"],
+  input[type="date"],
+  input[type="file"],
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* Better file input styling for mobile */
+input[type="file"] {
+  cursor: pointer;
+}
+
+input[type="file"]::-webkit-file-upload-button {
+  padding: 8px 16px;
+  margin-right: 12px;
+  border: none;
+  border-radius: 6px;
+  background-color: #eff6ff;
+  color: #1e40af;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+input[type="file"]::-webkit-file-upload-button:hover {
+  background-color: #dbeafe;
+}
+
+/* Better select styling for mobile */
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23374151' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+  padding-right: 36px;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+/* Better focus states for mobile */
+@media (max-width: 640px) {
+  input:focus,
+  textarea:focus,
+  select:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+  }
+}
+
+/* Better button spacing on mobile */
+@media (max-width: 640px) {
+  button {
+    min-height: 44px;
+    padding: 12px 16px;
+  }
+  
+  /* Compact spacing for mobile */
+  .space-y-3 > * + * {
+    margin-top: 0.5rem;
+  }
+  
+  .space-y-4 > * + * {
+    margin-top: 0.75rem;
+  }
+  
+  /* Reduce section padding on mobile */
+  section {
+    padding: 0.75rem;
+  }
+  
+  /* Optimize form spacing */
+  form > * + * {
+    margin-top: 0.75rem;
+  }
+  
+  /* Better use of viewport */
+  body {
+    overflow-x: hidden;
+  }
+  
+  /* Compact card spacing */
+  .bg-white.rounded-lg {
+    margin-bottom: 0.75rem;
+  }
+  
+  /* Full-screen editing mode */
+  body.editing-mode {
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+  }
+}
+
+/* Full-screen form container */
+@media (max-width: 768px) {
+  .full-screen-edit {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: white;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .full-screen-edit header {
+    flex-shrink: 0;
+  }
+  
+  .full-screen-edit .scrollable-content {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Remove unnecessary padding on mobile forms */
+  form {
+    padding: 0 !important;
+  }
+  
+  /* Full width containers on mobile */
+  .max-w-6xl,
+  .max-w-7xl {
+    max-width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  
+  /* Remove rounded corners on mobile for full-page feel */
+  .rounded-2xl,
+  .rounded-xl {
+    border-radius: 0 !important;
+  }
+  
+  /* Full width cards on mobile */
+  .bg-white.rounded-lg,
+  .bg-white.rounded-2xl {
+    border-radius: 0 !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  
+  /* Ensure form inputs use full width */
+  input[type="text"],
+  input[type="email"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="date"],
+  input[type="time"],
+  textarea,
+  select {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  
+  /* Remove side padding from containers on mobile */
+  .px-4,
+  .px-6,
+  .px-8 {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+  
+  /* MUI Card optimizations for mobile */
+  .MuiCard-root {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  
+  /* MUI TextField optimizations */
+  .MuiTextField-root {
+    width: 100% !important;
+  }
+  
+  /* MUI Button optimizations */
+  .MuiButton-root {
+    min-height: 44px !important;
+    font-size: 14px !important;
+  }
+  
+  /* Grid container optimizations */
+  .MuiGrid-container {
+    margin: 0 !important;
+    width: 100% !important;
+  }
+  
+  /* Better scroll behavior */
+  html {
+    scroll-padding-bottom: 100px;
+  }
+  
+  /* Full width images on mobile */
+  img {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  
+  /* Better card image aspect ratio */
+  .MuiCardMedia-root {
+    width: 100% !important;
+    object-fit: cover !important;
+  }
+}

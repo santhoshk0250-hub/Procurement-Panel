@@ -258,49 +258,51 @@ export default function CouponFormMobile() {
 
   // ------- UI -------
   return (
-    <form
-      className="min-h-screen bg-gray-50"
-      onSubmit={handleSubmit}
-      aria-busy={isSubmitting}
-      onKeyDown={(e) => {
-        // Prevent Enter from submitting until Images tab
-        if (e.key === "Enter" && activeTab !== "Images") e.preventDefault();
-      }}
-    >
-      {/* Loading overlay */}
-      {isSubmitting && (
-        <div className="fixed inset-0 z-[60] bg-white/70 backdrop-blur-sm grid place-items-center">
-          <div className="flex items-center gap-3 px-4 py-2 rounded-xl border bg-white shadow">
-            <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <circle cx="12" cy="12" r="10" strokeWidth="2" opacity="0.25" />
-              <path d="M22 12a10 10 0 0 1-10 10" strokeWidth="2" />
-            </svg>
-            <span className="text-sm text-gray-700 font-medium">Creating coupon…</span>
-          </div>
-        </div>
-      )}
+    <div className="flex min-h-screen items-center justify-center bg-gray-100 px-0 sm:px-4 md:px-4">
+      <div className="w-full max-w-6xl ml-auto rounded-none sm:rounded-2xl bg-white p-4 sm:p-6 md:p-8 shadow-none sm:shadow-lg min-h-screen sm:min-h-0">
+        <form
+          className="bg-white rounded-none sm:rounded-2xl shadow-none sm:shadow-md space-y-4 sm:space-y-6"
+          onSubmit={handleSubmit}
+          aria-busy={isSubmitting}
+          onKeyDown={(e) => {
+            // Prevent Enter from submitting until Images tab
+            if (e.key === "Enter" && activeTab !== "Images") e.preventDefault();
+          }}
+        >
+          {/* Loading overlay */}
+          {isSubmitting && (
+            <div className="fixed inset-0 z-[60] bg-white/70 backdrop-blur-sm grid place-items-center">
+              <div className="flex items-center gap-3 px-4 py-2 rounded-xl border bg-white shadow">
+                <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <circle cx="12" cy="12" r="10" strokeWidth="2" opacity="0.25" />
+                  <path d="M22 12a10 10 0 0 1-10 10" strokeWidth="2" />
+                </svg>
+                <span className="text-sm text-gray-700 font-medium">Creating coupon…</span>
+              </div>
+            </div>
+          )}
 
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-gray-200 px-4 py-3 sm:px-6">
-        <div className="max-w-3xl mx-auto flex items-center gap-3">
-          <div className="size-9 rounded-xl bg-blue-600 text-white grid place-items-center text-sm font-semibold shadow-sm">CF</div>
-          <div className="flex-1">
-            <h1 className="text-base font-semibold text-gray-900 leading-tight">Add New Coupon</h1>
-            <p className="text-xs text-gray-500">Mobile-first, accessible, and responsive</p>
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-4 mb-3 sm:mb-6">
+            <div className="flex items-center gap-3">
+              <div className="size-9 rounded-xl bg-blue-600 text-white grid place-items-center text-sm font-semibold shadow-sm">CF</div>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 leading-tight">Add New Coupon</h1>
+                <p className="text-xs text-gray-500 hidden sm:block">Mobile-first, accessible, and responsive</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={resetForm}
+              className="px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 active:scale-[.99] touch-manipulation"
+              aria-label="Reset form"
+              disabled={isSubmitting}
+            >
+              Reset
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={resetForm}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 active:scale-[.99]"
-            aria-label="Reset form"
-            disabled={isSubmitting}
-          >
-            Reset
-          </button>
-        </div>
-      </header>
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 pb-28">
+          <main className="pb-4 sm:pb-6">
         {/* Tabs */}
         <div role="tablist" aria-label="Coupon form sections" className="mt-4 grid grid-cols-3 gap-2">
           {tabs.map((t) => (
@@ -737,16 +739,18 @@ export default function CouponFormMobile() {
         </div>
       </div>
 
-      {/* Local styles */}
-      <style jsx>{`
-        .input {
-          @apply w-full px-3 py-2 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-[15px];
-        }
-        .textarea {
-          @apply w-full px-3 py-2 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-[15px];
-        }
-      `}</style>
-    </form>
+          {/* Local styles */}
+          <style jsx>{`
+            .input {
+              @apply w-full px-3 py-2.5 sm:py-2 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base touch-manipulation;
+            }
+            .textarea {
+              @apply w-full px-3 py-2.5 sm:py-2 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base touch-manipulation;
+            }
+          `}</style>
+        </form>
+      </div>
+    </div>
   );
 }
 
