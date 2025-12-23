@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState,useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
@@ -101,7 +101,8 @@ interface TourPackageUI {
   startDate: string; // "YYYY-MM-DD"
   endDate: string;
   services: ServiceUI[];
-
+markup_min_price: number;
+  markup_max_price: number;
 
   itinerary: ItineraryDayUI[];
 
@@ -123,12 +124,13 @@ interface ServiceMetaItem {
   title?: string;
   metaTitle?: string;
   name?: string;
-
+markup_min_price: number;
+  markup_max_price: number;
   banner?: string;
   thumbnail?: string;
   thumbnailUrl?: string;
   images?: string[];
-  
+
 
   destination?: string;
   address?: string;
@@ -303,7 +305,7 @@ function DayTimeSlotPicker({
 
   // ✅ Track which slot is being edited
   const [editIndex, setEditIndex] = React.useState<number | null>(null);
-const [slotError, setSlotError] = React.useState<string>("");
+  const [slotError, setSlotError] = React.useState<string>("");
 
   // Picker state
   const [fromHour, setFromHour] = React.useState<number>(10);
@@ -355,44 +357,44 @@ const [slotError, setSlotError] = React.useState<string>("");
   };
 
   // ---- actions ----
-const addSlot = () => {
-  setSlotError("");
+  const addSlot = () => {
+    setSlotError("");
 
-  const err = hasOverlappingSlot(value, from, to);
-  if (err) {
-    setSlotError(err);
-    return;
-  }
+    const err = hasOverlappingSlot(value, from, to);
+    if (err) {
+      setSlotError(err);
+      return;
+    }
 
-  // if you ALSO want to block exact duplicates (same from-to), keep this:
-  const duplicate = value.some((s) => s.from === from && s.to === to);
-  if (duplicate) {
-    setSlotError("This exact slot already exists.");
-    return;
-  }
+    // if you ALSO want to block exact duplicates (same from-to), keep this:
+    const duplicate = value.some((s) => s.from === from && s.to === to);
+    if (duplicate) {
+      setSlotError("This exact slot already exists.");
+      return;
+    }
 
-  const next = [...value, { id: crypto.randomUUID(), from, to, activities: [] }];
-  onChange(next);
-  onSlotAdded(dayIdx, next.length - 1);
-};
+    const next = [...value, { id: crypto.randomUUID(), from, to, activities: [] }];
+    onChange(next);
+    onSlotAdded(dayIdx, next.length - 1);
+  };
 
- const updateSlot = () => {
-  if (editIndex === null) return;
-  setSlotError("");
+  const updateSlot = () => {
+    if (editIndex === null) return;
+    setSlotError("");
 
-  const current = value[editIndex];
-  const err = hasOverlappingSlot(value, from, to, current?.id);
-  if (err) {
-    setSlotError(err);
-    return;
-  }
+    const current = value[editIndex];
+    const err = hasOverlappingSlot(value, from, to, current?.id);
+    if (err) {
+      setSlotError(err);
+      return;
+    }
 
-  const next = value.map((s, idx) =>
-    idx === editIndex ? { ...s, from, to } : s
-  );
-  onChange(next);
-  resetEditor();
-};
+    const next = value.map((s, idx) =>
+      idx === editIndex ? { ...s, from, to } : s
+    );
+    onChange(next);
+    resetEditor();
+  };
 
 
   const removeSlot = (idx: number) => {
@@ -491,8 +493,8 @@ const addSlot = () => {
             onClick={addSlot}
             disabled={disabled}
             className={`px-3 py-2 text-xs font-semibold rounded-lg ${disabled
-                ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                : "bg-emerald-600 text-white hover:bg-emerald-700"
+              ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+              : "bg-emerald-600 text-white hover:bg-emerald-700"
               }`}
           >
             Add slot
@@ -504,8 +506,8 @@ const addSlot = () => {
               onClick={updateSlot}
               disabled={disabled}
               className={`px-3 py-2 text-xs font-semibold rounded-lg ${disabled
-                  ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                  : "bg-amber-600 text-white hover:bg-amber-700"
+                ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                : "bg-amber-600 text-white hover:bg-amber-700"
                 }`}
             >
               Update slot
@@ -516,8 +518,8 @@ const addSlot = () => {
               onClick={resetEditor}
               disabled={disabled}
               className={`px-3 py-2 text-xs font-semibold rounded-lg border ${disabled
-                  ? "border-gray-200 text-gray-400 cursor-not-allowed"
-                  : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                ? "border-gray-200 text-gray-400 cursor-not-allowed"
+                : "border-gray-300 text-gray-700 hover:bg-gray-50"
                 }`}
             >
               Cancel
@@ -546,8 +548,8 @@ const addSlot = () => {
               <span
                 key={`${s.from}-${s.to}-${idx}`}
                 className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs border cursor-pointer ${isEditing
-                    ? "bg-amber-50 text-amber-800 border-amber-300"
-                    : "bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200"
+                  ? "bg-amber-50 text-amber-800 border-amber-300"
+                  : "bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200"
                   }`}
                 onClick={() => {
                   if (disabled) return;
@@ -627,7 +629,7 @@ const getServiceCardContent = (categoryKey: string, item: ServiceMetaItem) => {
       item.priceBreakdown?.basePrice ??
       item.price;
 
-      const galleryImages = item?.media_gallery?.room?.[0]|| "";
+    const galleryImages = item?.media_gallery?.room?.[0] || "";
     return {
       mediaUrl: galleryImages,
       title: item.metaTitle || item.title || item.name || "Hotel",
@@ -825,7 +827,8 @@ const BLANK_TOUR_PACKAGE: TourPackageUI = {
   category: "Luxury",
   descriptionHtml: "Experience luxury in Goa on a short getaway with this holiday package!",
   thumbnail: { file: null },
-
+markup_min_price: null,
+  markup_max_price: null,
   minPax: "2",
   maxPax: "6",
   totalDays: "4",
@@ -876,89 +879,89 @@ export default function AddTourPackagePage() {
 
   const tabsScrollRef = React.useRef<HTMLDivElement | null>(null);
 
-const scrollTabsToStart = () => {
-  const el = tabsScrollRef.current;
-  if (!el) return;
-  el.scrollTo({ left: 0, behavior: "smooth" });
-};
+  const scrollTabsToStart = () => {
+    const el = tabsScrollRef.current;
+    if (!el) return;
+    el.scrollTo({ left: 0, behavior: "smooth" });
+  };
 
-const scrollTabsToEnd = () => {
-  const el = tabsScrollRef.current;
-  if (!el) return;
-  el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
-};
+  const scrollTabsToEnd = () => {
+    const el = tabsScrollRef.current;
+    if (!el) return;
+    el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+  };
 
   const [slotEditor, setSlotEditor] = useState<{
-  open: boolean;
-  dayIdx: number | null;
-  slotId: string | null; // which slot is being edited
-}>({ open: false, dayIdx: null, slotId: null });
+    open: boolean;
+    dayIdx: number | null;
+    slotId: string | null; // which slot is being edited
+  }>({ open: false, dayIdx: null, slotId: null });
 
-const pad2 = (n: number) => String(n).padStart(2, "0");
-const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
-const MINUTES = Array.from({ length: 60 }, (_, i) => i);
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
+  const MINUTES = Array.from({ length: 60 }, (_, i) => i);
 
-const [fromHour, setFromHour] = useState(10);
-const [fromMinute, setFromMinute] = useState(0);
-const [fromAmpm, setFromAmpm] = useState<"AM" | "PM">("AM");
+  const [fromHour, setFromHour] = useState(10);
+  const [fromMinute, setFromMinute] = useState(0);
+  const [fromAmpm, setFromAmpm] = useState<"AM" | "PM">("AM");
 
-const [toHour, setToHour] = useState(1);
-const [toMinute, setToMinute] = useState(30);
-const [toAmpm, setToAmpm] = useState<"AM" | "PM">("PM");
+  const [toHour, setToHour] = useState(1);
+  const [toMinute, setToMinute] = useState(30);
+  const [toAmpm, setToAmpm] = useState<"AM" | "PM">("PM");
 
-const fromVal = `${fromHour}:${pad2(fromMinute)} ${fromAmpm}`;
-const toVal = `${toHour}:${pad2(toMinute)} ${toAmpm}`;
+  const fromVal = `${fromHour}:${pad2(fromMinute)} ${fromAmpm}`;
+  const toVal = `${toHour}:${pad2(toMinute)} ${toAmpm}`;
 
-const parseTime = (t: string) => {
-  const m = (t || "").trim().match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/i);
-  if (!m) return null;
-  return {
-    hour: Number(m[1]),
-    minute: Number(m[2]),
-    ampm: m[3].toUpperCase() as "AM" | "PM",
+  const parseTime = (t: string) => {
+    const m = (t || "").trim().match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/i);
+    if (!m) return null;
+    return {
+      hour: Number(m[1]),
+      minute: Number(m[2]),
+      ampm: m[3].toUpperCase() as "AM" | "PM",
+    };
   };
-};
 
-const loadSlotToEditor = (slot: DayTimeSlotUI) => {
-  const pf = parseTime(slot.from);
-  const pt = parseTime(slot.to);
-  if (!pf || !pt) return;
+  const loadSlotToEditor = (slot: DayTimeSlotUI) => {
+    const pf = parseTime(slot.from);
+    const pt = parseTime(slot.to);
+    if (!pf || !pt) return;
 
-  setFromHour(pf.hour);
-  setFromMinute(pf.minute);
-  setFromAmpm(pf.ampm);
+    setFromHour(pf.hour);
+    setFromMinute(pf.minute);
+    setFromAmpm(pf.ampm);
 
-  setToHour(pt.hour);
-  setToMinute(pt.minute);
-  setToAmpm(pt.ampm);
-};
+    setToHour(pt.hour);
+    setToMinute(pt.minute);
+    setToAmpm(pt.ampm);
+  };
 
-const closeSlotEditor = () =>
-  setSlotEditor({ open: false, dayIdx: null, slotId: null });
+  const closeSlotEditor = () =>
+    setSlotEditor({ open: false, dayIdx: null, slotId: null });
 
-const TimeSelect = ({
-  hour,
-  setHour,
-  minute,
-  setMinute,
-  ampm,
-  setAmpm,
-}: any) => (
-  <div className="grid grid-cols-3 gap-2">
-    <select className="input w-full" value={hour} onChange={(e) => setHour(Number(e.target.value))} disabled={submitting}>
-      {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
-    </select>
+  const TimeSelect = ({
+    hour,
+    setHour,
+    minute,
+    setMinute,
+    ampm,
+    setAmpm,
+  }: any) => (
+    <div className="grid grid-cols-3 gap-2">
+      <select className="input w-full" value={hour} onChange={(e) => setHour(Number(e.target.value))} disabled={submitting}>
+        {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
+      </select>
 
-    <select className="input w-full" value={minute} onChange={(e) => setMinute(Number(e.target.value))} disabled={submitting}>
-      {MINUTES.map((m) => <option key={m} value={m}>{pad2(m)}</option>)}
-    </select>
+      <select className="input w-full" value={minute} onChange={(e) => setMinute(Number(e.target.value))} disabled={submitting}>
+        {MINUTES.map((m) => <option key={m} value={m}>{pad2(m)}</option>)}
+      </select>
 
-    <select className="input w-full" value={ampm} onChange={(e) => setAmpm(e.target.value as "AM" | "PM")} disabled={submitting}>
-      <option value="AM">AM</option>
-      <option value="PM">PM</option>
-    </select>
-  </div>
-);
+      <select className="input w-full" value={ampm} onChange={(e) => setAmpm(e.target.value as "AM" | "PM")} disabled={submitting}>
+        <option value="AM">AM</option>
+        <option value="PM">PM</option>
+      </select>
+    </div>
+  );
 
 
   const addSurcharge = () =>
@@ -1159,11 +1162,34 @@ const TimeSelect = ({
 
 
 
+const openServicePicker = (dayIdx: number, slotIdx: number) => {
+  const fallbackCategoryId = serviceCategories[0]?._id || null;
 
-  const openServicePicker = (dayIdx: number, slotIdx: number) => {
-    const fallbackCategoryId = serviceCategories[0]?._id || null;
-    setServicePicker({ open: true, dayIdx, slotIdx, activeCategoryId: fallbackCategoryId, selected: [] });
-  };
+  // ✅ Prefill selections from this SLOT's existing activities
+  const day = data.itinerary?.[dayIdx];
+  const slot = day?.timeSlots?.[slotIdx];
+
+  const preselected =
+    (slot?.activities || [])
+      .filter((a) => a.serviceId && a.serviceItemId)
+      .map((a) => {
+        const cat = serviceCategories.find((c) => c._id === a.serviceId);
+        return {
+          categoryId: a.serviceId,
+          categoryTitle: cat?.title || "",
+          itemId: a.serviceItemId,
+        };
+      });
+
+  setServicePicker({
+    open: true,
+    dayIdx,
+    slotIdx,
+    activeCategoryId: fallbackCategoryId,
+    selected: preselected,
+  });
+};
+
 
 
   const closeServicePicker = () =>
@@ -1191,13 +1217,35 @@ const TimeSelect = ({
           timeSlots: day.timeSlots.map((slot, sIdx) => {
             if (sIdx !== servicePicker.slotIdx) return slot;
 
-            const newActs: ItineraryActivityUI[] = selections.map((sel) => {
-              const cat = serviceCategories.find((c) => c._id === sel.categoryId);
-              const itemModel = cat ? (ITEM_MODEL_BY_TITLE[cat.title] ?? getItemModelForTitle(cat.title)) : "";
-              return { ...BLANK_IT_ACTIVITY, serviceId: sel.categoryId, serviceItemId: sel.itemId, itemModel };
-            });
+            // preserve isRemovable for items already in this slot
+const prevMap = new Map(
+  (slot.activities || []).map((a) => [
+    `${a.serviceId}|${a.serviceItemId}|${a.itemModel}`,
+    a,
+  ])
+);
 
-            return { ...slot, activities: [...(slot.activities || []), ...newActs] };
+const nextActs: ItineraryActivityUI[] = selections.map((sel) => {
+  const cat = serviceCategories.find((c) => c._id === sel.categoryId);
+  const itemModel = cat
+    ? (ITEM_MODEL_BY_TITLE[cat.title] ?? getItemModelForTitle(cat.title))
+    : "";
+
+  const key = `${sel.categoryId}|${sel.itemId}|${itemModel}`;
+  const prev = prevMap.get(key);
+
+  return {
+    ...BLANK_IT_ACTIVITY,
+    serviceId: sel.categoryId,
+    serviceItemId: sel.itemId,
+    itemModel,
+    isRemovable: prev?.isRemovable ?? true, // keep old toggle if it existed
+  };
+});
+
+// ✅ Replace (not append)
+return { ...slot, activities: nextActs };
+
           }),
         };
       }),
@@ -1215,23 +1263,23 @@ const TimeSelect = ({
 
 
 
-    const removeTimeSlot = (dayIdx: number, slotId: string) => {
-  setData((prev) => ({
-    ...prev,
-    itinerary: prev.itinerary.map((day, i) => {
-      if (i !== dayIdx) return day;
-      return {
-        ...day,
-        timeSlots: (day.timeSlots || []).filter((s) => s.id !== slotId),
-      };
-    }),
-  }));
+  const removeTimeSlot = (dayIdx: number, slotId: string) => {
+    setData((prev) => ({
+      ...prev,
+      itinerary: prev.itinerary.map((day, i) => {
+        if (i !== dayIdx) return day;
+        return {
+          ...day,
+          timeSlots: (day.timeSlots || []).filter((s) => s.id !== slotId),
+        };
+      }),
+    }));
 
-  // if editor is open for this slot, close it
-  setSlotEditor((prev) =>
-    prev.slotId === slotId ? { open: false, dayIdx: null, slotId: null } : prev
-  );
-};
+    // if editor is open for this slot, close it
+    setSlotEditor((prev) =>
+      prev.slotId === slotId ? { open: false, dayIdx: null, slotId: null } : prev
+    );
+  };
 
 
   /* ---------- Submit ---------- */
@@ -1283,7 +1331,8 @@ const TimeSelect = ({
         check_out_day: checkOutDay,
         start_date: data.startDate || undefined,
         end_date: data.endDate || undefined,
-
+     markup_min_price: data.markup_min_price,
+        markup_max_price: data.markup_max_price,
         min_pax: Number(data.minPax) || 0,
         max_pax: Number(data.maxPax) || 0,
         total_days: Number(data.totalDays) || 0,
@@ -1396,8 +1445,8 @@ const TimeSelect = ({
               onClick={() => setData({ ...BLANK_TOUR_PACKAGE })}
               disabled={submitting}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${submitting
-                  ? "border-gray-200 text-gray-400"
-                  : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                ? "border-gray-200 text-gray-400"
+                : "border-gray-300 text-gray-700 hover:bg-gray-50"
                 }`}
             >
               Reset
@@ -1427,10 +1476,10 @@ const TimeSelect = ({
                     }
                   }}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs whitespace-nowrap ${active
-                      ? "bg-emerald-50 border-emerald-500 text-emerald-700"
-                      : done
-                        ? "bg-green-50 border-green-500 text-green-700"
-                        : "bg-white border-gray-200 text-gray-700"
+                    ? "bg-emerald-50 border-emerald-500 text-emerald-700"
+                    : done
+                      ? "bg-green-50 border-green-500 text-green-700"
+                      : "bg-white border-gray-200 text-gray-700"
                     }`}
                   disabled={submitting}
                 >
@@ -1572,16 +1621,53 @@ const TimeSelect = ({
                       disabled={submitting}
                     />
                   </Field>
+                  <Field label="Markup Min Price (₹)">
+                    <div className="relative">
+                      <input
+                        type="number"
+                        className="input pl-9"
+                        min={0}
+                        value={data.markup_min_price ?? ""}
+                        onChange={(e) =>
+                          setTour({
+                            markup_min_price: e.target.value === "" ? null : Number(e.target.value),
+                          })
+                        }
+                        placeholder="e.g., 200"
+                        disabled={submitting}
+                      />
+                      <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    </div>
+                  </Field>
+                  
+                  <Field label="Markup Max Price (₹)">
+                    <div className="relative">
+                      <input
+                        type="number"
+                        className="input pl-9"
+                        min={0}
+                        value={data.markup_max_price ?? ""}
+                        onChange={(e) =>
+                          setTour({
+                            markup_max_price: e.target.value === "" ? null : Number(e.target.value),
+                          })
+                        }
+                        placeholder="e.g., 500"
+                        disabled={submitting}
+                      />
+                      <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    </div>
+                  </Field>
 
                 </div>
 
                 <Field label="Description *" required>
                   <div className="rounded-xl border border-gray-300 bg-white shadow-sm">
-                  <TinyMCETextEditor
-  value={data.descriptionHtml || ""}
-  onChange={(html) => setTour({ descriptionHtml: html })}
-  placeholder="Experience luxury in Goa on a short getaway with this holiday package..."
-/>
+                    <TinyMCETextEditor
+                      value={data.descriptionHtml || ""}
+                      onChange={(html) => setTour({ descriptionHtml: html })}
+                      placeholder="Experience luxury in Goa on a short getaway with this holiday package..."
+                    />
                   </div>
                 </Field>
 
@@ -1656,8 +1742,8 @@ const TimeSelect = ({
                                 type="button"
                                 onClick={() => toggleDayOpen(idx)}
                                 className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition ${isOpen
-                                    ? "bg-emerald-50 border-emerald-500 text-emerald-700"
-                                    : "bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100"
+                                  ? "bg-emerald-50 border-emerald-500 text-emerald-700"
+                                  : "bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100"
                                   }`}
                                 aria-expanded={isOpen}
                               >
@@ -1727,7 +1813,7 @@ const TimeSelect = ({
                                     )
                                   </span>
                                 </p>
-                                
+
                               </div>
 
                               <div className="space-y-4">
@@ -1736,131 +1822,131 @@ const TimeSelect = ({
                                     key={slot.id || `${idx}-${slotIdx}`}
                                     className="rounded-xl border border-gray-200 bg-white p-3"
                                   >
-        <div className="flex items-center justify-between mb-2">
-  <p className="text-sm font-semibold text-gray-900">
-    Slot: {slot.from} - {slot.to}
-    <span className="text-xs text-gray-500 ml-2">
-      ({slot.activities?.length || 0})
-    </span>
-  </p>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <p className="text-sm font-semibold text-gray-900">
+                                        Slot: {slot.from} - {slot.to}
+                                        <span className="text-xs text-gray-500 ml-2">
+                                          ({slot.activities?.length || 0})
+                                        </span>
+                                      </p>
 
-  <div className="flex items-center gap-2">
-    {/* ✏️ Edit slot */}
-    <button
-      type="button"
-      disabled={submitting}
-      onClick={() => {
-        loadSlotToEditor(slot);
-        setSlotEditor({ open: true, dayIdx: idx, slotId: slot.id });
-      }}
-      className="inline-flex items-center justify-center size-9 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
-      title="Edit slot time"
-    >
-      <Pencil  className="size-4 text-gray-700" />
-    </button>
+                                      <div className="flex items-center gap-2">
+                                        {/* ✏️ Edit slot */}
+                                        <button
+                                          type="button"
+                                          disabled={submitting}
+                                          onClick={() => {
+                                            loadSlotToEditor(slot);
+                                            setSlotEditor({ open: true, dayIdx: idx, slotId: slot.id });
+                                          }}
+                                          className="inline-flex items-center justify-center size-9 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
+                                          title="Edit slot time"
+                                        >
+                                          <Pencil className="size-4 text-gray-700" />
+                                        </button>
 
-    {/* ➕ Add activity */}
-    <button
-      type="button"
-      onClick={() => openServicePicker(idx, slotIdx)}
-      disabled={submitting}
-      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
-    >
-      <Plus className="size-3.5" />
-      Add
-    </button>
+                                        {/* ➕ Add activity */}
+                                        <button
+                                          type="button"
+                                          onClick={() => openServicePicker(idx, slotIdx)}
+                                          disabled={submitting}
+                                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                                        >
+                                          <Plus className="size-3.5" />
+                                          Add
+                                        </button>
 
-    {/* 🗑️ Remove slot */}
-    <button
-      type="button"
-      disabled={submitting}
-      onClick={() => {
-        if (
-          slot.activities?.length &&
-          !confirm("This slot has activities. Remove anyway?")
-        ) {
-          return;
-        }
-        removeTimeSlot(idx, slot.id);
-      }}
-      className="inline-flex items-center justify-center size-9 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-      title="Remove slot"
-    >
-      <Trash2 className="size-4" />
-    </button>
-  </div>
-</div>
-
-
-{slotEditor.open &&
-  slotEditor.dayIdx === idx &&
-  slotEditor.slotId === slot.id && (
-    <div className="rounded-xl border border-gray-200 bg-white p-3 mb-3">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <p className="text-xs font-semibold text-gray-700 mb-1">From</p>
-          <TimeSelect
-            hour={fromHour}
-            setHour={setFromHour}
-            minute={fromMinute}
-            setMinute={setFromMinute}
-            ampm={fromAmpm}
-            setAmpm={setFromAmpm}
-          />
-        </div>
-
-        <div>
-          <p className="text-xs font-semibold text-gray-700 mb-1">To</p>
-          <TimeSelect
-            hour={toHour}
-            setHour={setToHour}
-            minute={toMinute}
-            setMinute={setToMinute}
-            ampm={toAmpm}
-            setAmpm={setToAmpm}
-          />
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-center gap-2">
-       <button
-  type="button"
-  disabled={submitting}
-  onClick={() => {
-    const err = hasOverlappingSlot(d.timeSlots || [], fromVal, toVal, slot.id);
-    if (err) {
-      alert(err);
-      return;
-    }
-
-    updateItineraryDay(idx, {
-      timeSlots: (d.timeSlots || []).map((s) =>
-        s.id === slot.id ? { ...s, from: fromVal, to: toVal } : s
-      ),
-    });
-    closeSlotEditor();
-  }}
-  className="px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
->
-  Update slot
-</button>
+                                        {/* 🗑️ Remove slot */}
+                                        <button
+                                          type="button"
+                                          disabled={submitting}
+                                          onClick={() => {
+                                            if (
+                                              slot.activities?.length &&
+                                              !confirm("This slot has activities. Remove anyway?")
+                                            ) {
+                                              return;
+                                            }
+                                            removeTimeSlot(idx, slot.id);
+                                          }}
+                                          className="inline-flex items-center justify-center size-9 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                                          title="Remove slot"
+                                        >
+                                          <Trash2 className="size-4" />
+                                        </button>
+                                      </div>
+                                    </div>
 
 
-        <button
-          type="button"
-          disabled={submitting}
-          onClick={closeSlotEditor}
-          className="px-3 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
-        >
-          Cancel
-        </button>
+                                    {slotEditor.open &&
+                                      slotEditor.dayIdx === idx &&
+                                      slotEditor.slotId === slot.id && (
+                                        <div className="rounded-xl border border-gray-200 bg-white p-3 mb-3">
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div>
+                                              <p className="text-xs font-semibold text-gray-700 mb-1">From</p>
+                                              <TimeSelect
+                                                hour={fromHour}
+                                                setHour={setFromHour}
+                                                minute={fromMinute}
+                                                setMinute={setFromMinute}
+                                                ampm={fromAmpm}
+                                                setAmpm={setFromAmpm}
+                                              />
+                                            </div>
 
-        <span className="text-[11px] text-gray-500 ml-auto">
-          Selected: <span className="font-semibold">{fromVal} - {toVal}</span>
-        </span>
-      </div>
-    </div>
-)}
+                                            <div>
+                                              <p className="text-xs font-semibold text-gray-700 mb-1">To</p>
+                                              <TimeSelect
+                                                hour={toHour}
+                                                setHour={setToHour}
+                                                minute={toMinute}
+                                                setMinute={setToMinute}
+                                                ampm={toAmpm}
+                                                setAmpm={setToAmpm}
+                                              />
+                                            </div>
+                                          </div>
+
+                                          <div className="mt-3 flex items-center gap-2">
+                                            <button
+                                              type="button"
+                                              disabled={submitting}
+                                              onClick={() => {
+                                                const err = hasOverlappingSlot(d.timeSlots || [], fromVal, toVal, slot.id);
+                                                if (err) {
+                                                  alert(err);
+                                                  return;
+                                                }
+
+                                                updateItineraryDay(idx, {
+                                                  timeSlots: (d.timeSlots || []).map((s) =>
+                                                    s.id === slot.id ? { ...s, from: fromVal, to: toVal } : s
+                                                  ),
+                                                });
+                                                closeSlotEditor();
+                                              }}
+                                              className="px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+                                            >
+                                              Update slot
+                                            </button>
+
+
+                                            <button
+                                              type="button"
+                                              disabled={submitting}
+                                              onClick={closeSlotEditor}
+                                              className="px-3 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                                            >
+                                              Cancel
+                                            </button>
+
+                                            <span className="text-[11px] text-gray-500 ml-auto">
+                                              Selected: <span className="font-semibold">{fromVal} - {toVal}</span>
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )}
 
 
 
@@ -1971,39 +2057,39 @@ const TimeSelect = ({
                                         </div>
                                       )}
                                     </div>
-                                    
+
                                   </div>
                                 ))}
-                                 <button
-      type="button"
-      disabled={submitting}
-      onClick={() => {
-        const newSlot: DayTimeSlotUI = {
-          id: crypto.randomUUID(),
-          from: "10:00 AM",
-          to: "1:30 PM",
-          activities: [],
-        };
+                                <button
+                                  type="button"
+                                  disabled={submitting}
+                                  onClick={() => {
+                                    const newSlot: DayTimeSlotUI = {
+                                      id: crypto.randomUUID(),
+                                      from: "10:00 AM",
+                                      to: "1:30 PM",
+                                      activities: [],
+                                    };
 
-        // add slot to this day
-        setData((prev) => ({
-          ...prev,
-          itinerary: prev.itinerary.map((day, i) => {
-            if (i !== idx) return day;
-            return { ...day, timeSlots: [...(day.timeSlots || []), newSlot] };
-          }),
-        }));
+                                    // add slot to this day
+                                    setData((prev) => ({
+                                      ...prev,
+                                      itinerary: prev.itinerary.map((day, i) => {
+                                        if (i !== idx) return day;
+                                        return { ...day, timeSlots: [...(day.timeSlots || []), newSlot] };
+                                      }),
+                                    }));
 
-        // open this day + open editor for the new slot
-        ensureDayOpen(idx);
-        loadSlotToEditor(newSlot);
-        setSlotEditor({ open: true, dayIdx: idx, slotId: newSlot.id });
-      }}
-      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
-    >
-      <Plus className="size-3.5" />
-      Add Slot
-    </button>
+                                    // open this day + open editor for the new slot
+                                    ensureDayOpen(idx);
+                                    loadSlotToEditor(newSlot);
+                                    setSlotEditor({ open: true, dayIdx: idx, slotId: newSlot.id });
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                                >
+                                  <Plus className="size-3.5" />
+                                  Add Slot
+                                </button>
                               </div>
                             </div>
 
@@ -2014,18 +2100,18 @@ const TimeSelect = ({
                   })}
 
 
-                <div className="flex justify-end gap-2 pt-2">
-  {/* Add Day */}
-  <button
-    type="button"
-    onClick={addItineraryDay}
-    disabled={submitting}
-    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
-  >
-    <Plus className="size-3.5" />
-    Add Day
-  </button>
-</div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    {/* Add Day */}
+                    <button
+                      type="button"
+                      onClick={addItineraryDay}
+                      disabled={submitting}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                    >
+                      <Plus className="size-3.5" />
+                      Add Day
+                    </button>
+                  </div>
 
                 </div>
               </div>
@@ -2269,6 +2355,7 @@ const TimeSelect = ({
           };
 
           // ✅ your rules
+
           const CAT = {
             HOTELS: "hotels",
             ACTIVITIES: "activities",
@@ -2277,6 +2364,18 @@ const TimeSelect = ({
             SIGHTSEEING: "sightseeing",
           };
 
+          const isSightseeingTitle = (t: string) => titleNorm(t) === CAT.SIGHTSEEING;
+
+          const nonSightseeingSelections = servicePicker.selected.filter(
+            (s) => !isSightseeingTitle(s.categoryTitle)
+          );
+
+          const hasNonSightseeingSelected = nonSightseeingSelections.length > 0;
+
+          // since non-sightseeing is only one, this is the currently chosen non-sightseeing category
+          const selectedNonSightseeingCategoryId = nonSightseeingSelections[0]?.categoryId ?? null;
+
+
           // Daytime (<= 6 PM): only one across Activities + Leisure, and only one Hotel
           const daytimeExclusiveGroup = [CAT.ACTIVITIES, CAT.LEISURE];
           const hotelSingle = [CAT.HOTELS];
@@ -2284,21 +2383,31 @@ const TimeSelect = ({
           // After 6 PM: only one across Nightlife + Leisure
           const nightExclusiveGroup = [CAT.NIGHTLIFE, CAT.LEISURE];
 
-          const isCategoryTabDisabled = (catTitle: string) => {
-            const t = titleNorm(catTitle);
+          const isCategoryTabDisabled = (cat: ServiceCategory) => {
+            const t = titleNorm(cat.title);
 
+            // If user picked a non-sightseeing item:
+            // - allow Sightseeing tab always
+            // - allow the SAME non-sightseeing tab (so they can unselect the chosen item)
+            // - disable all other tabs
+            if (hasNonSightseeingSelected) {
+              if (t === CAT.SIGHTSEEING) return false;
+              if (cat._id === selectedNonSightseeingCategoryId) return false;
+              return true;
+            }
+
+            // Otherwise apply your existing daytime/night rules (optional)
             if (isDaytime) {
-              // If one selected in Activities, disable Leisure tab and vice versa
               if (t === CAT.ACTIVITIES) return hasSelectedIn([CAT.LEISURE]);
               if (t === CAT.LEISURE) return hasSelectedIn([CAT.ACTIVITIES]);
               return false;
             }
 
-            // after 6pm
             if (t === CAT.NIGHTLIFE) return hasSelectedIn([CAT.LEISURE]);
             if (t === CAT.LEISURE) return hasSelectedIn([CAT.NIGHTLIFE]);
             return false;
           };
+
 
           // 1) Hide Tour Package tab completely (and prevent it from being active)
           const day = data.itinerary?.[servicePicker.dayIdx ?? -1];
@@ -2347,6 +2456,7 @@ const TimeSelect = ({
               if (!item._id) return prev;
 
               const catTitleNorm = titleNorm(category.title);
+              const isSightseeing = catTitleNorm === CAT.SIGHTSEEING;
 
               const existsIdx = prev.selected.findIndex(
                 (s) => s.categoryId === category._id && s.itemId === item._id
@@ -2359,36 +2469,20 @@ const TimeSelect = ({
                 return { ...prev, selected: nextSel };
               }
 
-              // ✅ Rules:
-              // 1) Daytime: Activities + Leisure = only one TOTAL across both
-              // 2) Daytime: Hotels = only one
-              // 3) After 6pm: Nightlife + Leisure = only one TOTAL across both
               let nextSel = [...prev.selected];
 
-              if (isDaytime) {
-                // remove other selection if picking inside Activities/Leisure group
-                if (daytimeExclusiveGroup.includes(catTitleNorm)) {
-                  nextSel = nextSel.filter((s) => {
-                    const t = titleNorm(s.categoryTitle);
-                    return !daytimeExclusiveGroup.includes(t);
-                  });
-                }
-
-                // Hotels only one
-                if (hotelSingle.includes(catTitleNorm)) {
-                  nextSel = nextSel.filter((s) => titleNorm(s.categoryTitle) !== CAT.HOTELS);
-                }
-              } else {
-                // after 6pm: Nightlife + Leisure only one total
-                if (nightExclusiveGroup.includes(catTitleNorm)) {
-                  nextSel = nextSel.filter((s) => {
-                    const t = titleNorm(s.categoryTitle);
-                    return !nightExclusiveGroup.includes(t);
-                  });
-                }
+              if (isSightseeing) {
+                // ✅ Sightseeing = multi-select, don't touch other selections
+                nextSel.push({
+                  categoryId: category._id,
+                  categoryTitle: category.title,
+                  itemId: item._id,
+                });
+                return { ...prev, selected: nextSel };
               }
 
-              // Sightseeing remains multi-select (no removal here)
+              // ✅ Non-sightseeing = only ONE total (but keep all sightseeing)
+              nextSel = nextSel.filter((s) => titleNorm(s.categoryTitle) === CAT.SIGHTSEEING);
 
               nextSel.push({
                 categoryId: category._id,
@@ -2399,6 +2493,7 @@ const TimeSelect = ({
               return { ...prev, selected: nextSel };
             });
           };
+
 
 
           return (
@@ -2456,61 +2551,61 @@ const TimeSelect = ({
                     </div>
 
                     {/* Tabs */}
-                  <div className="mt-3 relative">
-  {/* Left arrow (mobile) */}
-  <button
-    type="button"
-    onClick={scrollTabsToStart}
-    className="md:hidden absolute left-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center justify-center size-8 rounded-full bg-white border border-gray-200 shadow"
-    aria-label="Scroll tabs to start"
-  >
-    <ChevronLeft className="size-4 text-gray-700" />
-  </button>
+                    <div className="mt-3 relative">
+                      {/* Left arrow (mobile) */}
+                      <button
+                        type="button"
+                        onClick={scrollTabsToStart}
+                        className="md:hidden absolute left-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center justify-center size-8 rounded-full bg-white border border-gray-200 shadow"
+                        aria-label="Scroll tabs to start"
+                      >
+                        <ChevronLeft className="size-4 text-gray-700" />
+                      </button>
 
-  {/* Right arrow (mobile) */}
-  <button
-    type="button"
-    onClick={scrollTabsToEnd}
-    className="md:hidden absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center justify-center size-8 rounded-full bg-white border border-gray-200 shadow"
-    aria-label="Scroll tabs to end"
-  >
-    <ChevronRight className="size-4 text-gray-700" />
-  </button>
+                      {/* Right arrow (mobile) */}
+                      <button
+                        type="button"
+                        onClick={scrollTabsToEnd}
+                        className="md:hidden absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center justify-center size-8 rounded-full bg-white border border-gray-200 shadow"
+                        aria-label="Scroll tabs to end"
+                      >
+                        <ChevronRight className="size-4 text-gray-700" />
+                      </button>
 
-  {/* Tabs */}
-  <div
-    ref={tabsScrollRef}
-    className="flex gap-2 overflow-x-auto no-scrollbar pb-1 px-10 md:px-0"
-  >
-    {filteredCategories.map((cat) => {
-      const isActive = activeCategory && activeCategory._id === cat._id;
-      const tabDisabled = isCategoryTabDisabled(cat.title);
+                      {/* Tabs */}
+                      <div
+                        ref={tabsScrollRef}
+                        className="flex gap-2 overflow-x-auto no-scrollbar pb-1 px-10 md:px-0"
+                      >
+                        {filteredCategories.map((cat) => {
+                          const isActive = activeCategory && activeCategory._id === cat._id;
+                          const tabDisabled = isCategoryTabDisabled(cat);
 
-      return (
-        <button
-          key={cat._id}
-          type="button"
-          disabled={tabDisabled}
-          onClick={() => {
-            if (tabDisabled) return;
-            setServicePicker((prev) => ({ ...prev, activeCategoryId: cat._id }));
-          }}
-          className={[
-            "px-3 py-1.5 rounded-full border text-xs font-semibold whitespace-nowrap transition",
-            tabDisabled
-              ? "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
-              : isActive
-                ? "bg-emerald-50 border-emerald-400 text-emerald-700 shadow-sm"
-                : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100",
-          ].join(" ")}
-          title={tabDisabled ? "Disabled due to selection rule" : undefined}
-        >
-          {cat.title}
-        </button>
-      );
-    })}
-  </div>
-</div>
+                          return (
+                            <button
+                              key={cat._id}
+                              type="button"
+                              disabled={tabDisabled}
+                              onClick={() => {
+                                if (tabDisabled) return;
+                                setServicePicker((prev) => ({ ...prev, activeCategoryId: cat._id }));
+                              }}
+                              className={[
+                                "px-3 py-1.5 rounded-full border text-xs font-semibold whitespace-nowrap transition",
+                                tabDisabled
+                                  ? "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
+                                  : isActive
+                                    ? "bg-emerald-50 border-emerald-400 text-emerald-700 shadow-sm"
+                                    : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100",
+                              ].join(" ")}
+                              title={tabDisabled ? "Disabled due to selection rule" : undefined}
+                            >
+                              {cat.title}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Content */}
@@ -2529,28 +2624,51 @@ const TimeSelect = ({
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {activeItemsForCategory.map((item) => {
                           if (!item._id) return null;
-
                           const isSelected = servicePicker.selected.some(
                             (s) => s.categoryId === activeCategory._id && s.itemId === item._id
+                          );             
+                          const isSightseeing = titleNorm(activeCategory.title) === CAT.SIGHTSEEING;
+
+                      const isNonFoodCategory = activeCategory.title !== "Food Service";
+
+                      // ✅ used in ANOTHER SLOT of the SAME DAY
+                      const isUsedInAnotherSlotSameDay =
+                        isNonFoodCategory &&
+                        data.itinerary?.[servicePicker.dayIdx]?.timeSlots?.some((s, sIdx) => {
+                          if (sIdx === servicePicker.slotIdx) return false; // ignore current slot
+                          return (s.activities || []).some(
+                            (act) =>
+                              act.serviceItemId === item._id &&
+                              act.serviceId === activeCategory._id
                           );
+                        });
 
-                          const isNonFoodCategory = activeCategory.title !== "Food Service";
+                        // ✅ used in ANY SLOT of ANOTHER DAY (your old logic)
+                        const isUsedOnAnotherDay =
+                          isNonFoodCategory &&
+                          data.itinerary.some((day, dayIdx) => {
+                            if (dayIdx === servicePicker.dayIdx) return false;
 
-                          const isUsedOnAnotherDay =
-                            isNonFoodCategory &&
-                            data.itinerary.some((day, dayIdx) => {
-                              if (dayIdx === servicePicker.dayIdx) return false;
+                            return (day.timeSlots || []).some((slot) =>
+                              (slot.activities || []).some(
+                                (act) =>
+                                  act.serviceItemId === item._id &&
+                                  act.serviceId === activeCategory._id
+                              )
+                            );
+                          });
 
-                              return (day.timeSlots || []).some((slot) =>
-                                (slot.activities || []).some(
-                                  (act) =>
-                                    act.serviceItemId === item._id &&
-                                    act.serviceId === activeCategory._id
-                                )
-                              );
-                            });
+                        // ✅ unified lock
+                        const isUsedElsewhere = isUsedInAnotherSlotSameDay || isUsedOnAnotherDay;
 
-                          const disabled = isUsedOnAnotherDay;
+                        // allow clicking if it's already selected in THIS slot (so user can unselect)
+                        const disabledBecauseUsedElsewhere = isUsedElsewhere && !isSelected;
+
+                        // keep your other rule too
+                        const lockedByNonSightseeingRule =
+                          hasNonSightseeingSelected && !isSightseeing && !isSelected;
+
+                        const disabled = disabledBecauseUsedElsewhere || lockedByNonSightseeingRule;
 
                           const { mediaUrl, title, subtitle, chip, priceLabel, ratingLabel } = getServiceCardContent(
                             activeMetaKey,
@@ -2597,9 +2715,14 @@ const TimeSelect = ({
                                         {title || "(Untitled item)"}
                                       </p>
                                       {subtitle && <p className="text-xs text-gray-500 truncate">{subtitle}</p>}
-                                      {disabled && (
-                                        <p className="text-[11px] text-red-600 mt-1">Already used on another day</p>
-                                      )}
+                                    {disabledBecauseUsedElsewhere && (
+  <p className="text-[11px] text-red-600 mt-1">
+    {isUsedInAnotherSlotSameDay
+      ? "Already used in another slot on this day"
+      : "Already used on another day"}
+  </p>
+)}
+
                                     </div>
 
                                     <div className="shrink-0 flex flex-col items-end gap-1">
@@ -2705,8 +2828,8 @@ const TimeSelect = ({
                   onClick={goBack}
                   disabled={stepIndex === 0 || submitting}
                   className={`flex-1 sm:flex-none px-4 py-3 text-sm font-medium rounded-xl border ${stepIndex === 0 || submitting
-                      ? "border-gray-200 text-gray-400"
-                      : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                    ? "border-gray-200 text-gray-400"
+                    : "border-gray-300 text-gray-700 hover:bg-gray-50"
                     }`}
                 >
                   Back
@@ -2717,8 +2840,8 @@ const TimeSelect = ({
                   onClick={goNext}
                   disabled={!canGoNext || submitting}
                   className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${!canGoNext || submitting
-                      ? "bg-emerald-300 cursor-not-allowed"
-                      : "bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800"
+                    ? "bg-emerald-300 cursor-not-allowed"
+                    : "bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800"
                     }`}
                   aria-busy={submitting ? "true" : "false"}
                 >
@@ -2890,8 +3013,8 @@ function TagsInput({
           onClick={addTag}
           disabled={disabled || !value.trim()}
           className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${disabled || !value.trim()
-              ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-              : "bg-emerald-600 text-white hover:bg-emerald-700"
+            ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+            : "bg-emerald-600 text-white hover:bg-emerald-700"
             }`}
         >
           Add

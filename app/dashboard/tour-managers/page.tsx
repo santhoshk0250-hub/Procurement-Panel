@@ -25,7 +25,18 @@ import {
   Pagination,
   Stack,
   IconButton,
+  Checkbox,
+  Divider,
+  Stepper,
+  Step,
+  StepLabel,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
+  useMediaQuery,
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 
 import {
   Search,
@@ -33,21 +44,18 @@ import {
   People,
   AccessTime,
   CurrencyRupee,
-  Map,
   AddCircleOutline,
   WorkspacePremium,
-  CheckCircle,
-  Cancel,
 } from "@mui/icons-material";
-import { useTourManagerStore,type TourManager, } from "@/store/tourmanagerStore";
+
+import { useTourManagerStore, type TourManager } from "@/store/tourmanagerStore";
 
 /* ================== Types ================== */
-
 type MongoId = string | { $oid: string };
-/* ================== Helpers ================== */
 
+/* ================== Helpers ================== */
 const unwrapId = (id?: MongoId): string =>
-  typeof id === "string" ? id : id?.$oid ?? "";
+  typeof id === "string" ? id : (id as any)?.$oid ?? "";
 
 const mainImage = (tm: TourManager) =>
   tm.gallery?.[0]?.imageUrl ||
@@ -60,7 +68,7 @@ const stripHtml = (html?: string) =>
   (html || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 
 const roleLabel = (tm: TourManager) => {
-  const slug = (tm.slug  || "").toLowerCase();
+  const slug = (tm.slug || "").toLowerCase();
   if (slug.includes("guide")) return "Tour Guide";
   if (slug.includes("manager")) return "Tour Manager";
   return "Tour Service";
@@ -74,18 +82,20 @@ const languagesToText = (lang?: string[][]) => {
     .join(", ");
 };
 
-/* ================== Component ================== */
+// ✅ slug normalizer
+const normalizeSlug = (tm: TourManager): string => (tm.slug || "").trim();
 
+/* ================== Component ================== */
 const TourManagersDashboard: React.FC = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<TourManager[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState<number>(1);
   const [pages, setPages] = useState<number>(1);
   const { setFromAPI } = useTourManagerStore();
-
-  const [selected, setSelected] = useState<TourManager | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const fetchTourManagers = async (pageNum: number) => {
     setLoading(true);
@@ -119,16 +129,16 @@ const TourManagersDashboard: React.FC = () => {
       const langs = languagesToText(tm.language);
       const hay = [
         id,
-        tm.managerId,
+        (tm as any).managerId,
         tm.title,
         tm.slug,
         stripHtml(tm.description),
-        stripHtml(tm.general_info),
+        stripHtml((tm as any).general_info),
         langs,
-        (tm.inclusions || []).join(" "),
-        (tm.exclusions || []).join(" "),
-        (tm.gallery || []).map((g) => g.tag).join(" "),
-        (tm.tourManagerProfiles || []).map((p) => p.name).join(" "),
+        ((tm as any).inclusions || []).join(" "),
+        ((tm as any).exclusions || []).join(" "),
+        ((tm as any).gallery || []).map((g: any) => g.tag).join(" "),
+        ((tm as any).tourManagerProfiles || []).map((p: any) => p.name).join(" "),
       ]
         .filter(Boolean)
         .join(" ")
@@ -144,12 +154,172 @@ const TourManagersDashboard: React.FC = () => {
     } catch {}
   };
 
-  
+  const handleEdit = (apiItem: TourManager) => {
+    setFromAPI(apiItem);
+  };
 
-    const handleEdit = (apiItem: TourManager) => {
-      // Store full object so edit page has addonsFull
-      setFromAPI(apiItem);
-    };
+  // =========================
+  // ✅ MARKUP MODAL (GET ALL NO PAGINATION)
+  // ✅ Filter based on SLUG (role)
+  // =========================
+  const [openMarkupModal, setOpenMarkupModal] = useState(false);
+  const [markupStep, setMarkupStep] = useState<0 | 1>(0);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [markupMinPrice, setMarkupMinPrice] = useState<number | "">("");
+  const [markupMaxPrice, setMarkupMaxPrice] = useState<number | "">("");
+  const [savingMarkup, setSavingMarkup] = useState(false);
+
+  // modal filters
+  const [modalSearch, setModalSearch] = useState("");
+  const [slugFilter, setSlugFilter] = useState<string>("");
+
+  // modal list (ALL tour managers)
+  const [modalItemsRaw, setModalItemsRaw] = useState<TourManager[]>([]);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalFetchedOnce, setModalFetchedOnce] = useState(false);
+
+  const fetchAllForModal = async () => {
+    setModalLoading(true);
+    try {
+      // ✅ change to YOUR "get all (no pagination)" endpoint if different
+      // example: tour-manager/fetchall OR tour-manager/getallwithoutpagination
+      const res = await axios.get<any>(
+        `${process.env.NEXT_PUBLIC_API_BASE}tour-manager/fetch`
+      );
+
+      const list: TourManager[] =
+        res.data?.data || res.data?.items || res.data || [];
+
+      setModalItemsRaw(Array.isArray(list) ? list : []);
+      setModalFetchedOnce(true);
+    } catch (e) {
+      console.error("Error fetching ALL tour managers for modal:", e);
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const openMarkup = async () => {
+    setMarkupStep(0);
+    setSelectedIds([]);
+    setMarkupMinPrice("");
+    setMarkupMaxPrice("");
+    setModalSearch("");
+    setSlugFilter("");
+    setOpenMarkupModal(true);
+
+    if (!modalFetchedOnce) {
+      await fetchAllForModal();
+    }
+  };
+
+  const closeMarkup = () => setOpenMarkupModal(false);
+
+  const slugOptions = useMemo(() => {
+    const set = new Set<string>();
+    modalItemsRaw.forEach((tm) => {
+      const s = normalizeSlug(tm);
+      if (s) set.add(s);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [modalItemsRaw]);
+
+  const modalItems = useMemo(() => {
+    const term = modalSearch.trim().toLowerCase();
+
+    const bySearch = !term
+      ? modalItemsRaw
+      : modalItemsRaw.filter((tm) => {
+          const id = unwrapId(tm._id);
+          const langs = languagesToText(tm.language);
+          const hay = [
+            id,
+            (tm as any).managerId,
+            tm.title,
+            tm.slug,
+            stripHtml(tm.description),
+            stripHtml((tm as any).general_info),
+            langs,
+            ((tm as any).inclusions || []).join(" "),
+            ((tm as any).exclusions || []).join(" "),
+            ((tm as any).tourManagerProfiles || []).map((p: any) => p.name).join(" "),
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return hay.includes(term);
+        });
+
+    const bySlug = slugFilter
+      ? bySearch.filter((tm) => normalizeSlug(tm) === slugFilter)
+      : bySearch;
+
+    return bySlug;
+  }, [modalItemsRaw, modalSearch, slugFilter]);
+
+  const handleSubmitMarkup = async () => {
+    if (!selectedIds.length) return;
+
+    const min = markupMinPrice === "" ? undefined : Number(markupMinPrice);
+    const max = markupMaxPrice === "" ? undefined : Number(markupMaxPrice);
+
+    if (min !== undefined && max !== undefined && max < min) {
+      alert("Markup Max Price must be >= Markup Min Price");
+      return;
+    }
+
+    setSavingMarkup(true);
+    try {
+      // ✅ change to your real bulk markup endpoint
+      await axios.put(
+        `${process.env.NEXT_PUBLIC_API_BASE}tour-manager/bulk-markup`,
+        {
+          tourManagerIds: selectedIds,
+          markupMinPrice: min,
+          markupMaxPrice: max,
+        }
+      );
+
+      // optimistic update: current page list
+      setItems((prev: any) =>
+        prev.map((tm: any) => {
+          const tid = unwrapId(tm._id);
+          if (!selectedIds.includes(tid)) return tm;
+          return {
+            ...tm,
+            ...(min !== undefined ? { markupMinPrice: min } : {}),
+            ...(max !== undefined ? { markupMaxPrice: max } : {}),
+          };
+        })
+      );
+
+      // optimistic update: modal list
+      setModalItemsRaw((prev: any) =>
+        prev.map((tm: any) => {
+          const tid = unwrapId(tm._id);
+          if (!selectedIds.includes(tid)) return tm;
+          return {
+            ...tm,
+            ...(min !== undefined ? { markupMinPrice: min } : {}),
+            ...(max !== undefined ? { markupMaxPrice: max } : {}),
+          };
+        })
+      );
+
+      setOpenMarkupModal(false);
+    } catch (e) {
+      console.error("❌ tour-manager bulk markup update error:", e);
+      alert("Failed to update markup");
+    } finally {
+      setSavingMarkup(false);
+    }
+  };
 
   return (
     <Box sx={{ p: 3, backgroundColor: "white", minHeight: "70vh" }}>
@@ -179,14 +349,32 @@ const TourManagersDashboard: React.FC = () => {
           sx={{ width: { xs: "100%", sm: 420 } }}
         />
 
-        <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" } }}>
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", sm: "repeat(2, auto)" },
+            gap: 1.5,
+            width: "100%",
+            alignItems: "center",
+          }}
+        >
+          {/* ✅ Markup */}
+          <Button
+            onClick={openMarkup}
+            variant="outlined"
+            fullWidth
+            sx={{ height: 40, fontWeight: 700 }}
+          >
+            Markup
+          </Button>
+
           <Button
             href="/dashboard/services?type=tour-manager"
             component={Link as any}
             fullWidth
             variant="outlined"
             startIcon={<AddCircleOutline />}
-            sx={{ width: { xs: "100%", sm: "auto" } }}
+            sx={{ height: 40, fontWeight: 700 }}
           >
             Add Service
           </Button>
@@ -240,17 +428,17 @@ const TourManagersDashboard: React.FC = () => {
           >
             {filtered.map((tm) => {
               const id = unwrapId(tm._id);
-              const price = money(tm.price_breakdown?.totalPrice);
+              const priceTag = money((tm as any).price_breakdown?.totalPrice);
               const langs = languagesToText(tm.language);
               const timeRange =
-                tm.timings?.from && tm.timings?.to
-                  ? `${tm.timings.from} – ${tm.timings.to}`
+                (tm as any).timings?.from && (tm as any).timings?.to
+                  ? `${(tm as any).timings.from} – ${(tm as any).timings.to}`
                   : "";
               const role = roleLabel(tm);
 
               return (
                 <Card
-                  key={id || tm.managerId || tm.title}
+                  key={id || (tm as any).managerId || tm.title}
                   sx={{ width: "100%", maxWidth: 450, mx: "auto" }}
                 >
                   <Box sx={{ position: "relative" }}>
@@ -277,12 +465,12 @@ const TourManagersDashboard: React.FC = () => {
                         maxWidth: "calc(100% - 16px)",
                       }}
                     >
-                      {tm.managerId && (
+                      {(tm as any).managerId && (
                         <Chip
                           size="small"
                           color="primary"
                           icon={<People />}
-                          label={tm.managerId}
+                          label={(tm as any).managerId}
                           sx={{
                             bgcolor: "primary.main",
                             color: "primary.contrastText",
@@ -295,11 +483,11 @@ const TourManagersDashboard: React.FC = () => {
                         icon={<WorkspacePremium />}
                         sx={{ bgcolor: "background.paper", opacity: 0.9 }}
                       />
-                      {price !== "-" && (
+                      {priceTag !== "-" && (
                         <Chip
                           size="small"
                           icon={<CurrencyRupee />}
-                          label={price}
+                          label={priceTag}
                           sx={{
                             bgcolor: "success.light",
                             color: "success.contrastText",
@@ -310,12 +498,7 @@ const TourManagersDashboard: React.FC = () => {
                   </Box>
 
                   <CardContent sx={{ pb: 1, px: { xs: 1.5, sm: 2 } }}>
-                    <Stack
-                      direction="row"
-                      alignItems="center"
-                      justifyContent="space-between"
-                      spacing={1}
-                    >
+                    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
                       <Typography
                         variant="h6"
                         sx={{
@@ -330,17 +513,16 @@ const TourManagersDashboard: React.FC = () => {
                         {tm.title}
                       </Typography>
 
-                      {tm.rating && (
+                      {(tm as any).rating && (
                         <Chip
                           size="small"
                           color="success"
                           icon={<WorkspacePremium />}
-                          label={Number(tm.rating).toFixed(1)}
+                          label={Number((tm as any).rating).toFixed(1)}
                         />
                       )}
                     </Stack>
 
-                    {/* Short description (HTML) */}
                     <Typography
                       variant="body2"
                       color="text.secondary"
@@ -358,7 +540,6 @@ const TourManagersDashboard: React.FC = () => {
                     />
 
                     <Stack spacing={1.2} mt={1.5}>
-                      {/* Languages */}
                       {langs && (
                         <Chip
                           size="medium"
@@ -371,51 +552,34 @@ const TourManagersDashboard: React.FC = () => {
                             px: { xs: 1.2, sm: 1.8 },
                             borderRadius: 999,
                             boxShadow: 1,
-                            fontSize: {
-                              xs: "0.75rem",
-                              sm: "0.8125rem",
-                            },
+                            fontSize: { xs: "0.75rem", sm: "0.8125rem" },
                           }}
                         />
                       )}
 
-                      {/* Additional chips row */}
-                      <Stack
-                        direction="row"
-                        spacing={0.75}
-                        flexWrap="wrap"
-                        sx={{ gap: 0.75 }}
-                      >
+                      <Stack direction="row" spacing={0.75} flexWrap="wrap" sx={{ gap: 0.75 }}>
                         {timeRange && (
-                          <Chip
-                            size="small"
-                            icon={<AccessTime fontSize="small" />}
-                            label={timeRange}
-                          />
+                          <Chip size="small" icon={<AccessTime fontSize="small" />} label={timeRange} />
                         )}
 
-                        {!!tm.inclusions?.length && (
-                          <Tooltip
-                            title={`Inclusions: ${tm.inclusions.join(", ")}`}
-                          >
+                        {!!(tm as any).inclusions?.length && (
+                          <Tooltip title={`Inclusions: ${(tm as any).inclusions.join(", ")}`}>
                             <Chip size="small" color="success" label="Includes" />
                           </Tooltip>
                         )}
 
-                        {!!tm.exclusions?.length && (
-                          <Tooltip
-                            title={`Exclusions: ${tm.exclusions.join(", ")}`}
-                          >
+                        {!!(tm as any).exclusions?.length && (
+                          <Tooltip title={`Exclusions: ${(tm as any).exclusions.join(", ")}`}>
                             <Chip size="small" color="warning" label="Excludes" />
                           </Tooltip>
                         )}
 
-                        {!!tm.tourManagerProfiles?.length && (
+                        {!!(tm as any).tourManagerProfiles?.length && (
                           <Chip
                             size="small"
                             icon={<People fontSize="small" />}
-                            label={`${tm.tourManagerProfiles.length} profile${
-                              tm.tourManagerProfiles.length > 1 ? "s" : ""
+                            label={`${(tm as any).tourManagerProfiles.length} profile${
+                              (tm as any).tourManagerProfiles.length > 1 ? "s" : ""
                             }`}
                           />
                         )}
@@ -434,13 +598,8 @@ const TourManagersDashboard: React.FC = () => {
                       gap: { xs: 1, sm: 0 },
                     }}
                   >
-                    <Stack
-                      direction="row"
-                      spacing={1}
-                      sx={{ width: { xs: "100%", sm: "auto" } }}
-                    >
+                    <Stack direction="row" spacing={1} sx={{ width: { xs: "100%", sm: "auto" } }}>
                       <Button
-                        key="edit"
                         component={Link as any}
                         href={`/dashboard/tour-managers/edit`}
                         size="small"
@@ -449,6 +608,14 @@ const TourManagersDashboard: React.FC = () => {
                       >
                         Edit
                       </Button>
+
+                      {id && (
+                        <Tooltip title="Copy ID">
+                          <IconButton size="small" onClick={() => copyToClipboard(id)}>
+                            <ContentCopy fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                     </Stack>
                   </CardActions>
                 </Card>
@@ -458,15 +625,248 @@ const TourManagersDashboard: React.FC = () => {
 
           {/* Pagination */}
           <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
-            <Pagination
-              count={pages}
-              page={page}
-              onChange={(e, value) => setPage(value)}
-              color="primary"
-            />
+            <Pagination count={pages} page={page} onChange={(e, value) => setPage(value)} color="primary" />
           </Box>
         </>
       )}
+
+      {/* ✅ MARKUP MODAL (SLUG FILTER) */}
+      <Dialog open={openMarkupModal} onClose={closeMarkup} fullScreen={isMobile} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                Select Tour Managers / Guides
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Filter by slug and continue.
+              </Typography>
+            </Box>
+
+            <Chip label={`Selected: ${selectedIds.length}`} variant="outlined" sx={{ fontWeight: 800 }} />
+          </Box>
+        </DialogTitle>
+
+        <DialogContent sx={{ pt: 1 }}>
+          <Stepper activeStep={markupStep} sx={{ mb: 2 }}>
+            <Step>
+              <StepLabel>Select</StepLabel>
+            </Step>
+            <Step>
+              <StepLabel>Markup</StepLabel>
+            </Step>
+          </Stepper>
+
+          {markupStep === 0 ? (
+            <>
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", sm: "260px 1fr" },
+                  gap: 1.5,
+                  mb: 1.5,
+                  alignItems: "center",
+                }}
+              >
+                <FormControl size="small" fullWidth>
+                  <InputLabel>Slug</InputLabel>
+                  <Select label="Slug" value={slugFilter} onChange={(e) => setSlugFilter(e.target.value)}>
+                    <MenuItem value="">All</MenuItem>
+                    {slugOptions.map((s) => (
+                      <MenuItem key={s} value={s}>
+                        {s}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                <TextField
+                  size="small"
+                  placeholder="Search tour managers..."
+                  value={modalSearch}
+                  onChange={(e) => setModalSearch(e.target.value)}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Search />
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{ width: "100%", "& .MuiOutlinedInput-root": { borderRadius: 1.5, height: 40 } }}
+                />
+              </Box>
+
+              <Divider sx={{ mb: 2 }} />
+
+              {modalLoading ? (
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", py: 6 }}>
+                  <CircularProgress />
+                </Box>
+              ) : (
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" },
+                    gap: 1.25,
+                    maxHeight: isMobile ? "63vh" : "52vh",
+                    overflow: "auto",
+                    pr: 0.5,
+                  }}
+                >
+                  {modalItems.map((tm) => {
+                    const tid = unwrapId(tm._id);
+                    const checked = selectedIds.includes(tid);
+                    const cover = mainImage(tm);
+                    const langs = languagesToText(tm.language);
+                    const role = roleLabel(tm);
+
+                    return (
+                      <Card
+                        key={tid}
+                        onClick={() => toggleSelection(tid)}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.25,
+                          p: 1,
+                          borderRadius: 2,
+                          cursor: "pointer",
+                          border: checked ? "2px solid" : "1px solid",
+                          borderColor: checked ? "primary.main" : "divider",
+                          boxShadow: "none",
+                          transition: "0.15s",
+                          "&:hover": { borderColor: "primary.main" },
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            width: 72,
+                            height: 56,
+                            borderRadius: 2,
+                            overflow: "hidden",
+                            flexShrink: 0,
+                            bgcolor: "grey.100",
+                          }}
+                        >
+                          <CardMedia
+                            component="img"
+                            image={cover}
+                            alt={tm.title || "Tour manager"}
+                            loading="lazy"
+                            sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                          />
+                        </Box>
+
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography
+                            sx={{
+                              fontWeight: 900,
+                              fontSize: 14,
+                              lineHeight: 1.2,
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                              overflow: "hidden",
+                            }}
+                          >
+                            {tm.title || "—"}
+                          </Typography>
+
+                          <Typography
+                            variant="body2"
+                            color="text.secondary"
+                            sx={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                          >
+                            {role} • {langs || "—"}
+                          </Typography>
+                        </Box>
+
+                        <Checkbox
+                          checked={checked}
+                          onChange={() => toggleSelection(tid)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </Card>
+                    );
+                  })}
+
+                  {!modalItems.length && !modalLoading && (
+                    <Box sx={{ gridColumn: "1 / -1", py: 4, textAlign: "center" }}>
+                      <Typography color="text.secondary">No tour managers found.</Typography>
+                    </Box>
+                  )}
+                </Box>
+              )}
+            </>
+          ) : (
+            <>
+              <Typography sx={{ fontWeight: 900, mb: 0.5 }}>Add markup for selected tour managers</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                This will update markup prices for <b>{selectedIds.length}</b> records.
+              </Typography>
+
+              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" }, gap: 2 }}>
+                <TextField
+                  label="Markup Min Price"
+                  type="number"
+                  value={markupMinPrice}
+                  onChange={(e) => setMarkupMinPrice(e.target.value ? Number(e.target.value) : "")}
+                  inputProps={{ min: 0 }}
+                  fullWidth
+                />
+                <TextField
+                  label="Markup Max Price"
+                  type="number"
+                  value={markupMaxPrice}
+                  onChange={(e) => setMarkupMaxPrice(e.target.value ? Number(e.target.value) : "")}
+                  inputProps={{ min: 0 }}
+                  fullWidth
+                />
+              </Box>
+            </>
+          )}
+        </DialogContent>
+
+        <DialogActions
+          sx={{
+            px: 2,
+            py: 1.5,
+            gap: 1,
+            justifyContent: "space-between",
+            borderTop: "1px solid",
+            borderColor: "divider",
+          }}
+        >
+          <Button onClick={closeMarkup} color="inherit" variant="outlined" sx={{ borderRadius: 1.5, height: 36, fontWeight: 800 }}>
+            Cancel
+          </Button>
+
+          {markupStep === 0 ? (
+            <Button
+              variant="contained"
+              disabled={!selectedIds.length || modalLoading}
+              onClick={() => setMarkupStep(1)}
+              sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
+            >
+              Continue
+            </Button>
+          ) : (
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <Button variant="outlined" onClick={() => setMarkupStep(0)} sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}>
+                Back
+              </Button>
+              <Button
+                variant="contained"
+                onClick={handleSubmitMarkup}
+                disabled={savingMarkup}
+                sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
+              >
+                {savingMarkup ? "Saving..." : "Submit"}
+              </Button>
+            </Box>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

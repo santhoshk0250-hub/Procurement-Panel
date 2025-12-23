@@ -16,6 +16,7 @@ import {
   Image as ImageIcon,
   X,
   Info as InfoIcon,
+  IndianRupee,
 } from "lucide-react";
 import { Button } from "@mui/material";
 import { AddCircleOutline } from "@mui/icons-material";
@@ -89,6 +90,8 @@ interface VehicleOptionUI {
   year?: number | "";
   fuelType?: string;
   transmission?: string;
+  markup_min_price?: number;
+  markup_max_price?: number;
   ratings?: RatingsUI;
   amenities?: string[];
   safetyFeatures?: string[];
@@ -338,7 +341,8 @@ export default function EditTransferRouteMobile() {
         year: typeof o?.year === "number" ? o.year : "",
         fuelType: o?.fuelType || "",
         transmission: o?.transmission || "",
-
+       markup_min_price: o?.markup_min_price ?? null,
+markup_max_price: o?.markup_max_price ?? null,
         nightCharge: o?.nightCharge
           ? {
               enabled: true,
@@ -701,6 +705,8 @@ export default function EditTransferRouteMobile() {
           year: toNumOrZero(v.year),
           fuelType: v.fuelType || undefined,
           transmission: v.transmission || undefined,
+          markup_min_price: v.markup_min_price ?? null,
+           markup_max_price: v.markup_max_price ?? null,
           nightCharge:
             v.nightCharge?.enabled
               ? {
@@ -1275,6 +1281,45 @@ export default function EditTransferRouteMobile() {
                           disabled={submitting}
                         />
                       </Field>
+
+                       <Field label="Markup Min Price (₹)">
+  <div className="relative">
+    <input
+      type="number"
+      className="input pl-9"
+      min={0}
+      value={v.markup_min_price ?? ""}
+      onChange={(e) =>
+        updateOption(idx, {
+          markup_min_price: e.target.value === "" ? null : Number(e.target.value),
+        })
+      }
+      placeholder="e.g., 200"
+      disabled={submitting}
+    />
+    <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+  </div>
+</Field>
+
+<Field label="Markup Max Price (₹)">
+  <div className="relative">
+    <input
+      type="number"
+      className="input pl-9"
+      min={0}
+      value={v.markup_max_price ?? ""}
+      onChange={(e) =>
+        updateOption(idx, {
+          markup_max_price: e.target.value === "" ? null : Number(e.target.value),
+        })
+      }
+      placeholder="e.g., 500"
+      disabled={submitting}
+    />
+    <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+  </div>
+</Field>
+
 
                       {/* DESCRIPTION (TinyMCE) */}
                       <Field

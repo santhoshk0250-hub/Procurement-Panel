@@ -63,7 +63,8 @@ export interface FoodService {
   allergens: string[];
   spiceLevel: SpiceLevel;
   dietaryInfo: DietaryInfo;
-
+  markup_min_price: number;
+  markup_max_price: number;
   // Pricing / ratings
   price: number; // in INR
   rating: number; // 0..5
@@ -108,7 +109,8 @@ export interface FoodFormUIValues {
   rating?: number | "";
   reviewCount?: number | "";
   addonIds: string[];
-
+  markup_min_price: number | null;
+markup_max_price: number | null;
   // Media in the UI are handled via Files; the store keeps only URLs
   bannerUrl?: string | null;
   images: string[]; // existing URLs only
@@ -140,7 +142,8 @@ export const fromFormUI = (ui: FoodFormUIValues): FoodService => {
       glutenFree: !!ui.dietaryInfo?.glutenFree,
       halal: !!ui.dietaryInfo?.halal,
     },
-
+    markup_min_price: Math.max(0, num(ui.markup_min_price, 0)),
+    markup_max_price: Math.max(0, num(ui.markup_max_price, 0)),
     price: Math.max(0, num(ui.price, 0)),
     rating: Math.min(5, Math.max(0, num(ui.rating, 0))),
     reviewCount: Math.max(0, Math.floor(num(ui.reviewCount, 0))),
@@ -187,7 +190,8 @@ export interface FoodAPIItem {
   addons?: FoodAddon[];
   llm_chips?: FAQ[];
   segregated_images?: ActivitySegregatedImageGroup[];
-
+markup_min_price?: number;
+markup_max_price?: number;
   createdAt?: MongoDate;
   updatedAt?: MongoDate;
   __v?: number;
@@ -221,6 +225,8 @@ export const fromAPI = (x: FoodAPIItem): FoodService => ({
     glutenFree: !!x.dietaryInfo?.glutenFree,
     halal: !!x.dietaryInfo?.halal,
   },
+    markup_min_price: Number.isFinite(x.markup_min_price as number) ? (x.markup_min_price as number) : 0,
+    markup_max_price: Number.isFinite(x.markup_max_price as number) ? (x.markup_max_price as number) : 0,
 
   price: Number.isFinite(x.price as number) ? (x.price as number) : 0,
   rating: Number.isFinite(x.rating as number) ? (x.rating as number) : 0,
@@ -332,6 +338,9 @@ export const BLANK_FOOD_SERVICE: FoodService = {
     glutenFree: false,
     halal: false,
   },
+
+  markup_min_price: null,
+  markup_max_price: null,
 
   price: 0,
   rating: 0,

@@ -18,7 +18,7 @@ import {
   ChevronUp,
   Plus,
   HelpCircle,
-
+IndianRupee
 } from "lucide-react";
 
 // 🔤 Rich text editor
@@ -58,6 +58,8 @@ interface FoodFormData {
   reviewCount?: number | "";
   isAvailable: boolean;
   preparationTime: string;
+  markup_min_price: number;
+  markup_max_price: number;
   spiceLevel: SpiceLevel;
   dietaryInfo: DietaryInfo;
   addonIds: string[]; // existing add-on IDs only
@@ -121,6 +123,8 @@ const BLANK: FoodFormData = {
   reviewCount: "",
   isAvailable: true,
   preparationTime: "",
+   markup_min_price: null,
+  markup_max_price: null,
   spiceLevel: "mild",
   dietaryInfo: { vegetarian: false, vegan: false, glutenFree: false, halal: false },
   addonIds: [],
@@ -590,6 +594,8 @@ export default function AddFoodServiceFormMobile() {
         name: data.name.trim(),
         description: data.description.trim(),
         price: Number(data.price || 0),
+        markup_min_price: data.markup_min_price,
+        markup_max_price: data.markup_max_price,
         // banner handled via file upload
         category: data.category,
         cuisine: data.cuisineTags.map((s) => s.trim()).filter(Boolean),
@@ -863,6 +869,36 @@ export default function AddFoodServiceFormMobile() {
                   </span>
                 </div>
               </Field>
+
+                  <Field label="Markup Min Price (₹)">
+                                            <div className="relative">
+                                              <input
+                                                type="number"
+                                                className="input pl-9"
+                                                min={0}
+                                                value={(data as any).markup_min_price ?? ""}
+                                                onChange={(e) => onText("markup_min_price", e.target.value)}
+                                                placeholder="e.g., 200"
+                                                disabled={submitting}
+                                              />
+                                              <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                            </div>
+                                          </Field>
+                            
+                                          <Field label="Markup Max Price (₹)">
+                                            <div className="relative">
+                                              <input
+                                                type="number"
+                                                className="input pl-9"
+                                                min={0}
+                                                value={(data as any).markup_max_price ?? ""}
+                                              onChange={(e) => onText("markup_max_price", e.target.value)}
+                                                placeholder="e.g., 500"
+                                                disabled={submitting}
+                                              />
+                                              <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                            </div>
+                                          </Field>
             </div>
 
             <div className="mt-4">

@@ -356,6 +356,9 @@ const AddHotelPage: React.FC = () => {
   const [chainBrand, setChainBrand] = useState("");
   const [destinationId, setDestinationId] = useState("");
   const [marketId, setMarketId] = useState("");
+// Markup fields
+const [markupMinPrice, setMarkupMinPrice] = useState<number | "">("");
+const [markupMaxPrice, setMarkupMaxPrice] = useState<number | "">("");
 
   // Loyalty Program fields
   const [programName, setProgramName] = useState("");
@@ -1129,6 +1132,8 @@ const isFormValid = () => {
     // Destination / Market
     if (destinationId) formData.append("destination_id", destinationId);
     if (marketId) formData.append("market_id", marketId);
+if (markupMinPrice !== "") formData.append("markup_min_price", String(markupMinPrice));
+if (markupMaxPrice !== "") formData.append("markup_max_price", String(markupMaxPrice));
 
     // Loyalty program (nested object as JSON)
     if (programName) {
@@ -1485,7 +1490,7 @@ if (petPolicy) {
    axios.post( process.env.NEXT_PUBLIC_API_BASE + "hotels/addhotel",formData, { withCredentials: true, headers: { "Content-Type": "multipart/form-data" },})
       .then((res) => {
       showToast.success("Hotel added successfully!");
-        // router.push("/dashboard/calendar");
+        router.push("/dashboard/calendar");
       })
       .catch((err) => {
         setTruebutton(false);
@@ -1873,6 +1878,42 @@ const handleSpecialBlackoutChange = (
         />
       </div>
     </LocalizationProvider>
+
+    {/* Markup Min/Max Price */}
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div>
+    <label className="block text-sm font-medium text-gray-700">
+      Markup Min Price
+    </label>
+    <input
+      type="number"
+      min={0}
+      value={markupMinPrice}
+      onChange={(e) =>
+        setMarkupMinPrice(e.target.value ? Number(e.target.value) : "")
+      }
+      className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
+      placeholder="e.g. 100"
+    />
+  </div>
+
+  <div>
+    <label className="block text-sm font-medium text-gray-700">
+      Markup Max Price
+    </label>
+    <input
+      type="number"
+      min={0}
+      value={markupMaxPrice}
+      onChange={(e) =>
+        setMarkupMaxPrice(e.target.value ? Number(e.target.value) : "")
+      }
+      className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
+      placeholder="e.g. 500"
+    />
+  </div>
+</div>
+
 
     {/* About This Space */}
 <div className="border-t pt-4">

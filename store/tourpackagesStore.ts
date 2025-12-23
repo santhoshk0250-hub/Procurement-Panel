@@ -139,7 +139,8 @@ export interface PackageModel {
 
   start_date?: string;
   end_date?: string;
-
+markup_min_price: number;
+  markup_max_price: number;
   isCustomizable?: boolean;
 
   itinerary?: PackageItineraryDay[];

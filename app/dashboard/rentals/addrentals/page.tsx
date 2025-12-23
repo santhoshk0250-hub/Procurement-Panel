@@ -60,6 +60,8 @@ interface VehicleFormData {
   vehicleType: string;
   seaterCapacity: string;
   variant?: string | null;
+  markup_min_price?: string;
+  markup_max_price?: string;
   images: string[];
   pricing: Pricing; // canonical (mirrors Seller Price for compatibility)
   vendorPricing: Pricing;
@@ -106,6 +108,8 @@ const initialBlankState: VehicleFormData = {
   vehicleType: "",
   seaterCapacity: "",
   variant: "",
+  markup_min_price: "",
+  markup_max_price: "",
   images: [],
   pricing: { ...blankPricing }, // canonical (we mirror sellerPricing into this)
   vendorPricing: { ...blankPricing },
@@ -790,6 +794,32 @@ export default function AddRentalFormMobile() {
                   );
                 })()}
               </Field>
+              <Field label="Markup Min Price">
+  <input
+    type="number"
+    inputMode="decimal"
+    min={0}
+    value={formData.markup_min_price || ""}
+    onChange={(e) => onText("markup_min_price", e.target.value)}
+    className="input"
+    placeholder="e.g., 999"
+    disabled={submitting}
+  />
+</Field>
+
+<Field label="Markup Max Price">
+  <input
+    type="number"
+    inputMode="decimal"
+    min={0}
+    value={formData.markup_max_price || ""}
+    onChange={(e) => onText("markup_max_price", e.target.value)}
+    className="input"
+    placeholder="e.g., 1999"
+    disabled={submitting}
+  />
+</Field>
+
             </div>
           </SectionCard>
         )}

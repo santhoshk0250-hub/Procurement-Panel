@@ -14,7 +14,7 @@ import {
   ChevronDown,
   Trash2,
   Pencil,
-    ChevronLeft,
+  ChevronLeft,
   ChevronRight
 } from "lucide-react";
 
@@ -91,7 +91,8 @@ interface TourPackageUI {
 
   startDate: string;
   endDate: string;
-
+markup_min_price: number;
+  markup_max_price: number;
   services: ServiceUI[];
   itinerary: ItineraryDayUI[];
 
@@ -114,7 +115,8 @@ interface ServiceMetaItem {
   title?: string;
   metaTitle?: string;
   name?: string;
-
+markup_min_price: number;
+  markup_max_price: number;
   banner?: string;
   thumbnail?: string;
   thumbnailUrl?: string;
@@ -285,14 +287,14 @@ const getServiceCardContent = (categoryKey: string, item: ServiceMetaItem) => {
 
   const rating =
     item.rating ??
-    item.ratingCount ??
-    item.reviewCount
+      item.ratingCount ??
+      item.reviewCount
       ? `${item.rating?.toFixed?.(1) ?? ""}★ (${item.reviewCount ?? item.ratingCount} reviews)`
       : "";
 
   if (key === "hotels" || key === "hotel") {
     const price = item.priceBreakdown?.totalPrice ?? item.priceBreakdown?.basePrice ?? item.price;
-      const galleryImages = item?.media_gallery?.room?.[0]|| "";
+    const galleryImages = item?.media_gallery?.room?.[0] || "";
     return {
       mediaUrl: galleryImages,
       title: item.metaTitle || item.title || item.name || "Hotel",
@@ -331,8 +333,8 @@ const getServiceCardContent = (categoryKey: string, item: ServiceMetaItem) => {
           ? item.category.join(", ")
           : String(item.category)
         : item.cuisine
-        ? (item.cuisine as string[]).join(", ")
-        : "",
+          ? (item.cuisine as string[]).join(", ")
+          : "",
       chip: item.dietaryInfo?.vegetarian ? "Veg" : "",
       priceLabel: price ? `₹${price} per person` : "",
       ratingLabel: rating,
@@ -474,7 +476,8 @@ const BLANK_TOUR_PACKAGE: TourPackageUI = {
   totalNights: "0",
   startDate: "",
   endDate: "",
-
+markup_min_price: null,
+  markup_max_price: null,
   services: [],
   itinerary: [{ ...BLANK_IT_DAY, day: "1" }],
   surcharges: [DEFAULT_SURCHARGE],
@@ -496,7 +499,7 @@ const LAST_INDEX = STEPS.length - 1;
    STORE -> UI MAPPING
    ========================= */
 
-   function buildRemovableMap(inclusions: any) {
+function buildRemovableMap(inclusions: any) {
   const map = new Map<string, boolean>();
 
   if (!inclusions || typeof inclusions !== "object") return map;
@@ -520,7 +523,7 @@ const LAST_INDEX = STEPS.length - 1;
 
 function mapStoreToUI(pkg: PackageModel): TourPackageUI {
   // Build itinerary slots from activitieIds (group by time/endtime)
-    const removableMap = buildRemovableMap(pkg?.inclusions);
+  const removableMap = buildRemovableMap(pkg?.inclusions);
   const itineraryDays: ItineraryDayUI[] =
     (pkg?.itinerary || []).map((d: any, idx: number) => {
       const acts = Array.isArray(d?.activitieIds) ? d.activitieIds : [];
@@ -545,16 +548,16 @@ function mapStoreToUI(pkg: PackageModel): TourPackageUI {
         const slot = slotMap.get(key)!;
 
         // Try to infer removable from inclusions if present
-   // Try to infer removable from inclusions (hotel, activity, nightlife, etc.)
-let isRemovable =
-  typeof a?.isRemovable === "boolean"
-    ? a.isRemovable
-    : !!a?.isOptional; // fallback
+        // Try to infer removable from inclusions (hotel, activity, nightlife, etc.)
+        let isRemovable =
+          typeof a?.isRemovable === "boolean"
+            ? a.isRemovable
+            : !!a?.isOptional; // fallback
 
-const fromInclusions = removableMap.get(String(a?.serviceItemId || ""));
-if (typeof fromInclusions === "boolean") {
-  isRemovable = fromInclusions;
-}
+        const fromInclusions = removableMap.get(String(a?.serviceItemId || ""));
+        if (typeof fromInclusions === "boolean") {
+          isRemovable = fromInclusions;
+        }
 
 
         slot.activities.push({
@@ -569,10 +572,10 @@ if (typeof fromInclusions === "boolean") {
       const timeSlots =
         slotMap.size > 0
           ? Array.from(slotMap.values()).sort((s1, s2) => {
-              const m1 = timeToMinutes(s1.from) ?? 0;
-              const m2 = timeToMinutes(s2.from) ?? 0;
-              return m1 - m2;
-            })
+            const m1 = timeToMinutes(s1.from) ?? 0;
+            const m2 = timeToMinutes(s2.from) ?? 0;
+            return m1 - m2;
+          })
           : DEFAULT_DAY_SLOTS.map((s) => ({ ...s, id: crypto.randomUUID(), activities: [] }));
 
       return {
@@ -586,13 +589,13 @@ if (typeof fromInclusions === "boolean") {
   const surcharges: Surcharge[] =
     Array.isArray(pkg?.surcharges) && pkg.surcharges.length
       ? pkg.surcharges.map((s: any) => ({
-          windowType: (s?.windowType || "single") as SurchargeWindow,
-          singleDate: s?.singleDate || "",
-          startDate: s?.startDate || "",
-          endDate: s?.endDate || "",
-          amount: s?.amount !== undefined && s?.amount !== null ? String(s.amount) : "",
-          currency: s?.currency || "INR",
-        }))
+        windowType: (s?.windowType || "single") as SurchargeWindow,
+        singleDate: s?.singleDate || "",
+        startDate: s?.startDate || "",
+        endDate: s?.endDate || "",
+        amount: s?.amount !== undefined && s?.amount !== null ? String(s.amount) : "",
+        currency: s?.currency || "INR",
+      }))
       : [{ ...DEFAULT_SURCHARGE }];
 
   return {
@@ -611,6 +614,8 @@ if (typeof fromInclusions === "boolean") {
     totalNights: String(pkg?.total_nights ?? ""),
     startDate: (pkg as any)?.start_date || "",
     endDate: (pkg as any)?.end_date || "",
+markup_min_price: pkg?.markup_min_price || null,  
+    markup_max_price: pkg?.markup_max_price || null,
     services: [], // will be computed from itinerary at submit (like add page)
     itinerary: itineraryDays,
     exclusions: Array.isArray(pkg?.exclusions) ? pkg.exclusions : [],
@@ -641,15 +646,15 @@ export default function EditTourPackagePage() {
   const [servicesMeta, setServicesMeta] = useState<ServicesMetaMap>({});
   const [loadingServicesMeta, setLoadingServicesMeta] = useState(false);
 
-const [descriptionHtml, setDescriptionHtml] = useState<string>("");
-    const tabsScrollRef = React.useRef<HTMLDivElement | null>(null);
-  
+  const [descriptionHtml, setDescriptionHtml] = useState<string>("");
+  const tabsScrollRef = React.useRef<HTMLDivElement | null>(null);
+
   const scrollTabsToStart = () => {
     const el = tabsScrollRef.current;
     if (!el) return;
     el.scrollTo({ left: 0, behavior: "smooth" });
   };
-  
+
   const scrollTabsToEnd = () => {
     const el = tabsScrollRef.current;
     if (!el) return;
@@ -727,20 +732,20 @@ const [descriptionHtml, setDescriptionHtml] = useState<string>("");
   const setTour = (next: Partial<TourPackageUI>) => setData((prev) => ({ ...prev, ...next }));
 
   /* ---------- Hydrate from store (EDIT) ---------- */
- useEffect(() => {
-  if (!tourPackage) return;
+  useEffect(() => {
+    if (!tourPackage) return;
 
-  const ui = mapStoreToUI(tourPackage);
-  setData(ui);
+    const ui = mapStoreToUI(tourPackage);
+    setData(ui);
 
-  setDescriptionHtml(ui.descriptionHtml || "");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [tourPackage]);
+    setDescriptionHtml(ui.descriptionHtml || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourPackage]);
 
-useEffect(() => {
-  setTour({ descriptionHtml: descriptionHtml || "" });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [descriptionHtml]);
+  useEffect(() => {
+    setTour({ descriptionHtml: descriptionHtml || "" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [descriptionHtml]);
 
 
   /* ---------- fetch service categories & meta ---------- */
@@ -944,9 +949,33 @@ useEffect(() => {
   }>({ open: false, dayIdx: null, slotIdx: null, activeCategoryId: null, selected: [] });
 
   const openServicePicker = (dayIdx: number, slotIdx: number) => {
-    const fallbackCategoryId = serviceCategories[0]?._id || null;
-    setServicePicker({ open: true, dayIdx, slotIdx, activeCategoryId: fallbackCategoryId, selected: [] });
-  };
+  const fallbackCategoryId = serviceCategories[0]?._id || null;
+
+  // ✅ Prefill selections from this SLOT's existing activities
+  const day = data.itinerary?.[dayIdx];
+  const slot = day?.timeSlots?.[slotIdx];
+
+  const preselected =
+    (slot?.activities || [])
+      .filter((a) => a.serviceId && a.serviceItemId)
+      .map((a) => {
+        const cat = serviceCategories.find((c) => c._id === a.serviceId);
+        return {
+          categoryId: a.serviceId,
+          categoryTitle: cat?.title || "",
+          itemId: a.serviceItemId,
+        };
+      });
+
+  setServicePicker({
+    open: true,
+    dayIdx,
+    slotIdx,
+    activeCategoryId: fallbackCategoryId,
+    selected: preselected,
+  });
+};
+
 
   const closeServicePicker = () =>
     setServicePicker({ open: false, dayIdx: null, slotIdx: null, activeCategoryId: null, selected: [] });
@@ -999,7 +1028,7 @@ useEffect(() => {
     try {
       setSubmitting(true);
 
-     const descHtmlClean = (descriptionHtml || "").replace(/[\n\r]/g, "").replace(/>\s+</g, "><");
+      const descHtmlClean = (descriptionHtml || "").replace(/[\n\r]/g, "").replace(/>\s+</g, "><");
 
 
       // Collect unique services from itinerary
@@ -1049,7 +1078,8 @@ useEffect(() => {
         max_pax: Number(data.maxPax) || 0,
         total_days: Number(data.totalDays) || 0,
         total_nights: Number(data.totalNights) || 0,
-
+        markup_min_price: data.markup_min_price,
+        markup_max_price: data.markup_max_price,
         services: servicesFromActivities.map((s) => ({
           serviceId: s.serviceId || undefined,
           serviceItemId: s.serviceItemId || undefined,
@@ -1151,27 +1181,26 @@ useEffect(() => {
             </div>
 
             <button
-  type="button"
-  onClick={() => {
-    if (!tourPackage) return;
+              type="button"
+              onClick={() => {
+                if (!tourPackage) return;
 
-    const ui = mapStoreToUI(tourPackage);
+                const ui = mapStoreToUI(tourPackage);
 
-    // reset all form data
-    setData(ui);
+                // reset all form data
+                setData(ui);
 
-    // reset TinyMCE value (HTML)
-    setDescriptionHtml(ui.descriptionHtml || "");
-  }}
-  disabled={submitting || !tourPackage}
-  className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${
-    submitting || !tourPackage
-      ? "border-gray-200 text-gray-400"
-      : "border-gray-300 text-gray-700 hover:bg-gray-50"
-  }`}
->
-  Reset
-</button>
+                // reset TinyMCE value (HTML)
+                setDescriptionHtml(ui.descriptionHtml || "");
+              }}
+              disabled={submitting || !tourPackage}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${submitting || !tourPackage
+                  ? "border-gray-200 text-gray-400"
+                  : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                }`}
+            >
+              Reset
+            </button>
 
           </div>
 
@@ -1190,13 +1219,12 @@ useEffect(() => {
                     if (allPrevValid) setStepIndex(i);
                     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs whitespace-nowrap ${
-                    active
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs whitespace-nowrap ${active
                       ? "bg-emerald-50 border-emerald-500 text-emerald-700"
                       : done
-                      ? "bg-green-50 border-green-500 text-green-700"
-                      : "bg-white border-gray-200 text-gray-700"
-                  }`}
+                        ? "bg-green-50 border-green-500 text-green-700"
+                        : "bg-white border-gray-200 text-gray-700"
+                    }`}
                   disabled={submitting}
                 >
                   <span className="grid place-items-center">{done ? <CheckCircle2 className="size-4" /> : s.icon}</span>
@@ -1295,18 +1323,55 @@ useEffect(() => {
                     disabled={submitting}
                   />
                 </Field>
+                  <Field label="Markup Min Price (₹)">
+                                    <div className="relative">
+                                      <input
+                                        type="number"
+                                        className="input pl-9"
+                                        min={0}
+                                        value={data.markup_min_price ?? ""}
+                                        onChange={(e) =>
+                                          setTour({
+                                            markup_min_price: e.target.value === "" ? null : Number(e.target.value),
+                                          })
+                                        }
+                                        placeholder="e.g., 200"
+                                        disabled={submitting}
+                                      />
+                                      <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                    </div>
+                                  </Field>
+                                  
+                                  <Field label="Markup Max Price (₹)">
+                                    <div className="relative">
+                                      <input
+                                        type="number"
+                                        className="input pl-9"
+                                        min={0}
+                                        value={data.markup_max_price ?? ""}
+                                        onChange={(e) =>
+                                          setTour({
+                                            markup_max_price: e.target.value === "" ? null : Number(e.target.value),
+                                          })
+                                        }
+                                        placeholder="e.g., 500"
+                                        disabled={submitting}
+                                      />
+                                      <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                    </div>
+                                  </Field>
               </div>
 
               <Field label="Description *" required>
-  <div className="rounded-xl border border-gray-300 bg-white shadow-sm overflow-hidden">
-    <TinyMCETextEditor
-      value={descriptionHtml}
-      onChange={(html: string) => setDescriptionHtml(html)}
-      disabled={submitting}
-      placeholder="Experience luxury in Goa..."
-    />
-  </div>
-</Field>
+                <div className="rounded-xl border border-gray-300 bg-white shadow-sm overflow-hidden">
+                  <TinyMCETextEditor
+                    value={descriptionHtml}
+                    onChange={(html: string) => setDescriptionHtml(html)}
+                    disabled={submitting}
+                    placeholder="Experience luxury in Goa..."
+                  />
+                </div>
+              </Field>
 
 
               {/* Thumbnail */}
@@ -1372,9 +1437,8 @@ useEffect(() => {
                             <button
                               type="button"
                               onClick={() => toggleDayOpen(idx)}
-                              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
-                                isOpen ? "bg-emerald-50 border-emerald-500 text-emerald-700" : "bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100"
-                              }`}
+                              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition ${isOpen ? "bg-emerald-50 border-emerald-500 text-emerald-700" : "bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100"
+                                }`}
                               aria-expanded={isOpen}
                             >
                               <ChevronDown className={`size-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
@@ -1812,7 +1876,20 @@ useEffect(() => {
             ACTIVITIES: "activities",
             LEISURE: "leisure activities",
             NIGHTLIFE: "nightlife",
+            SIGHTSEEING: "sightseeing",
           };
+
+          const isSightseeingTitle = (t: string) => titleNorm(t) === CAT.SIGHTSEEING;
+
+          const nonSightseeingSelections = servicePicker.selected.filter(
+            (s) => !isSightseeingTitle(s.categoryTitle)
+          );
+
+          const hasNonSightseeingSelected = nonSightseeingSelections.length > 0;
+
+          // since non-sightseeing is only one, this is the currently chosen non-sightseeing category
+          const selectedNonSightseeingCategoryId = nonSightseeingSelections[0]?.categoryId ?? null;
+
 
           const daytimeExclusiveGroup = [CAT.ACTIVITIES, CAT.LEISURE];
           const nightExclusiveGroup = [CAT.NIGHTLIFE, CAT.LEISURE];
@@ -1822,17 +1899,31 @@ useEffect(() => {
           const slotStartMin = slot?.from ? timeToMinutes(slot.from) : null;
           const isDaytime = slotStartMin !== null ? slotStartMin <= 18 * 60 : true;
 
-          const isCategoryTabDisabled = (catTitle: string) => {
-            const t = titleNorm(catTitle);
+          const isCategoryTabDisabled = (cat: ServiceCategory) => {
+            const t = titleNorm(cat.title);
+
+            // If user picked a non-sightseeing item:
+            // - allow Sightseeing tab always
+            // - allow the SAME non-sightseeing tab (so they can unselect the chosen item)
+            // - disable all other tabs
+            if (hasNonSightseeingSelected) {
+              if (t === CAT.SIGHTSEEING) return false;
+              if (cat._id === selectedNonSightseeingCategoryId) return false;
+              return true;
+            }
+
+            // Otherwise apply your existing daytime/night rules (optional)
             if (isDaytime) {
               if (t === CAT.ACTIVITIES) return hasSelectedIn([CAT.LEISURE]);
               if (t === CAT.LEISURE) return hasSelectedIn([CAT.ACTIVITIES]);
               return false;
             }
+
             if (t === CAT.NIGHTLIFE) return hasSelectedIn([CAT.LEISURE]);
             if (t === CAT.LEISURE) return hasSelectedIn([CAT.NIGHTLIFE]);
             return false;
           };
+
 
           const filteredCategories = (serviceCategories || []).filter((c) => {
             const title = normalizeTitle(c?.title);
@@ -1860,8 +1951,13 @@ useEffect(() => {
               if (!item._id) return prev;
 
               const catTitleNorm = titleNorm(category.title);
+              const isSightseeing = catTitleNorm === CAT.SIGHTSEEING;
 
-              const existsIdx = prev.selected.findIndex((s) => s.categoryId === category._id && s.itemId === item._id);
+              const existsIdx = prev.selected.findIndex(
+                (s) => s.categoryId === category._id && s.itemId === item._id
+              );
+
+              // If already selected -> unselect
               if (existsIdx >= 0) {
                 const nextSel = [...prev.selected];
                 nextSel.splice(existsIdx, 1);
@@ -1870,23 +1966,29 @@ useEffect(() => {
 
               let nextSel = [...prev.selected];
 
-              if (isDaytime) {
-                if (daytimeExclusiveGroup.includes(catTitleNorm)) {
-                  nextSel = nextSel.filter((s) => !daytimeExclusiveGroup.includes(titleNorm(s.categoryTitle)));
-                }
-                if (catTitleNorm === CAT.HOTELS) {
-                  nextSel = nextSel.filter((s) => titleNorm(s.categoryTitle) !== CAT.HOTELS);
-                }
-              } else {
-                if (nightExclusiveGroup.includes(catTitleNorm)) {
-                  nextSel = nextSel.filter((s) => !nightExclusiveGroup.includes(titleNorm(s.categoryTitle)));
-                }
+              if (isSightseeing) {
+                // ✅ Sightseeing = multi-select, don't touch other selections
+                nextSel.push({
+                  categoryId: category._id,
+                  categoryTitle: category.title,
+                  itemId: item._id,
+                });
+                return { ...prev, selected: nextSel };
               }
 
-              nextSel.push({ categoryId: category._id, categoryTitle: category.title, itemId: item._id });
+              // ✅ Non-sightseeing = only ONE total (but keep all sightseeing)
+              nextSel = nextSel.filter((s) => titleNorm(s.categoryTitle) === CAT.SIGHTSEEING);
+
+              nextSel.push({
+                categoryId: category._id,
+                categoryTitle: category.title,
+                itemId: item._id,
+              });
+
               return { ...prev, selected: nextSel };
             });
           };
+
 
           return (
             <div
@@ -1925,61 +2027,61 @@ useEffect(() => {
                       </button>
                     </div>
 
-                            <div className="mt-3 relative">
-                     {/* Left arrow (mobile) */}
-                     <button
-                       type="button"
-                       onClick={scrollTabsToStart}
-                       className="md:hidden absolute left-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center justify-center size-8 rounded-full bg-white border border-gray-200 shadow"
-                       aria-label="Scroll tabs to start"
-                     >
-                       <ChevronLeft className="size-4 text-gray-700" />
-                     </button>
-                   
-                     {/* Right arrow (mobile) */}
-                     <button
-                       type="button"
-                       onClick={scrollTabsToEnd}
-                       className="md:hidden absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center justify-center size-8 rounded-full bg-white border border-gray-200 shadow"
-                       aria-label="Scroll tabs to end"
-                     >
-                       <ChevronRight className="size-4 text-gray-700" />
-                     </button>
-                   
-                     {/* Tabs */}
-                     <div
-                       ref={tabsScrollRef}
-                       className="flex gap-2 overflow-x-auto no-scrollbar pb-1 px-10 md:px-0"
-                     >
-                       {filteredCategories.map((cat) => {
-                         const isActive = activeCategory && activeCategory._id === cat._id;
-                         const tabDisabled = isCategoryTabDisabled(cat.title);
-                   
-                         return (
-                           <button
-                             key={cat._id}
-                             type="button"
-                             disabled={tabDisabled}
-                             onClick={() => {
-                               if (tabDisabled) return;
-                               setServicePicker((prev) => ({ ...prev, activeCategoryId: cat._id }));
-                             }}
-                             className={[
-                               "px-3 py-1.5 rounded-full border text-xs font-semibold whitespace-nowrap transition",
-                               tabDisabled
-                                 ? "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
-                                 : isActive
-                                   ? "bg-emerald-50 border-emerald-400 text-emerald-700 shadow-sm"
-                                   : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100",
-                             ].join(" ")}
-                             title={tabDisabled ? "Disabled due to selection rule" : undefined}
-                           >
-                             {cat.title}
-                           </button>
-                         );
-                       })}
-                     </div>
-                   </div>
+                    <div className="mt-3 relative">
+                      {/* Left arrow (mobile) */}
+                      <button
+                        type="button"
+                        onClick={scrollTabsToStart}
+                        className="md:hidden absolute left-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center justify-center size-8 rounded-full bg-white border border-gray-200 shadow"
+                        aria-label="Scroll tabs to start"
+                      >
+                        <ChevronLeft className="size-4 text-gray-700" />
+                      </button>
+
+                      {/* Right arrow (mobile) */}
+                      <button
+                        type="button"
+                        onClick={scrollTabsToEnd}
+                        className="md:hidden absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center justify-center size-8 rounded-full bg-white border border-gray-200 shadow"
+                        aria-label="Scroll tabs to end"
+                      >
+                        <ChevronRight className="size-4 text-gray-700" />
+                      </button>
+
+                      {/* Tabs */}
+                      <div
+                        ref={tabsScrollRef}
+                        className="flex gap-2 overflow-x-auto no-scrollbar pb-1 px-10 md:px-0"
+                      >
+                        {filteredCategories.map((cat) => {
+                          const isActive = activeCategory && activeCategory._id === cat._id;
+                          const tabDisabled = isCategoryTabDisabled(cat);
+
+                          return (
+                            <button
+                              key={cat._id}
+                              type="button"
+                              disabled={tabDisabled}
+                              onClick={() => {
+                                if (tabDisabled) return;
+                                setServicePicker((prev) => ({ ...prev, activeCategoryId: cat._id }));
+                              }}
+                              className={[
+                                "px-3 py-1.5 rounded-full border text-xs font-semibold whitespace-nowrap transition",
+                                tabDisabled
+                                  ? "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
+                                  : isActive
+                                    ? "bg-emerald-50 border-emerald-400 text-emerald-700 shadow-sm"
+                                    : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100",
+                              ].join(" ")}
+                              title={tabDisabled ? "Disabled due to selection rule" : undefined}
+                            >
+                              {cat.title}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
 
                   <div className="flex-1 overflow-y-auto px-4 md:px-5 py-4">
@@ -1999,19 +2101,48 @@ useEffect(() => {
                           if (!item._id) return null;
 
                           const isSelected = servicePicker.selected.some((s) => s.categoryId === activeCategory._id && s.itemId === item._id);
+                          const isSightseeing = titleNorm(activeCategory.title) === CAT.SIGHTSEEING;
+                       const isNonFoodCategory = activeCategory.title !== "Food Service";
+                        // ✅ used in ANOTHER SLOT of the SAME DAY
+                        const isUsedInAnotherSlotSameDay =
+                          isNonFoodCategory &&
+                          data.itinerary?.[servicePicker.dayIdx]?.timeSlots?.some((s, sIdx) => {
+                            if (sIdx === servicePicker.slotIdx) return false; // ignore current slot
+                            return (s.activities || []).some(
+                              (act) =>
+                                act.serviceItemId === item._id &&
+                                act.serviceId === activeCategory._id
+                            );
+                          });
 
-                          const isNonFoodCategory = activeCategory.title !== "Food Service";
+                        // ✅ used in ANY SLOT of ANOTHER DAY (your old logic)
+                        const isUsedOnAnotherDay =
+                          isNonFoodCategory &&
+                          data.itinerary.some((day, dayIdx) => {
+                            if (dayIdx === servicePicker.dayIdx) return false;
 
-                          const isUsedOnAnotherDay =
-                            isNonFoodCategory &&
-                            data.itinerary.some((day, dayIdx) => {
-                              if (dayIdx === servicePicker.dayIdx) return false;
-                              return (day.timeSlots || []).some((slot) =>
-                                (slot.activities || []).some((act) => act.serviceItemId === item._id && act.serviceId === activeCategory._id)
-                              );
-                            });
+                            return (day.timeSlots || []).some((slot) =>
+                              (slot.activities || []).some(
+                                (act) =>
+                                  act.serviceItemId === item._id &&
+                                  act.serviceId === activeCategory._id
+                              )
+                            );
+                          });
 
-                          const disabled = isUsedOnAnotherDay;
+                        // ✅ unified lock
+                        const isUsedElsewhere = isUsedInAnotherSlotSameDay || isUsedOnAnotherDay;
+
+                        // allow clicking if it's already selected in THIS slot (so user can unselect)
+                        const disabledBecauseUsedElsewhere = isUsedElsewhere && !isSelected;
+
+                        // keep your other rule too
+                        const lockedByNonSightseeingRule =
+                          hasNonSightseeingSelected && !isSightseeing && !isSelected;
+
+                        const disabled = disabledBecauseUsedElsewhere || lockedByNonSightseeingRule;
+                        ;
+
 
                           const { mediaUrl, title, subtitle, chip, priceLabel, ratingLabel } = getServiceCardContent(activeMetaKey, item);
 
@@ -2030,8 +2161,8 @@ useEffect(() => {
                                 disabled
                                   ? "border-gray-200 bg-gray-100 opacity-60 cursor-not-allowed"
                                   : isSelected
-                                  ? "border-emerald-400 bg-emerald-50 shadow-sm"
-                                  : "border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300",
+                                    ? "border-emerald-400 bg-emerald-50 shadow-sm"
+                                    : "border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300",
                               ].join(" ")}
                             >
                               <div className="flex gap-3">
@@ -2049,7 +2180,14 @@ useEffect(() => {
                                     <div className="min-w-0">
                                       <p className="text-sm font-semibold text-gray-900 truncate">{title || "(Untitled item)"}</p>
                                       {subtitle && <p className="text-xs text-gray-500 truncate">{subtitle}</p>}
-                                      {disabled && <p className="text-[11px] text-red-600 mt-1">Already used on another day</p>}
+                                     {disabledBecauseUsedElsewhere && (
+                                        <p className="text-[11px] text-red-600 mt-1">
+                                          {isUsedInAnotherSlotSameDay
+                                            ? "Already used in another slot on this day"
+                                            : "Already used on another day"}
+                                        </p>
+                                      )}
+
                                     </div>
 
                                     <div className="shrink-0 flex flex-col items-end gap-1">
@@ -2131,9 +2269,8 @@ useEffect(() => {
                   type="button"
                   onClick={goBack}
                   disabled={stepIndex === 0 || submitting}
-                  className={`flex-1 sm:flex-none px-4 py-3 text-sm font-medium rounded-xl border ${
-                    stepIndex === 0 || submitting ? "border-gray-200 text-gray-400" : "border-gray-300 text-gray-700 hover:bg-gray-50"
-                  }`}
+                  className={`flex-1 sm:flex-none px-4 py-3 text-sm font-medium rounded-xl border ${stepIndex === 0 || submitting ? "border-gray-200 text-gray-400" : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                    }`}
                 >
                   Back
                 </button>
@@ -2142,9 +2279,8 @@ useEffect(() => {
                   type="button"
                   onClick={goNext}
                   disabled={!canGoNext || submitting}
-                  className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
-                    !canGoNext || submitting ? "bg-emerald-300 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800"
-                  }`}
+                  className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${!canGoNext || submitting ? "bg-emerald-300 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800"
+                    }`}
                   aria-busy={submitting ? "true" : "false"}
                 >
                   {stepIndex < LAST_INDEX ? (
@@ -2297,9 +2433,8 @@ function TagsInput({
           type="button"
           onClick={addTag}
           disabled={disabled || !value.trim()}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${
-            disabled || !value.trim() ? "bg-gray-200 text-gray-400 cursor-not-allowed" : "bg-emerald-600 text-white hover:bg-emerald-700"
-          }`}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${disabled || !value.trim() ? "bg-gray-200 text-gray-400 cursor-not-allowed" : "bg-emerald-600 text-white hover:bg-emerald-700"
+            }`}
         >
           Add
         </button>

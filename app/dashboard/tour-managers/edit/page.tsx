@@ -75,7 +75,8 @@ interface TourManagerUI {
   title: string;
   shortDescription: string; // maps to "description" (rich HTML)
   generalInfoHtml: string; // maps to "general_info" (rich HTML)
-
+  markup_min_price?: number;
+  markup_max_price?: number;
   languages: LanguagePairUI[];
 
   price: PriceUI;
@@ -109,6 +110,8 @@ const BLANK_TOUR: TourManagerUI = {
   title: "",
   shortDescription: "",
   generalInfoHtml: "",
+    markup_min_price: null,
+  markup_max_price: null,
   languages: [{ primary: "Hindi", secondary: "English" }],
   price: { ...BLANK_PRICE },
   timings: { ...BLANK_TIMINGS },
@@ -252,6 +255,8 @@ export default function EditTourManagerMobile() {
       title: tourManager.title || "",
       shortDescription: tourManager.description || "",
       generalInfoHtml: tourManager.general_info || "",
+         markup_min_price: tourManager.markup_min_price || null,
+        markup_max_price: tourManager.markup_max_price || null,
       languages:
         tourManager.language?.map((pair) => ({
           primary: pair[0] || "",
@@ -597,7 +602,8 @@ export default function EditTourManagerMobile() {
       // Build payload
       const payload: any = {
         slug: data.roleType, // "tour-manager" | "tour-guide"
-
+        markup_min_price: data.markup_min_price,
+        markup_max_price: data.markup_max_price,
         title: data.title.trim(),
         description: shortDescriptionHtmlClean,
 
@@ -845,6 +851,45 @@ export default function EditTourManagerMobile() {
                     disabled={submitting}
                   />
                 </Field>
+
+              <Field label="Markup Min Price (₹)">
+  <div className="relative">
+    <input
+      type="number"
+      className="input pl-9"
+      min={0}
+      value={data.markup_min_price ?? ""}
+      onChange={(e) =>
+        setTour({
+          markup_min_price: e.target.value === "" ? null : Number(e.target.value),
+        })
+      }
+      placeholder="e.g., 200"
+      disabled={submitting}
+    />
+    <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+  </div>
+</Field>
+
+<Field label="Markup Max Price (₹)">
+  <div className="relative">
+    <input
+      type="number"
+      className="input pl-9"
+      min={0}
+      value={data.markup_max_price ?? ""}
+      onChange={(e) =>
+        setTour({
+          markup_max_price: e.target.value === "" ? null : Number(e.target.value),
+        })
+      }
+      placeholder="e.g., 500"
+      disabled={submitting}
+    />
+    <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+  </div>
+</Field>
+
               </div>
 
               {/* Short Description as rich text */}

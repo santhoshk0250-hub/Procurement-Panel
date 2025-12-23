@@ -17,6 +17,7 @@ import {
   ChevronUp,
   Plus,
   HelpCircle,
+  IndianRupee
 } from "lucide-react";
 import { useFoodServiceStore } from "@/store/usefoodservice";
 
@@ -50,6 +51,8 @@ interface FoodFormData {
   price: string; // keep as string in UI; cast on submit
   bannerUrl?: string | null;
   images: string[];
+  markup_min_price: number;
+  markup_max_price: number;
   category: Category | "";
   cuisineTags: string[];
   ingredients: string[];
@@ -222,6 +225,8 @@ export default function EditFoodServiceFormMobile() {
         ingredients: [],
         allergens: [],
         rating: "",
+         markup_min_price: null,
+  markup_max_price: null,
         reviewCount: "",
         isAvailable: true,
         preparationTime: "",
@@ -244,6 +249,8 @@ export default function EditFoodServiceFormMobile() {
       reviewCount: Number.isFinite(Number(food.reviewCount)) ? Number(food.reviewCount) : "",
       isAvailable: !!food.isAvailable,
       preparationTime: String(food.preparationTime ?? ""),
+      markup_min_price: Number.isFinite(Number(food.markup_min_price)) ? Number(food.markup_min_price) : null,
+      markup_max_price: Number.isFinite(Number(food.markup_max_price)) ? Number(food.markup_max_price) : null,
       spiceLevel: (food.spiceLevel ?? "mild") as SpiceLevel,
       dietaryInfo: {
         vegetarian: !!food?.dietaryInfo?.vegetarian,
@@ -651,6 +658,8 @@ const removeSegGroup = (id: string) => {
         description: data.description.trim(),
         price: Number(data.price || 0),
         category: data.category,
+        markup_min_price: data.markup_min_price,
+        markup_max_price: data.markup_max_price,
         cuisine: data.cuisineTags.map((s) => s.trim()).filter(Boolean),
         ingredients: data.ingredients.map((s) => s.trim()).filter(Boolean),
         allergens: data.allergens.map((s) => s.trim()).filter(Boolean),
@@ -758,6 +767,8 @@ const removeSegGroup = (id: string) => {
       reviewCount: Number.isFinite(Number(food.reviewCount)) ? Number(food.reviewCount) : "",
       isAvailable: !!food.isAvailable,
       preparationTime: String(food.preparationTime ?? ""),
+      markup_min_price: Number.isFinite(Number(food.markup_min_price)) ? Number(food.markup_min_price) : null,
+      markup_max_price: Number.isFinite(Number(food.markup_max_price)) ? Number(food.markup_max_price) : null,
       spiceLevel: (food.spiceLevel ?? "mild") as SpiceLevel,
       dietaryInfo: {
         vegetarian: !!food?.dietaryInfo?.vegetarian,
@@ -961,6 +972,35 @@ const removeSegGroup = (id: string) => {
                   </span>
                 </div>
               </Field>
+               <Field label="Markup Min Price (₹)">
+                                                          <div className="relative">
+                                                            <input
+                                                              type="number"
+                                                              className="input pl-9"
+                                                              min={0}
+                                                              value={(data as any).markup_min_price ?? ""}
+                                                              onChange={(e) => onText("markup_min_price", e.target.value)}
+                                                              placeholder="e.g., 200"
+                                                              disabled={submitting}
+                                                            />
+                                                            <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                                          </div>
+                              </Field>
+                                          
+                              <Field label="Markup Max Price (₹)">
+                                                          <div className="relative">
+                                                            <input
+                                                              type="number"
+                                                              className="input pl-9"
+                                                              min={0}
+                                                              value={(data as any).markup_max_price ?? ""}
+                                                            onChange={(e) => onText("markup_max_price", e.target.value)}
+                                                              placeholder="e.g., 500"
+                                                              disabled={submitting}
+                                                            />
+                                                            <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                                          </div>
+                              </Field>
             </div>
 
             <div className="mt-4">

@@ -358,7 +358,8 @@ const [selectedRoom, setSelectedRoom] = useState(0); // default Room 1
   const [chainBrand, setChainBrand] = useState("");
   const [destinationId, setDestinationId] = useState("");
   const [marketId, setMarketId] = useState("");
-
+const [markupMinPrice, setMarkupMinPrice] = useState<number | "">("");
+const [markupMaxPrice, setMarkupMaxPrice] = useState<number | "">("");
   // Loyalty Program fields
   const [programName, setProgramName] = useState("");
   const [pointsAccrual, setPointsAccrual] = useState(false);
@@ -622,7 +623,8 @@ useEffect(() => {
     setChainBrand(hotel.chain_brand || "");
     setDestinationId(hotel.destination_id || "");
     setMarketId(hotel.market_id || "");
-
+    setMarkupMinPrice(hotel.markup_min_price || "");
+    setMarkupMaxPrice(hotel.markup_max_price || "");
     // loyalty program
     setProgramName(hotel.loyalty_program?.program_name || "");
     setPointsAccrual(hotel.loyalty_program?.points_accrual || false);
@@ -1270,7 +1272,8 @@ const removeImage = (type: keyof MediaGallery, index: number) => {
     if (chainBrand) formData.append("chain_brand", chainBrand);
     if (destinationId) formData.append("destination_id", destinationId);
     if (marketId) formData.append("market_id", marketId);
-
+if (markupMinPrice !== "") formData.append("markup_min_price", String(markupMinPrice));
+if (markupMaxPrice !== "") formData.append("markup_max_price", String(markupMaxPrice));
     // -------------------- Loyalty Program --------------------
     if (programName) {
       formData.append(
@@ -1474,7 +1477,7 @@ const removeImage = (type: keyof MediaGallery, index: number) => {
    );
 
     showToast.success("Hotel updated successfully!");
-    // router.push("/dashboard/calendar");
+    router.push("/dashboard/calendar");
   } catch (err: any) {
 
     if (err.response?.data?.error?.includes("Cast to ObjectId failed for value")) {
@@ -1993,6 +1996,40 @@ useEffect(() => {
         />
       </div>
     </LocalizationProvider>
+      {/* Markup Min/Max Price */}
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div>
+    <label className="block text-sm font-medium text-gray-700">
+      Markup Min Price
+    </label>
+    <input
+      type="number"
+      min={0}
+      value={markupMinPrice}
+      onChange={(e) =>
+        setMarkupMinPrice(e.target.value ? Number(e.target.value) : "")
+      }
+      className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
+      placeholder="e.g. 100"
+    />
+  </div>
+
+  <div>
+    <label className="block text-sm font-medium text-gray-700">
+      Markup Max Price
+    </label>
+    <input
+      type="number"
+      min={0}
+      value={markupMaxPrice}
+      onChange={(e) =>
+        setMarkupMaxPrice(e.target.value ? Number(e.target.value) : "")
+      }
+      className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
+      placeholder="e.g. 500"
+    />
+  </div>
+</div>
     <div className="border-t pt-4">
   <h2 className="text-lg font-semibold text-gray-700 mb-2">About this space</h2>
   <div className="space-y-3">

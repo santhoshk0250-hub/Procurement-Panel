@@ -17,6 +17,7 @@ import {
   Users,
   Bus,
   Wallet,
+  IndianRupee
 } from "lucide-react";
 
 import { useNightlifePackageStore } from "@/store/usenightlifeStore";
@@ -84,7 +85,8 @@ interface NightlifeFormData {
   taxRate: string;
   taxIncluded: boolean;
   serviceCharges: string;
-
+markup_min_price: number;
+  markup_max_price: number;
   // schedule
   openTime: string;
   closeTime: string;
@@ -224,7 +226,8 @@ const BLANK: NightlifeFormData = {
   taxRate: "",
   taxIncluded: false,
   serviceCharges: "",
-
+ markup_min_price: null,
+  markup_max_price: null,
   openTime: "",
   closeTime: "",
   duration: "",
@@ -385,7 +388,8 @@ function nightlifeToFormData(n: any): NightlifeFormData {
     taxRate: n.tax != null ? String(n.tax) : "",
     taxIncluded: !!n.taxIncluded,
     serviceCharges: n.serviceCharge != null ? String(n.serviceCharge) : "",
-
+markup_min_price: n.markup_min_price != null ? Number(n.markup_min_price) : null, 
+    markup_max_price: n.markup_max_price != null ? Number(n.markup_max_price) : null,
     openTime: n.openTime || "",
     closeTime: n.closeTime || "",
     duration: n.duration != null ? String(n.duration) : "",
@@ -1108,7 +1112,8 @@ const removeExistingVideo = (idx: number) =>
         descriptionLong: data.descriptionLong.trim() || undefined,
         destination: data.destination.trim(),
         type: data.type.trim() || undefined,
-
+        markup_min_price: data.markup_min_price,
+        markup_max_price: data.markup_max_price,
         vendorPrice,
         price,
         taxRate,
@@ -1605,6 +1610,36 @@ const removeExistingVideo = (idx: number) =>
                   <span className="text-sm text-gray-800">Yes, tax included</span>
                 </label>
               </Field>
+
+               <Field label="Markup Min Price (₹)">
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  className="input pl-9"
+                                  min={0}
+                                  value={(data as any).markup_min_price ?? ""}
+                                  onChange={(e) => onText("markup_min_price", e.target.value)}
+                                  placeholder="e.g., 200"
+                                  disabled={submitting}
+                                />
+                                <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                              </div>
+                            </Field>
+              
+                            <Field label="Markup Max Price (₹)">
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  className="input pl-9"
+                                  min={0}
+                                  value={(data as any).markup_max_price ?? ""}
+                                onChange={(e) => onText("markup_max_price", e.target.value)}
+                                  placeholder="e.g., 500"
+                                  disabled={submitting}
+                                />
+                                <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                              </div>
+                            </Field>
             </div>
 
             {/* Schedule */}

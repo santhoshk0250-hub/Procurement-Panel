@@ -59,6 +59,8 @@ interface VehicleFormData {
   vehicleType: string;
   seaterCapacity: string;
   variant?: string | null;
+  markup_min_price?: string;
+  markup_max_price?: string;
 
   images: string[];
   thumbnailUrl?: string | null;
@@ -106,6 +108,9 @@ const initialBlankState: VehicleFormData = {
   vehicleType: "",
   seaterCapacity: "",
   variant: "",
+  markup_min_price: "",
+  markup_max_price: "",
+
   images: [],
   thumbnailUrl: null,
 
@@ -356,6 +361,9 @@ export default function EditRentalFormMobile() {
       vehicleType: vehicle.vehicleType || "",
       seaterCapacity: vehicle.seaterCapacity || "",
       variant: vehicle.variant || "",
+      markup_min_price: asStr(vehicle.markup_min_price),
+      markup_max_price: asStr(vehicle.markup_max_price),
+
       images: vehicle.images || [],
       thumbnailUrl: vehicle.thumbnailUrl ?? null,
 
@@ -1015,6 +1023,32 @@ export default function EditRentalFormMobile() {
                   );
                 })()}
               </Field>
+                            <Field label="Min Price">
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  value={formData.markup_min_price || ""}
+                  onChange={(e) => onText("markup_min_price", e.target.value)}
+                  className="input"
+                  placeholder="e.g., 999"
+                  disabled={submitting}
+                />
+              </Field>
+
+              <Field label="Max Price">
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  value={formData.markup_max_price || ""}
+                  onChange={(e) => onText("markup_max_price", e.target.value)}
+                  className="input"
+                  placeholder="e.g., 1999"
+                  disabled={submitting}
+                />
+              </Field>
+
             </div>
           </SectionCard>
         )}

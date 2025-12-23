@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Box,
   Typography,
@@ -13,9 +14,7 @@ import {
   CardMedia,
   CardContent,
   CardActions,
-  IconButton,
   Chip,
-  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -24,12 +23,20 @@ import {
   CircularProgress,
   Pagination,
   Stack,
-  MenuItem,
-  Select,
   FormControl,
   InputLabel,
-  Rating,
+  MenuItem,
+  Select,
+  Divider,
+  Checkbox,
+  Stepper,
+  Step,
+  StepLabel,
+  ToggleButtonGroup,
+  ToggleButton,
+  useMediaQuery,
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import {
   Search,
   DirectionsCarFilled as CarIcon,
@@ -39,9 +46,9 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   CurrencyRupee as RupeeIcon,
-  LocalOffer as OfferIcon,
   LocationOn as LocationIcon,
   Star as StarIcon,
+  AddCircleOutline,
 } from "@mui/icons-material";
 import { useSightseeingPackageStore } from "@/store/usesightpackages";
 
@@ -81,7 +88,6 @@ export interface SightseeingPackage {
   _id?: IDType;
   id?: string;
 
-  // Old + new naming
   tour_name?: string;
   title?: string;
   destination?: string;
@@ -105,7 +111,6 @@ export interface SightseeingPackage {
   places_to_visit_names?: string[];
   placesToVisit?: PlaceToVisit[];
   place_ids?: IDType[];
-
 
   whyChoose?: WhyChooseBlock[];
   itinerary?: TimeBlock[];
@@ -132,6 +137,10 @@ export interface SightseeingPackage {
   vendor_charge?: number;
   seller_charge?: number;
   price_regular?: number;
+
+  // ✅ markup fields (adjust names if backend differs)
+  markupMinPrice?: number;
+  markupMaxPrice?: number;
 
   voucherInfo?: string[];
   languages?: string[];
@@ -180,15 +189,39 @@ const heroImageFromPackage = (p: SightseeingPackage): string => {
 
 /* ================== Component ================== */
 const SightseeingPackagesDashboard: React.FC = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [vehicleType, setVehicleType] = useState<string>("");
   const [onlyActive, setOnlyActive] = useState<boolean>(false);
+
   const { setPackage } = useSightseeingPackageStore();
+
   const [selected, setSelected] = useState<SightseeingPackage | null>(null);
   const [items, setItems] = useState<SightseeingPackage[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState<number>(1);
   const [pages, setPages] = useState<number>(1);
+
+  // =========================
+  // ✅ MARKUP MODAL STATE
+  // =========================
+  const [openMarkupModal, setOpenMarkupModal] = useState(false);
+  const [markupStep, setMarkupStep] = useState<0 | 1>(0);
+  const [selectedPackageIds, setSelectedPackageIds] = useState<string[]>([]);
+  const [markupMinPrice, setMarkupMinPrice] = useState<number | "">("");
+  const [markupMaxPrice, setMarkupMaxPrice] = useState<number | "">("");
+  const [savingMarkup, setSavingMarkup] = useState(false);
+
+  // ✅ modal filters
+  const [modalSearch, setModalSearch] = useState("");
+  const [modalVehicleType, setModalVehicleType] = useState<string>("");
+
+  // ✅ modal list (ALL packages)
+  const [modalItemsRaw, setModalItemsRaw] = useState<SightseeingPackage[]>([]);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalFetchedOnce, setModalFetchedOnce] = useState(false);
 
   const fetchPackages = async (pageNum: number) => {
     setLoading(true);
@@ -202,7 +235,6 @@ const SightseeingPackagesDashboard: React.FC = () => {
       const url = `${process.env.NEXT_PUBLIC_API_BASE}packages/fetch?${params.toString()}`;
       const res = await axios.get(url);
 
-      // your new API sample is a bare array, but keep fallbacks
       const fetched: SightseeingPackage[] =
         res.data.items || res.data.data || res.data || [];
       const totalPages = res.data.totalPages ?? res.data.pagination?.pages ?? 1;
@@ -213,6 +245,27 @@ const SightseeingPackagesDashboard: React.FC = () => {
       console.error("Error fetching packages:", e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ✅ Modal: fetch ALL sightseeing packages
+  const fetchAllPackagesForModal = async () => {
+    setModalLoading(true);
+    try {
+      // ✅ change to your real endpoint that returns ALL packages
+      // example: packages/fetchall OR packages/all
+      const res = await axios.get(
+        `${process.env.NEXT_PUBLIC_API_BASE}packages/fetchall`
+      );
+
+      const fetched: SightseeingPackage[] =
+        res.data.items || res.data.data || res.data || [];
+      setModalItemsRaw(Array.isArray(fetched) ? fetched : []);
+      setModalFetchedOnce(true);
+    } catch (e) {
+      console.error("Error fetching all packages for modal:", e);
+    } finally {
+      setModalLoading(false);
     }
   };
 
@@ -296,7 +349,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
     setPackage(p as any);
   };
 
-  // collect unique vehicle types from both fields for filter options
+  // collect unique vehicle types from both fields for dashboard filter options
   const vehicleOptions = useMemo(() => {
     const set = new Set<string>();
     items.forEach((p) => {
@@ -305,6 +358,123 @@ const SightseeingPackagesDashboard: React.FC = () => {
     });
     return Array.from(set);
   }, [items]);
+
+  // collect unique vehicle types for modal filter (from ALL modal items)
+  const modalVehicleOptions = useMemo(() => {
+    const set = new Set<string>();
+    modalItemsRaw.forEach((p) => {
+      const vt = p.vehicle_type || p.vehicleType;
+      if (vt) set.add(vt);
+    });
+    return Array.from(set);
+  }, [modalItemsRaw]);
+
+  const togglePackageSelection = (id: string) => {
+    setSelectedPackageIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const openMarkup = async () => {
+    setMarkupStep(0);
+    setSelectedPackageIds([]);
+    setMarkupMinPrice("");
+    setMarkupMaxPrice("");
+    setModalVehicleType("");
+    setModalSearch("");
+    setOpenMarkupModal(true);
+
+    if (!modalFetchedOnce) {
+      await fetchAllPackagesForModal();
+    }
+  };
+
+  const closeMarkup = () => setOpenMarkupModal(false);
+
+  const modalPackages = useMemo(() => {
+    const term = modalSearch.trim().toLowerCase();
+
+    const bySearch = !term
+      ? modalItemsRaw
+      : modalItemsRaw.filter((p) => {
+          const title = p.tour_name || p.title || "";
+          const dest = p.destination || "";
+          const veh = p.vehicle_type || p.vehicleType || "";
+          const places =
+            (p.placesToVisit || []).map((x) => x.name).join(" ") ||
+            (p.places_to_visit_names || []).join(" ");
+          const hay = [title, dest, veh, places].filter(Boolean).join(" ").toLowerCase();
+          return hay.includes(term);
+        });
+
+    const byVehicle =
+      modalVehicleType
+        ? bySearch.filter(
+            (p) => (p.vehicle_type || p.vehicleType || "") === modalVehicleType
+          )
+        : bySearch;
+
+    return byVehicle;
+  }, [modalItemsRaw, modalSearch, modalVehicleType]);
+
+  const handleSubmitMarkup = async () => {
+    if (!selectedPackageIds.length) return;
+
+    const min = markupMinPrice === "" ? undefined : Number(markupMinPrice);
+    const max = markupMaxPrice === "" ? undefined : Number(markupMaxPrice);
+
+    if (min !== undefined && max !== undefined && max < min) {
+      alert("Markup Max Price must be >= Markup Min Price");
+      return;
+    }
+
+    setSavingMarkup(true);
+    try {
+      // ✅ update endpoint to your backend route
+      await axios.put(
+        `${process.env.NEXT_PUBLIC_API_BASE}packages/bulk-markup`,
+        {
+          packageIds: selectedPackageIds,
+          markupMinPrice: min,
+          markupMaxPrice: max,
+        }
+      );
+
+      // ✅ update dashboard list
+      setItems((prev) =>
+        prev.map((p) => {
+          const pid = unwrapId(p._id) || p.id || "";
+          if (!selectedPackageIds.includes(pid)) return p;
+          return {
+            ...p,
+            ...(min !== undefined ? { markupMinPrice: min } : {}),
+            ...(max !== undefined ? { markupMaxPrice: max } : {}),
+          };
+        })
+      );
+
+      // ✅ update modal list
+      setModalItemsRaw((prev) =>
+        prev.map((p) => {
+          const pid = unwrapId(p._id) || p.id || "";
+          if (!selectedPackageIds.includes(pid)) return p;
+          return {
+            ...p,
+            ...(min !== undefined ? { markupMinPrice: min } : {}),
+            ...(max !== undefined ? { markupMaxPrice: max } : {}),
+          };
+        })
+      );
+
+      setOpenMarkupModal(false);
+    await router.push("/dashboard/Sightseeing?tab=packages");
+    } catch (e) {
+      console.error("❌ bulk markup update error:", e);
+      alert("Failed to update markup");
+    } finally {
+      setSavingMarkup(false);
+    }
+  };
 
   return (
     <Box sx={{ p: 3, backgroundColor: "#f5f7fb", minHeight: "70vh" }}>
@@ -355,21 +525,34 @@ const SightseeingPackagesDashboard: React.FC = () => {
             </Select>
           </FormControl>
 
+          {/* ✅ Markup button */}
+          <Button
+            onClick={openMarkup}
+            variant="outlined"
+            fullWidth
+            sx={{ width: { xs: "100%", sm: "auto" } as any, height: 40, fontWeight: 800 }}
+          >
+            Markup
+          </Button>
+
           <Button
             href="/dashboard/services?type=sightseeing"
             component={Link as any}
             fullWidth
             sx={{ width: { xs: "100%", sm: "auto" } as any }}
             variant="outlined"
+            startIcon={<AddCircleOutline />}
           >
             Add Services
           </Button>
+
           <Button
             href="/dashboard/Sightseeing/packages/addpackage"
             component={Link as any}
             fullWidth
             sx={{ width: { xs: "100%", sm: "auto" } as any }}
             variant="contained"
+            startIcon={<AddCircleOutline />}
           >
             Add Package
           </Button>
@@ -466,7 +649,6 @@ const SightseeingPackagesDashboard: React.FC = () => {
                         height: 190,
                       }}
                     />
-                    {/* Overlay gradient */}
                     <Box
                       sx={{
                         position: "absolute",
@@ -475,7 +657,6 @@ const SightseeingPackagesDashboard: React.FC = () => {
                           "linear-gradient(to top, rgba(0,0,0,0.65), transparent 50%)",
                       }}
                     />
-                    {/* Top-left destination + category */}
                     <Box
                       sx={{
                         position: "absolute",
@@ -488,12 +669,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
                     >
                       <Chip
                         size="small"
-                        icon={
-                          <LocationIcon
-                            sx={{ color: "inherit" }}
-                            fontSize="small"
-                          />
-                        }
+                        icon={<LocationIcon sx={{ color: "inherit" }} fontSize="small" />}
                         label={destination}
                         sx={{
                           color: "white",
@@ -509,25 +685,19 @@ const SightseeingPackagesDashboard: React.FC = () => {
                             key={c}
                             size="small"
                             label={c}
-                            sx={{
-                              color: "white",
-                              bgcolor: "rgba(15,23,42,0.6)",
-                            }}
+                            sx={{ color: "white", bgcolor: "rgba(15,23,42,0.6)" }}
                           />
                         ))}
                         {categories.length > 2 && (
                           <Chip
                             size="small"
                             label={`+${categories.length - 2}`}
-                            sx={{
-                              color: "white",
-                              bgcolor: "rgba(15,23,42,0.6)",
-                            }}
+                            sx={{ color: "white", bgcolor: "rgba(15,23,42,0.6)" }}
                           />
                         )}
                       </Stack>
                     </Box>
-                    {/* Rating badge */}
+
                     {rating > 0 && (
                       <Box
                         sx={{
@@ -549,10 +719,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
                           {rating.toFixed(1)}
                         </Typography>
                         {reviews > 0 && (
-                          <Typography
-                            variant="caption"
-                            sx={{ opacity: 0.8 }}
-                          >
+                          <Typography variant="caption" sx={{ opacity: 0.8 }}>
                             ({reviews})
                           </Typography>
                         )}
@@ -561,7 +728,6 @@ const SightseeingPackagesDashboard: React.FC = () => {
                   </Box>
 
                   <CardContent sx={{ pb: 1, flexGrow: 1 }}>
-                    {/* Title + operator */}
                     <Stack spacing={0.5}>
                       <Typography
                         variant="h6"
@@ -572,17 +738,12 @@ const SightseeingPackagesDashboard: React.FC = () => {
                         {title}
                       </Typography>
                       {p.operatedBy && (
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          noWrap
-                        >
+                        <Typography variant="caption" color="text.secondary" noWrap>
                           Operated by {p.operatedBy}
                         </Typography>
                       )}
                     </Stack>
 
-                    {/* Meta row */}
                     <Stack
                       direction="row"
                       spacing={1}
@@ -614,7 +775,6 @@ const SightseeingPackagesDashboard: React.FC = () => {
                       )}
                     </Stack>
 
-                    {/* Price + booking stats */}
                     <Stack
                       direction="row"
                       justifyContent="space-between"
@@ -634,34 +794,13 @@ const SightseeingPackagesDashboard: React.FC = () => {
                           <Typography variant="h6" fontWeight={700}>
                             {money(price)}
                           </Typography>
-                          <Typography
-                            variant="caption"
-                            color="text.secondary"
-                          >
+                          <Typography variant="caption" color="text.secondary">
                             per person
                           </Typography>
                         </Stack>
                       </Stack>
-                      <Stack spacing={0.2} alignItems="flex-end">
-                        {booked > 0 && (
-                          <Typography
-                            variant="caption"
-                            color="text.secondary"
-                          >
-                            {booked.toLocaleString()}+ booked
-                          </Typography>
-                        )}
-                        <Rating
-                          size="small"
-                          precision={0.1}
-                          value={rating}
-                          readOnly
-                        />
-                      </Stack>
                     </Stack>
 
-
-                    {/* Places preview */}
                     {Array.isArray(places) && places.length > 0 && (
                       <Stack spacing={0.5} mt={1.5}>
                         <Typography
@@ -687,10 +826,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
                             />
                           ))}
                           {places.length > 3 && (
-                            <Chip
-                              size="small"
-                              label={`+${places.length - 3} more`}
-                            />
+                            <Chip size="small" label={`+${places.length - 3} more`} />
                           )}
                         </Stack>
                       </Stack>
@@ -707,7 +843,6 @@ const SightseeingPackagesDashboard: React.FC = () => {
                   >
                     <Stack direction="row" spacing={1}>
                       <Button
-                        key="edit"
                         component={Link as any}
                         href={`/dashboard/Sightseeing/packages/editpackage`}
                         onClick={() => handleEdit(p)}
@@ -757,8 +892,8 @@ const SightseeingPackagesDashboard: React.FC = () => {
         <DialogContent>
           <DialogContentText>
             Delete{" "}
-            <strong>{selected?.tour_name || selected?.title || "this package"}</strong>? This action
-            cannot be undone.
+            <strong>{selected?.tour_name || selected?.title || "this package"}</strong>?
+            This action cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -775,6 +910,313 @@ const SightseeingPackagesDashboard: React.FC = () => {
           >
             Delete
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ✅ MARKUP MODAL (filter by vehicle type) */}
+      <Dialog
+        open={openMarkupModal}
+        onClose={closeMarkup}
+        fullScreen={isMobile}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 2,
+            }}
+          >
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                Select Sightseeing Packages
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Filter by vehicle type and continue.
+              </Typography>
+            </Box>
+
+            <Chip
+              label={`Selected: ${selectedPackageIds.length}`}
+              variant="outlined"
+              sx={{ fontWeight: 800 }}
+            />
+          </Box>
+        </DialogTitle>
+
+        <DialogContent sx={{ pt: 1 }}>
+          <Stepper activeStep={markupStep} sx={{ mb: 2 }}>
+            <Step>
+              <StepLabel>Select</StepLabel>
+            </Step>
+            <Step>
+              <StepLabel>Markup</StepLabel>
+            </Step>
+          </Stepper>
+
+          {markupStep === 0 ? (
+            <>
+              {/* ✅ vehicle type filter */}
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", sm: "260px 1fr" },
+                  gap: 1.5,
+                  mb: 1.5,
+                  alignItems: "center",
+                }}
+              >
+                <FormControl size="small" fullWidth>
+                  <InputLabel>Vehicle Type</InputLabel>
+                  <Select
+                    label="Vehicle Type"
+                    value={modalVehicleType}
+                    onChange={(e) => setModalVehicleType(e.target.value)}
+                  >
+                    <MenuItem value="">All</MenuItem>
+                    {modalVehicleOptions.map((v) => (
+                      <MenuItem key={v} value={v}>
+                        {v}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                <TextField
+                  size="small"
+                  placeholder="Search packages..."
+                  value={modalSearch}
+                  onChange={(e) => setModalSearch(e.target.value)}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Search />
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{
+                    width: "100%",
+                    "& .MuiOutlinedInput-root": { borderRadius: 1.5, height: 40 },
+                  }}
+                />
+              </Box>
+
+              <Divider sx={{ mb: 2 }} />
+
+              {modalLoading ? (
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    py: 6,
+                  }}
+                >
+                  <CircularProgress />
+                </Box>
+              ) : (
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" },
+                    gap: 1.25,
+                    maxHeight: isMobile ? "63vh" : "52vh",
+                    overflow: "auto",
+                    pr: 0.5,
+                  }}
+                >
+                  {modalPackages.map((p) => {
+                    const pid = unwrapId(p._id) || p.id || "";
+                    const checked = selectedPackageIds.includes(pid);
+
+                    const title = p.tour_name || p.title || "Untitled package";
+                    const dest = p.destination || "—";
+                    const veh = p.vehicle_type || p.vehicleType || "—";
+                    const base =
+                      p.priceBreakdown?.totalPrice ??
+                      p.priceBreakdown?.basePrice ??
+                      p.price_regular;
+
+                    return (
+                      <Card
+                        key={pid || title}
+                        onClick={() => togglePackageSelection(pid)}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.25,
+                          p: 1,
+                          borderRadius: 2,
+                          cursor: "pointer",
+                          border: checked ? "2px solid" : "1px solid",
+                          borderColor: checked ? "primary.main" : "divider",
+                          boxShadow: "none",
+                          transition: "0.15s",
+                          "&:hover": { borderColor: "primary.main" },
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            width: 72,
+                            height: 56,
+                            borderRadius: 2,
+                            overflow: "hidden",
+                            flexShrink: 0,
+                            bgcolor: "grey.100",
+                          }}
+                        >
+                          <CardMedia
+                            component="img"
+                            image={heroImageFromPackage(p)}
+                            alt={title}
+                            loading="lazy"
+                            sx={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                              display: "block",
+                            }}
+                          />
+                        </Box>
+
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography
+                            sx={{
+                              fontWeight: 900,
+                              fontSize: 14,
+                              lineHeight: 1.2,
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                              overflow: "hidden",
+                            }}
+                          >
+                            {title}
+                          </Typography>
+
+                          <Typography
+                            variant="body2"
+                            color="text.secondary"
+                            sx={{
+                              fontSize: 12,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {dest} • {veh} • ₹{money(base)}
+                          </Typography>
+                        </Box>
+
+                        <Checkbox
+                          checked={checked}
+                          onChange={() => togglePackageSelection(pid)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </Card>
+                    );
+                  })}
+
+                  {!modalPackages.length && !modalLoading && (
+                    <Box sx={{ gridColumn: "1 / -1", py: 4, textAlign: "center" }}>
+                      <Typography color="text.secondary">No packages found.</Typography>
+                    </Box>
+                  )}
+                </Box>
+              )}
+            </>
+          ) : (
+            <>
+              <Typography sx={{ fontWeight: 900, mb: 0.5 }}>
+                Add markup for selected packages
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                This will update markup prices for <b>{selectedPackageIds.length}</b>{" "}
+                packages.
+              </Typography>
+
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" },
+                  gap: 2,
+                }}
+              >
+                <TextField
+                  label="Markup Min Price"
+                  type="number"
+                  value={markupMinPrice}
+                  onChange={(e) =>
+                    setMarkupMinPrice(e.target.value ? Number(e.target.value) : "")
+                  }
+                  inputProps={{ min: 0 }}
+                  fullWidth
+                />
+                <TextField
+                  label="Markup Max Price"
+                  type="number"
+                  value={markupMaxPrice}
+                  onChange={(e) =>
+                    setMarkupMaxPrice(e.target.value ? Number(e.target.value) : "")
+                  }
+                  inputProps={{ min: 0 }}
+                  fullWidth
+                />
+              </Box>
+            </>
+          )}
+        </DialogContent>
+
+        <DialogActions
+          sx={{
+            px: 2,
+            py: 1.5,
+            gap: 1,
+            justifyContent: "space-between",
+            borderTop: "1px solid",
+            borderColor: "divider",
+          }}
+        >
+          <Button
+            onClick={closeMarkup}
+            color="inherit"
+            variant="outlined"
+            sx={{ borderRadius: 1.5, height: 36, fontWeight: 800 }}
+          >
+            Cancel
+          </Button>
+
+          {markupStep === 0 ? (
+            <Button
+              variant="contained"
+              disabled={!selectedPackageIds.length || modalLoading}
+              onClick={() => setMarkupStep(1)}
+              sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
+            >
+              Continue
+            </Button>
+          ) : (
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <Button
+                variant="outlined"
+                onClick={() => setMarkupStep(0)}
+                sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
+              >
+                Back
+              </Button>
+              <Button
+                variant="contained"
+                onClick={handleSubmitMarkup}
+                disabled={savingMarkup}
+                sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
+              >
+                {savingMarkup ? "Saving..." : "Submit"}
+              </Button>
+            </Box>
+          )}
         </DialogActions>
       </Dialog>
     </Box>

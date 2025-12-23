@@ -93,6 +93,8 @@ interface SightseeingPackageUI {
   min_pax: number | "";
   max_pax: number | "";
   duration_hours: number | "";
+  markup_min_price?: number | null;
+  markup_max_price?: number | null;
 
   // Timings
   regular_timings: string;
@@ -253,6 +255,8 @@ const BLANK: SightseeingPackageUI = {
   min_pax: "",
   max_pax: "",
   duration_hours: "",
+  markup_min_price: null,
+  markup_max_price: null,
 
   regular_timings: "",
   alternative_timings: "",
@@ -824,6 +828,9 @@ export default function AddSightseeingPackageMobile() {
         destination: form.destination.trim(),
         vehicleType: form.vehicle_type.trim(),
         duration: numOrDefault(form.duration_hours, 1),
+        markup_min_price: (form as any).markup_min_price ?? null,
+         markup_max_price: (form as any).markup_max_price ?? null,
+
         regularTimings: form.regular_timings.trim(),
         alternativeTimings: form.alternative_timings.trim(),
 
@@ -1117,6 +1124,47 @@ export default function AddSightseeingPackageMobile() {
                       disabled={submitting}
                     />
                   </Field>
+                  <Field label="Markup Min Price (₹)">
+  <div className="relative">
+    <input
+      type="number"
+      className="input pl-9"
+      min={0}
+      value={(form as any).markup_min_price ?? ""}
+      onChange={(e) =>
+        set({
+          ...(e.target.value === ""
+            ? { markup_min_price: null }
+            : { markup_min_price: Number(e.target.value) }),
+        } as any)
+      }
+      placeholder="e.g., 200"
+      disabled={submitting}
+    />
+    <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+  </div>
+</Field>
+
+<Field label="Markup Max Price (₹)">
+  <div className="relative">
+    <input
+      type="number"
+      className="input pl-9"
+      min={0}
+      value={(form as any).markup_max_price ?? ""}
+      onChange={(e) =>
+        set({
+          ...(e.target.value === ""
+            ? { markup_max_price: null }
+            : { markup_max_price: Number(e.target.value) }),
+        } as any)
+      }
+      placeholder="e.g., 500"
+      disabled={submitting}
+    />
+    <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+  </div>
+</Field>
                 </div>
               </div>
             </SectionCard>
