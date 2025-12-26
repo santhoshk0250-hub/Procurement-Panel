@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Box,
   Typography,
@@ -181,7 +182,7 @@ const VehiclesDashboard: React.FC = () => {
   const handleEdit = (v: Vehicle) => {
     setVehicle(v);
   };
-
+const router = useRouter();
   // =========================
   // ✅ MARKUP MODAL
   // =========================
@@ -338,6 +339,9 @@ const VehiclesDashboard: React.FC = () => {
       );
 
       setOpenMarkupModal(false);
+      router.push("/dashboard/rentals");
+      router.refresh();
+
     } catch (e) {
       console.error("❌ bulk markup update error:", e);
       alert("Failed to update markup");

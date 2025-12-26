@@ -36,7 +36,7 @@ export default function Sidebar() {
       { label: "Hotels",            href: "/dashboard/calendar",         icon: Hotel, category: "Main" },
       { label: "Review",            href: "/dashboard/review",           icon: MessageSquareShare, category: "Management" },
       { label: "Profitability",     href: "/dashboard/profitability",    icon: LineChart, category: "Management" },
-      { label: "Coupons",           href: "/dashboard/coupons",          icon: TicketPercent, category: "Management" },
+      // { label: "Coupons",           href: "/dashboard/coupons",          icon: TicketPercent, category: "Management" },
       { label: "Pick & Drop",       href: "/dashboard/pickupdrop",       icon: Route, category: "Travel Services" },
       { label: "Rentals",           href: "/dashboard/rentals",          icon: CarFront, category: "Travel Services" },
       { label: "Sightseeing",       href: "/dashboard/Sightseeing",      icon: Binoculars, category: "Travel Services" },
