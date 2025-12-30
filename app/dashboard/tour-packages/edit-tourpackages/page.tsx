@@ -1927,7 +1927,7 @@ export default function EditTourPackagePage() {
 
           const filteredCategories = (serviceCategories || []).filter((c) => {
             const title = normalizeTitle(c?.title);
-            if (title === "tour packages") return false; // always hide
+           if (["tour packages", "hotels"].includes(title)) return false;
             if (isDaytime) {
               if (title === "nightlife") return false;
               return true;

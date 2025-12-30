@@ -36,6 +36,8 @@ export interface TourManagerPriceBreakdown {
   taxes?: number;
   totalPrice: number;
   priceNote?: string;
+   markup_min_price?: number;
+  markup_max_price?: number;
 }
 
 export interface TourManagerTimings {
@@ -61,8 +63,7 @@ export interface TourManager {
 
   /** "tour-manager", "tour-guide", etc. */
   slug: string;
- markup_min_price?: number;
-  markup_max_price?: number;
+
   /** Main title, e.g. "Goa Tour Manager" */
   title: string;
 

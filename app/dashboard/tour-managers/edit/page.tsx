@@ -255,8 +255,8 @@ export default function EditTourManagerMobile() {
       title: tourManager.title || "",
       shortDescription: tourManager.description || "",
       generalInfoHtml: tourManager.general_info || "",
-         markup_min_price: tourManager.markup_min_price || null,
-        markup_max_price: tourManager.markup_max_price || null,
+         markup_min_price: tourManager.price_breakdown?.markup_min_price || null,
+        markup_max_price: tourManager.price_breakdown?.markup_max_price || null,
       languages:
         tourManager.language?.map((pair) => ({
           primary: pair[0] || "",

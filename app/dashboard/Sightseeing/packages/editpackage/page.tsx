@@ -77,6 +77,8 @@ interface PriceBreakdownUI {
   basePrice: number | "" | null;
   serviceCharges: number | "" | null;
   taxes: number | "" | null;
+  markup_min_price?: number | "" | null; // ✅ NEW
+  markup_max_price?: number | "" | null; // ✅ NEW
   totalPrice: number | "" | null;
 }
 
@@ -290,9 +292,6 @@ const TIME_RANGE_REGEX =
     min_pax: doc.min_pax ?? "",
     max_pax: doc.max_pax ?? "",
     duration_hours: doc.duration_hours ?? doc.duration ?? "",
-    markup_min_price: doc.markup_min_price ?? null,
-    markup_max_price: doc.markup_max_price ?? null,
-
 
     // timings
     regular_timings: doc.regular_timings ?? doc.regularTimings ?? "",
@@ -346,6 +345,10 @@ const TIME_RANGE_REGEX =
       serviceCharges: doc.priceBreakdown?.serviceCharges ?? "",
       taxes: doc.priceBreakdown?.taxes ?? "",
       totalPrice: doc.priceBreakdown?.totalPrice ?? "",
+      markup_min_price:
+        doc.priceBreakdown?.markup_min_price ?? doc.markup_min_price ?? "", // fallback
+      markup_max_price:
+        doc.priceBreakdown?.markup_max_price ?? doc.markup_max_price ?? "", // fallback
     },
     cancellationPolicyShort: doc.cancellationPolicyShort ?? "",
     cancellationDetails: doc.cancellationDetails ?? [],
@@ -378,8 +381,6 @@ const BLANK: SightseeingPackageUI = {
   min_pax: "",
   max_pax: "",
   duration_hours: "",
-  markup_min_price: null,
-  markup_max_price: null,
 
   // timings
   regular_timings: "",
@@ -431,6 +432,8 @@ const BLANK: SightseeingPackageUI = {
     serviceCharges: "",
     taxes: "",
     totalPrice: "",
+    markup_min_price: null, // ✅ NEW
+    markup_max_price: null, // ✅ NEW
   },
 
   cancellationPolicyShort: "",
@@ -968,8 +971,6 @@ const setLlmChip = (idx: number, next: Partial<FAQ>) =>
         max_pax: numOrDefault(form.max_pax, 1),
         category: getSelectedCategories(form.category),
         duration_hours: numOrDefault(form.duration_hours, 1),
-        markup_min_price: (form as any).markup_min_price ?? null,
-        markup_max_price: (form as any).markup_max_price ?? null,
         regular_timings: form.regular_timings.trim(),
         alternative_timings: form.alternative_timings.trim(),
         inclusions: form.inclusions,
@@ -1055,13 +1056,14 @@ const setLlmChip = (idx: number, next: Partial<FAQ>) =>
         maxParticipants: numOrDefault(form.maxParticipants, 0),
         accessibility: form.accessibility.trim(),
         fitnessLevel: form.fitnessLevel.trim(),
-
         priceBreakdown: {
-          basePrice: numOrNull(form.priceBreakdown.basePrice),
-          serviceCharges: numOrNull(form.priceBreakdown.serviceCharges),
-          taxes: numOrNull(form.priceBreakdown.taxes),
-          totalPrice: numOrNull(form.priceBreakdown.totalPrice),
-        },
+  basePrice: numOrNull(form.priceBreakdown.basePrice),
+  serviceCharges: numOrNull(form.priceBreakdown.serviceCharges),
+  taxes: numOrNull(form.priceBreakdown.taxes),
+  markup_min_price: numOrNull(form.priceBreakdown.markup_min_price as any),
+  markup_max_price: numOrNull(form.priceBreakdown.markup_max_price as any),
+  totalPrice: numOrNull(form.priceBreakdown.totalPrice),
+},
 
         voucherInfo: form.voucherInfo,
         languages: form.languages,
@@ -1309,19 +1311,20 @@ segregatedGroups.forEach((group, gIdx) => {
                       disabled={submitting}
                     />
                   </Field>
-                  <Field label="Markup Min Price (₹)">
+    <Field label="Markup Min Price (₹)">
   <div className="relative">
     <input
       type="number"
       className="input pl-9"
       min={0}
-      value={(form as any).markup_min_price ?? ""}
+      value={form.priceBreakdown.markup_min_price ?? ""}
       onChange={(e) =>
         set({
-          ...(e.target.value === ""
-            ? { markup_min_price: null }
-            : { markup_min_price: Number(e.target.value) }),
-        } as any)
+          priceBreakdown: {
+            ...form.priceBreakdown,
+            markup_min_price: emptyToNull(e.target.value),
+          },
+        })
       }
       placeholder="e.g., 200"
       disabled={submitting}
@@ -1336,13 +1339,14 @@ segregatedGroups.forEach((group, gIdx) => {
       type="number"
       className="input pl-9"
       min={0}
-      value={(form as any).markup_max_price ?? ""}
+      value={form.priceBreakdown.markup_max_price ?? ""}
       onChange={(e) =>
         set({
-          ...(e.target.value === ""
-            ? { markup_max_price: null }
-            : { markup_max_price: Number(e.target.value) }),
-        } as any)
+          priceBreakdown: {
+            ...form.priceBreakdown,
+            markup_max_price: emptyToNull(e.target.value),
+          },
+        })
       }
       placeholder="e.g., 500"
       disabled={submitting}

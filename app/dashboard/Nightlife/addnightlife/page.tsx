@@ -871,8 +871,7 @@ const setFaq = (idx: number, next: Partial<FAQ>) =>
         taxRate,
         taxIncluded: !!data.taxIncluded,
         serviceCharges,
-        markup_min_price: data.markup_min_price,
-        markup_max_price: data.markup_max_price,
+       
 
         openTime: data.openTime,
         closeTime: data.closeTime,
@@ -997,6 +996,8 @@ const setFaq = (idx: number, next: Partial<FAQ>) =>
           serviceCharges,
           taxes,
           totalPrice,
+          markup_min_price: data.markup_min_price,
+          markup_max_price: data.markup_max_price,
         },
 
        llm_chips: llmChips

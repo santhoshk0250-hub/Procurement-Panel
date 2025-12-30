@@ -26,6 +26,8 @@ import {
   CircularProgress,
   Pagination,
   Stack,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import {
   Search,
@@ -34,49 +36,15 @@ import {
   CheckCircle,
   Schedule,
   Cancel,
-  Percent,
   LocalOffer,
   Image as ImageIcon,
   PlaylistAddRounded,
+  Percent,
 } from "@mui/icons-material";
-import { useCouponStore } from "@/store/couponsStore";
+import { useCouponStore, type Coupon, type IDType, type MongoDate } from "@/store/couponsStore";
 
-/* ================== Types (Unchanged) ================== */
-type MongoDate = string | { $date: string };
-type IDType = string | { $oid: string };
-
-interface Coupon {
-  _id: IDType;
-  seq: number;
-  name: string;
-  coupon_code: string;
-  details: string;
-  price: string;
-  discount_type?: "fixed" | "percentage";
-  discount_value?: number;
-  timestamp?: MongoDate;
-  eligibility: {
-    user_type: string;
-    first_booking?: boolean;
-    min_cart_value?: number;
-    max_uses_per_user?: number;
-    // ... other optional fields
-  };
-  validity: {
-    start: MongoDate;
-    end: MongoDate;
-  };
-  terms_conditions: string[];
-  images: string[];
-  is_active?: boolean;
-  total_uses?: number;
-  max_total_uses?: number | null;
-  createdAt?: MongoDate;
-  updatedAt?: MongoDate;
-}
-
-/* ================== Helpers (Unchanged) ================== */
-const unwrapId = (id: IDType) => (typeof id === "string" ? id : id?.$oid ?? "");
+/* ================== Helpers ================== */
+const unwrapId = (id?: IDType) => (typeof id === "string" ? id : id?.$oid ?? "");
 
 const toDate = (d?: MongoDate): Date | null => {
   const iso = typeof d === "string" ? d : (d as { $date: string })?.$date ?? null;
@@ -92,27 +60,53 @@ const within = (now: Date, start?: MongoDate, end?: MongoDate) => {
   return "active";
 };
 
-const currencyBadge = (c: Coupon) => {
-  if (c.discount_type === "percentage") return `${c.discount_value ?? ""}% OFF`;
-  if (c.discount_type === "fixed" && typeof c.discount_value === "number")
-    return `₹${c.discount_value} OFF`;
-  return c.price || "Offer";
+const mainImage = (c: Coupon) =>
+  c.thumbnail ||
+  "https://images.unsplash.com/photo-1560066984-138dadb4c035?q=80&w=1200&auto=format&fit=crop";
+
+const discountBadge = (c: Coupon) => {
+  const d = c.discount;
+  if (!d) return "Offer";
+  if (d.type === "percentage") return `${d.value}% OFF`;
+  const cur = d.currency || "₹";
+  return `${cur}${d.value} OFF`;
 };
 
-const mainImage = (c: Coupon) =>
-  c.images?.[0] ||
-  "https://images.unsplash.com/photo-1560066984-138dadb4c035?q=80&w=1200&auto=format&fit=crop"; // fallback
+const formatValidity = (c: Coupon) => {
+  const s = toDate(c.date_rules?.valid_from);
+  const e = toDate(c.date_rules?.valid_to);
+  if (!s || !e) return null;
+  return `${s.toLocaleDateString()} → ${e.toLocaleDateString()}`;
+};
+
+const toText = (html: string, max = 140) => {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html || "", "text/html");
+    const s = doc.body.textContent || "";
+    return s.length > max ? s.slice(0, max).trim() + "…" : s.trim();
+  } catch {
+    const s = html?.replace(/<[^>]+>/g, "") || "";
+    return s.length > 140 ? s.slice(0, 140).trim() + "…" : s.trim();
+  }
+};
 
 /* ================== Component ================== */
 const CouponsDashboard: React.FC = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
   const [search, setSearch] = useState("");
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selected, setSelected] = useState<Coupon | null>(null);
+
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [page, setPage] = useState<number>(1);
   const [pages, setPages] = useState<number>(1);
-  const open = Boolean(anchorEl);
+
+
   const { setCoupon } = useCouponStore();
 
   const fetchCoupons = async (pageNum: number) => {
@@ -122,12 +116,11 @@ const CouponsDashboard: React.FC = () => {
         `${process.env.NEXT_PUBLIC_API_BASE}coupons/fetchcoupons?page=${pageNum}`
       );
 
-      const fetchedCoupons = res.data.data || [];
-      const totalPages = res.data.pagination?.pages ?? 1;
+      const fetchedCoupons: Coupon[] = res.data?.data || [];
+      const totalPages: number = res.data?.pagination?.pages ?? 1;
 
       setCoupons(fetchedCoupons);
       setPages(totalPages);
-
     } catch (e) {
       console.error("Error fetching coupons:", e);
     } finally {
@@ -143,50 +136,49 @@ const CouponsDashboard: React.FC = () => {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     if (!q) return coupons;
+
     return coupons.filter((c) => {
       const hay = [
-        c.name,
+        c.title,
         c.coupon_code,
-        c.details,
-        c.eligibility?.user_type,
+        c.description,
         String(c.seq),
+        ...(c.eligibility?.user_type || []),
+        c.coupon_type,
+        c.discount?.type,
+        c.discount?.currency,
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
+
       return hay.includes(q);
     });
   }, [search, coupons]);
 
-  // Handler for opening the Kebab Menu
-  const handleMore = (e: MouseEvent<HTMLElement>, c: Coupon) => {
-    setAnchorEl(e.currentTarget);
-    setSelected(c);
-  };
+
 
   const closeMenu = () => setAnchorEl(null);
 
-  /**
-   * Handler for the Edit action in the Kebab Menu.
-   * This logic is necessary if you were using an external store
-   * (like the hotel example), but here, we mainly just need to close the menu.
-   * We still use the MenuItem's Link component for navigation.
-   * @param c The coupon to be edited.
-   */
   const handleEdit = (c: Coupon) => {
     setCoupon(c);
-    // Perform any necessary pre-navigation logic here, e.g., setting store state.
-    // Since this component doesn't have a coupon store, we just close the menu.
     closeMenu();
-    // The actual navigation happens via the <Link> component wrapping the MenuItem.
+  };
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const askDelete = () => {
+    setConfirmOpen(true);
+    closeMenu();
   };
 
   const handleDelete = async () => {
-    if (!selected) return;
+    if (!selected?._id) return;
+
     try {
       await axios.delete(
         `${process.env.NEXT_PUBLIC_API_BASE}coupons/delete/${unwrapId(selected._id)}`
       );
+
       setCoupons((prev) => prev.filter((x) => unwrapId(x._id) !== unwrapId(selected._id)));
       setSelected(null);
       closeMenu();
@@ -202,18 +194,11 @@ const CouponsDashboard: React.FC = () => {
     } catch {}
   };
 
-  /* ------- Delete dialog ------- */
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const askDelete = () => {
-    setConfirmOpen(true);
-    closeMenu();
-  };
-
   const now = new Date();
 
   return (
-    <Box sx={{ p: 3, backgroundColor: "white", minHeight: "70vh" }}>
-      {/* Top bar (Unchanged) */}
+    <Box sx={{ p: { xs: 2, sm: 3 }, backgroundColor: "white", minHeight: "70vh" }}>
+      {/* Top bar */}
       <Box
         sx={{
           display: "flex",
@@ -236,22 +221,22 @@ const CouponsDashboard: React.FC = () => {
               </InputAdornment>
             ),
           }}
-          sx={{ width: { xs: "100%", sm: 320 } }}
+          sx={{ width: { xs: "100%", sm: 360 } }}
         />
 
         <Button
           href="/dashboard/coupons/addcoupons"
           component={Link as any}
-          fullWidth
-          sx={{ width: { xs: "100%", sm: "auto" } }}
+          fullWidth={isMobile}
           variant="contained"
           startIcon={<PlaylistAddRounded />}
+          sx={{ width: { xs: "100%", sm: "auto" } }}
         >
           Add Coupon
         </Button>
       </Box>
 
-      {/* Loader & No Coupons (Unchanged) */}
+      {/* Loader & Empty */}
       {loading ? (
         <Box
           sx={{
@@ -285,10 +270,19 @@ const CouponsDashboard: React.FC = () => {
         </Box>
       ) : (
         <>
-          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+          {/* Responsive layout using Box (no Grid) */}
+          <Box
+            sx={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 2,
+              alignItems: "stretch",
+              justifyContent: { xs: "center", sm: "flex-start" },
+            }}
+          >
             {filtered.map((c) => {
-              const state = within(now, c.validity?.start, c.validity?.end);
-              const isActive = c.is_active ?? (state === "active");
+              const state = within(now, c.date_rules?.valid_from, c.date_rules?.valid_to);
+              const isActive = c.status?.is_active ?? (state === "active");
 
               const statusChip =
                 state === "active" ? (
@@ -306,33 +300,37 @@ const CouponsDashboard: React.FC = () => {
                   <Chip size="small" label="Unknown" />
                 );
 
+              const validityText = formatValidity(c);
+
               return (
-                <Card key={unwrapId(c._id)} sx={{ width: 320 }}>
+                <Card
+                  key={unwrapId(c._id)}
+                  sx={{
+                    width: {
+                      xs: "100%", // mobile: full width
+                      sm: "calc(50% - 8px)", // 2 columns
+                      md: "calc(33.333% - 10.7px)", // 3 columns
+                      lg: "calc(25% - 12px)", // 4 columns
+                    },
+                    maxWidth: { xs: 520, sm: "none" }, // keep nice centered width on phones
+                    display: "flex",
+                    flexDirection: "column",
+                    borderRadius: 2,
+                  }}
+                >
                   <Box sx={{ position: "relative" }}>
                     <CardMedia
                       component="img"
                       image={mainImage(c)}
-                      alt={c.name}
+                      alt={c.title}
                       sx={{
                         objectFit: "cover",
                         width: "100%",
-                        height: 140,
-                        borderRadius: 1,
+                        height: isMobile ? 160 : 140,
                       }}
                     />
-                    <IconButton
-                      aria-label="more"
-                      onClick={(e) => handleMore(e, c)} // Calls handleMore to open menu and set selected
-                      sx={{
-                        position: "absolute",
-                        top: 8,
-                        right: 8,
-                        backgroundColor: "rgba(255, 255, 255, 0.7)",
-                        "&:hover": { backgroundColor: "rgba(255, 255, 255, 0.9)" },
-                      }}
-                    >
-                      <MoreVert />
-                    </IconButton>
+
+                 
 
                     <Box
                       sx={{
@@ -348,57 +346,80 @@ const CouponsDashboard: React.FC = () => {
                         size="small"
                         color="primary"
                         icon={<LocalOffer />}
-                        label={currencyBadge(c)}
+                        label={discountBadge(c)}
                         sx={{ bgcolor: "primary.main", color: "primary.contrastText" }}
                       />
                     </Box>
                   </Box>
 
-                  <CardContent sx={{ pb: 1 }}> {/* Reduced padding bottom */}
-                    {/* <Stack direction="row" alignItems="center" justifyContent="space-between">
-                      <Typography variant="h6" noWrap title={c.name}>
-                        {c.name}
+                  <CardContent sx={{ pb: 1, flexGrow: 1 }}>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
+                      <Typography variant="subtitle1" fontWeight={700} noWrap title={c.title}>
+                        {c.title}
                       </Typography>
                       {statusChip}
-                    </Stack> */}
+                    </Stack>
 
-                    <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
+                    <Stack direction="row" spacing={1} alignItems="center" mt={1}>
                       <Tooltip title="Copy code">
-                        <IconButton
-                          size="small"
-                          onClick={() => copyCode(c.coupon_code)}
-                          sx={{ mr: -0.5 }}
-                        >
+                        <IconButton size="small" onClick={() => copyCode(c.coupon_code)}>
                           <ContentCopy fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      <Typography variant="body2" fontWeight={600}>
+
+                      <Typography variant="body2" fontWeight={700}>
                         {c.coupon_code}
                       </Typography>
-                      {c.discount_type === "percentage" && (
-                        <Percent fontSize="small" color="action" />
-                      )}
+
+                      {c.discount?.type === "percentage" && <Percent fontSize="small" color="action" />}
                     </Stack>
 
-                    <Stack direction="row" gap={1} mt={1}>
+                    {c.description ? (
+                      <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        sx={{
+                          mt: 1,
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {toText(c.description)}
+                      </Typography>
+                    ) : null}
+
+                    <Stack direction="row" gap={1} mt={1} flexWrap="wrap">
                       {typeof c.eligibility?.min_cart_value === "number" && (
                         <Chip size="small" label={`Min ₹${c.eligibility.min_cart_value}`} />
                       )}
+                      {typeof c.eligibility?.max_uses_per_user === "number" && (
+                        <Chip size="small" label={`Max/user ${c.eligibility.max_uses_per_user}`} />
+                      )}
+                      {validityText && <Chip size="small" label={validityText} />}
                     </Stack>
                   </CardContent>
 
-                  <CardActions sx={{ justifyContent: "space-between", px: 2, pb: 2, pt: 0.5 }}> {/* Adjusted vertical spacing */}
+                  <CardActions sx={{ justifyContent: "space-between", px: 2, pb: 2, pt: 0.5 }}>
                     <Stack direction="row" spacing={1}>
-                      {/* View Button */}
                       <Button
-                           key="edit"
-                            component={Link as any}
-                            href={`/dashboard/coupons/editcoupons`}
-                            onClick={() => handleEdit(c)}
+                        size="small"
+                        component={Link as any}
+                        href="/dashboard/coupons/editcoupons"
+                        onClick={() => handleEdit(c)}
                       >
                         Edit
                       </Button>
-                      <Button color="error" size="small" onClick={() => { setSelected(c); setConfirmOpen(true); }}>
+
+                      <Button
+                        size="small"
+                        color="error"
+                        onClick={() => {
+                          setSelected(c);
+                          setConfirmOpen(true);
+                        }}
+                      >
                         Delete
                       </Button>
                     </Stack>
@@ -408,45 +429,19 @@ const CouponsDashboard: React.FC = () => {
             })}
           </Box>
 
-          {/* Pagination (Unchanged) */}
+          {/* Pagination */}
           <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
-            <Pagination
-              count={pages}
-              page={page}
-              onChange={(e, value) => setPage(value)}
-              color="primary"
-            />
+            <Pagination count={pages} page={page} onChange={(e, value) => setPage(value)} color="primary" />
           </Box>
         </>
       )}
-<Menu
-  anchorEl={anchorEl}
-  open={open}
-  onClose={closeMenu}
-  anchorOrigin={{ vertical: "top", horizontal: "right" }}
-  transformOrigin={{ vertical: "top", horizontal: "right" }}
->
-  {selected ? [ // Directly return an array when selected is true
-    <MenuItem
-      key="edit"
-      component={Link as any}
-      href={`/dashboard/coupons/editcoupons`}
-      onClick={() => handleEdit(selected)}
-    >
-      Edit
-    </MenuItem>,
-    <MenuItem key="delete" onClick={askDelete}>
-      Delete
-    </MenuItem>
-  ] : null}
-</Menu>
 
-      {/* Delete Confirmation (Unchanged) */}
+      {/* Delete Confirmation */}
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
         <DialogTitle>Delete Coupon</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete <strong>{selected?.name}</strong>? This action cannot be undone.
+            Delete <strong>{selected?.title}</strong>? This action cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

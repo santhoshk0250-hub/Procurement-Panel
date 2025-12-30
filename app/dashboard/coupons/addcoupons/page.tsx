@@ -118,11 +118,7 @@ const getServiceCardContent = (categoryKey: string, item: ServiceMetaItem) => {
   const key = (categoryKey || "").toLowerCase();
 
   const fallbackImage =
-    item.thumbnail ||
-    item.thumbnailUrl ||
-    item.banner ||
-    item.images?.[0] ||
-    "";
+    item.thumbnail || item.thumbnailUrl || item.banner || item.images?.[0] || "";
 
   const ratingLabel =
     item.rating ?? item.ratingCount ?? item.reviewCount
@@ -158,7 +154,10 @@ const getServiceCardContent = (categoryKey: string, item: ServiceMetaItem) => {
     const v = item.vehicleOption || item.vehicleOptions?.[0];
     const mediaUrl = v?.images?.[0] || fallbackImage;
 
-    const price = v?.sellerBasePrice ?? v?.basePrice ?? item.priceBreakdown?.totalPrice;
+    const price =
+      v?.sellerBasePrice ??
+      v?.basePrice ??
+      item.priceBreakdown?.totalPrice;
 
     return {
       mediaUrl,
@@ -179,7 +178,8 @@ const getServiceCardContent = (categoryKey: string, item: ServiceMetaItem) => {
   // ✅ Tour manager: prefer profilePic
   if (key === "tourmanager") {
     const mediaUrl = item.tourManagerProfiles?.[0]?.profilePic || fallbackImage;
-    const price = item.price_breakdown?.totalPrice ?? item.priceBreakdown?.totalPrice;
+    const price =
+      item.price_breakdown?.totalPrice ?? item.priceBreakdown?.totalPrice;
 
     return {
       mediaUrl,
@@ -212,7 +212,12 @@ const getServiceCardContent = (categoryKey: string, item: ServiceMetaItem) => {
    (covers FIXED_VALUE / PERCENTAGE / SERVICE_MONETARY)
    ========================= */
 
-type CouponType = "FIXED_VALUE" | "PERCENTAGE" | "FREEBIE" | "BOGO" | "SERVICE_MONETARY";
+type CouponType =
+  | "FIXED_VALUE"
+  | "PERCENTAGE"
+  | "FREEBIE"
+  | "BOGO"
+  | "SERVICE_MONETARY";
 
 type DiscountType = "fixed" | "percentage";
 type Currency = "INR" | "USD" | "AED";
@@ -239,6 +244,20 @@ type ServiceType =
 type CalculationBasis = "MARKUP_DIFFERENCE";
 
 type UserTypeOption = "NEW_USER" | "ALL";
+
+/** ✅ NEW: per-tab allow all keys (match SERVICE_META_KEY_BY_TITLE values) */
+type AllowAllKey =
+  | "hotels"
+  | "activities"
+  | "sightseeingpackages"
+  | "leisureactivities"
+  | "nightlife"
+  | "rentals"
+  | "pickupanddrop"
+  | "foodservices"     // ✅ add
+  | "tourmanager";     // ✅ add
+
+type AllowAllByService = Partial<Record<AllowAllKey, boolean>>;
 
 interface CouponFormData {
   coupon_type: CouponType;
@@ -315,6 +334,9 @@ interface CouponFormData {
   // ✅ keep Services tab state same:
   services: SelectedService[]; // used to build allowed_services on submit
   hotel_categories: string[]; // selected hotel star categories from modal
+
+  // ✅ NEW: per service-tab allow_all flags
+  allow_all_by_service: AllowAllByService;
 }
 
 interface ImageFile {
@@ -392,6 +414,21 @@ const DEFAULT_FORM: CouponFormData = {
   },
 
   services: [],
+
+  // ✅ NEW default: allow all in each section initially
+allow_all_by_service: {
+  hotels: false,
+  activities: false,
+  sightseeingpackages: false,
+  leisureactivities: false,
+  nightlife: false,
+  rentals: false,
+  pickupanddrop: false,
+  foodservices: false,     // ✅ add
+  tourmanager: false,      // ✅ add
+},
+
+
 };
 
 export default function CouponFormMobile() {
@@ -485,14 +522,15 @@ export default function CouponFormMobile() {
   }, []);
 
   /* =========================
-     Service Picker Modal state (KEEP)
+     Service Picker Modal state (UPDATED)
      ========================= */
   const [servicePicker, setServicePicker] = useState<{
     open: boolean;
     activeCategoryId: string | null;
     selected: { categoryId: string; categoryTitle: string; itemId: string }[];
-    hotelCategories: string[]; // star categories selection (Hostel / 2 Star / 3 Star ...)
-  }>({ open: false, activeCategoryId: null, selected: [], hotelCategories: [] });
+    hotelCategories: string[]; // star categories selection
+    allowAll: AllowAllByService; // ✅ NEW
+  }>({ open: false, activeCategoryId: null, selected: [], hotelCategories: [], allowAll: {} });
 
   const openServicePicker = () => {
     const fallback = serviceCategories[0]?._id || null;
@@ -508,11 +546,12 @@ export default function CouponFormMobile() {
       activeCategoryId: fallback,
       selected: preselected,
       hotelCategories: formData.hotel_categories || [],
+      allowAll: formData.allow_all_by_service || {},
     });
   };
 
   const closeServicePicker = () =>
-    setServicePicker({ open: false, activeCategoryId: null, selected: [], hotelCategories: [] });
+    setServicePicker({ open: false, activeCategoryId: null, selected: [], hotelCategories: [], allowAll: {} });
 
   const handleServicePickerDone = () => {
     const selections = servicePicker.selected;
@@ -528,6 +567,7 @@ export default function CouponFormMobile() {
       ...p,
       services: next,
       hotel_categories: servicePicker.hotelCategories || [],
+      allow_all_by_service: servicePicker.allowAll || {},
     }));
     closeServicePicker();
   };
@@ -679,118 +719,118 @@ export default function CouponFormMobile() {
   };
 
   /* =========================
-     Build allowed_services from selected services
-     (extended to include hotel_categories for SERVICE_MONETARY schema)
+     Build allowed_services from selected services (UPDATED)
+     ✅ per-section allow_all behavior
      ========================= */
-  const buildAllowedServices = (selected: SelectedService[], hotelCategories: string[] = []) => {
-    const hasAny = selected.length > 0 || (hotelCategories?.length || 0) > 0;
+ const buildAllowedServices = (
+  selected: SelectedService[],
+  hotelCategories: string[] = [],
+  allowAll: AllowAllByService = {}
+) => {
+  const hotelIds: string[] = [];
+  const activity_ids: string[] = [];
+  const sightseeing_ids: string[] = [];
+  const leisure_activity_ids: string[] = [];
+  const nightlife_ids: string[] = [];
+  const rental_ids: string[] = [];
+  const pickup_drop_ids: string[] = [];
 
-    if (!hasAny) {
-      return {
-        allowed_all: true,
-        hotels: {
-          allowed_all: true,
-          hotel_categories: [] as string[],
-          allowed_hotel_ids: [] as string[],
-        },
-        services: {
-          allowed_all: true,
-          activity_ids: [] as string[],
-          sightseeing_ids: [] as string[],
-          leisure_activity_ids: [] as string[],
-          nightlife_ids: [] as string[],
-          rental_ids: [] as string[],
-          pickup_drop_ids: [] as string[],
-        },
-      };
+  // ✅ NEW
+  const foodservice_ids: string[] = [];
+  const tour_manager_ids: string[] = [];
+
+  for (const s of selected) {
+    const t = normalizeTitle(s.categoryTitle);
+
+    if (t === "hotels" || t === "hotel") hotelIds.push(s.itemId);
+    else if (t === "activities") activity_ids.push(s.itemId);
+    else if (t === "sightseeing") sightseeing_ids.push(s.itemId);
+    else if (t === "leisure activities" || t === "leisureactivities") leisure_activity_ids.push(s.itemId);
+    else if (t === "nightlife") nightlife_ids.push(s.itemId);
+    else if (t === "rentals" || t === "rental") rental_ids.push(s.itemId);
+    else if (
+      t === "pick & drop" ||
+      t === "pick and drop" ||
+      t === "pickup & drop" ||
+      t === "pickupanddrop"
+    ) {
+      pickup_drop_ids.push(s.itemId);
     }
-
-    const hotels: string[] = [];
-    const activity_ids: string[] = [];
-    const sightseeing_ids: string[] = [];
-    const leisure_activity_ids: string[] = [];
-    const nightlife_ids: string[] = [];
-    const rental_ids: string[] = [];
-    const pickup_drop_ids: string[] = [];
-
-    for (const s of selected) {
-      const t = normalizeTitle(s.categoryTitle);
-
-      // Hotels
-      if (t === "hotels" || t === "hotel") {
-        hotels.push(s.itemId);
-        continue;
-      }
-
-      // Activities
-      if (t === "activities") {
-        activity_ids.push(s.itemId);
-        continue;
-      }
-
-      // Sightseeing
-      if (t === "sightseeing") {
-        sightseeing_ids.push(s.itemId);
-        continue;
-      }
-
-      // Leisure Activities
-      if (t === "leisure activities" || t === "leisureactivities") {
-        leisure_activity_ids.push(s.itemId);
-        continue;
-      }
-
-      // Nightlife
-      if (t === "nightlife") {
-        nightlife_ids.push(s.itemId);
-        continue;
-      }
-
-      // Rentals
-      if (t === "rentals" || t === "rental") {
-        rental_ids.push(s.itemId);
-        continue;
-      }
-
-      // Pick & Drop
-      if (
-        t === "pick & drop" ||
-        t === "pick and drop" ||
-        t === "pickup & drop" ||
-        t === "pickupanddrop"
-      ) {
-        pickup_drop_ids.push(s.itemId);
-        continue;
-      }
-
-      // Tour Manager is not in allowed_services.services list in your schema.
+    // ✅ NEW: Food Service
+    else if (t === "food service" || t === "foodservices") {
+      foodservice_ids.push(s.itemId);
     }
+    // ✅ NEW: Tour Manager
+    else if (t === "tour manager" || t === "tourmanager") {
+      tour_manager_ids.push(s.itemId);
+    }
+  }
 
-    return {
+  // default true if missing
+  const hotelsAllowAll = allowAll.hotels ?? true;
+  const activitiesAllowAll = allowAll.activities ?? true;
+  const sightseeingAllowAll = allowAll.sightseeingpackages ?? true;
+  const leisureAllowAll = allowAll.leisureactivities ?? true;
+  const nightlifeAllowAll = allowAll.nightlife ?? true;
+  const rentalsAllowAll = allowAll.rentals ?? true;
+  const pickupDropAllowAll = allowAll.pickupanddrop ?? true;
+
+  // ✅ NEW
+  const foodservicesAllowAll = allowAll.foodservices ?? true;
+  const tourmanagerAllowAll = allowAll.tourmanager ?? true;
+
+  const rootAllowedAll =
+    hotelsAllowAll &&
+    activitiesAllowAll &&
+    sightseeingAllowAll &&
+    leisureAllowAll &&
+    nightlifeAllowAll &&
+    rentalsAllowAll &&
+    pickupDropAllowAll &&
+    foodservicesAllowAll &&      // ✅ NEW
+    tourmanagerAllowAll;         // ✅ NEW
+
+  return {
+    allowed_all: rootAllowedAll,
+
+    hotels: {
+      allowed_all: hotelsAllowAll,
+      hotel_categories: hotelsAllowAll ? [] : hotelCategories || [],
+      allowed_hotel_ids: hotelsAllowAll ? [] : hotelIds,
+    },
+
+    services: {
       allowed_all: false,
-      hotels: {
-        allowed_all: hotels.length === 0 && (hotelCategories?.length || 0) === 0,
-        hotel_categories: hotelCategories || [],
-        allowed_hotel_ids: hotels,
-      },
 
-      services: {
-        allowed_all:
-          activity_ids.length === 0 &&
-          sightseeing_ids.length === 0 &&
-          leisure_activity_ids.length === 0 &&
-          nightlife_ids.length === 0 &&
-          rental_ids.length === 0 &&
-          pickup_drop_ids.length === 0,
-        activity_ids,
-        sightseeing_ids,
-        leisure_activity_ids,
-        nightlife_ids,
-        rental_ids,
-        pickup_drop_ids,
+      activity_ids: activitiesAllowAll ? [] : activity_ids,
+      sightseeing_ids: sightseeingAllowAll ? [] : sightseeing_ids,
+      leisure_activity_ids: leisureAllowAll ? [] : leisure_activity_ids,
+      nightlife_ids: nightlifeAllowAll ? [] : nightlife_ids,
+      rental_ids: rentalsAllowAll ? [] : rental_ids,
+      pickup_drop_ids: pickupDropAllowAll ? [] : pickup_drop_ids,
+
+      // ✅ NEW: send IDs like others
+      foodservice_ids: foodservicesAllowAll ? [] : foodservice_ids,
+      tour_manager_ids: tourmanagerAllowAll ? [] : tour_manager_ids,
+
+      // ✅ keep extra flags for backend
+      allow_all_by_type: {
+        activities: activitiesAllowAll,
+        sightseeing: sightseeingAllowAll,
+        leisure_activities: leisureAllowAll,
+        nightlife: nightlifeAllowAll,
+        rentals: rentalsAllowAll,
+        pickup_drop: pickupDropAllowAll,
+
+        // ✅ NEW flags
+        foodservices: foodservicesAllowAll,
+        tourmanager: tourmanagerAllowAll,
       },
-    };
+    },
   };
+};
+
+
 
   /* =========================
      Submit
@@ -875,7 +915,11 @@ export default function CouponFormMobile() {
 
         terms_conditions: (formData.terms_conditions || []).filter(Boolean),
 
-        allowed_services: buildAllowedServices(formData.services || [], formData.hotel_categories || []),
+        allowed_services: buildAllowedServices(
+          formData.services || [],
+          formData.hotel_categories || [],
+          formData.allow_all_by_service || {}
+        ),
 
         status: {
           is_active: !!formData.status.is_active,
@@ -927,7 +971,7 @@ export default function CouponFormMobile() {
       });
 
       if (response.ok) {
-        // router.push("/dashboard/coupons");
+        router.push("/dashboard/coupons");
         return;
       } else {
         const msg = await safeErrorText(response);
@@ -1074,7 +1118,7 @@ export default function CouponFormMobile() {
                           className="input"
                           value={formData.discount.type}
                           onChange={(e) => setDiscount({ type: e.target.value as DiscountType })}
-                          disabled={isServiceMonetary} // schema always fixed for SERVICE_MONETARY examples
+                          disabled={isServiceMonetary}
                         >
                           <option value="fixed">fixed</option>
                           <option value="percentage">percentage</option>
@@ -1182,11 +1226,9 @@ export default function CouponFormMobile() {
                                     const current = (formData.date_rules.allowed_days || []) as AllowedDays[];
 
                                     if (checked) {
-                                      // Select Mon-Fri and clear weekend (mutual exclusive)
                                       const withoutWeekend = removeMany(current, WEEKEND);
                                       setAllowedDays(addMany(withoutWeekend, WEEKDAYS));
                                     } else {
-                                      // Remove Mon-Fri only
                                       setAllowedDays(removeMany(current, WEEKDAYS));
                                     }
                                   }}
@@ -1205,11 +1247,9 @@ export default function CouponFormMobile() {
                                     const current = (formData.date_rules.allowed_days || []) as AllowedDays[];
 
                                     if (checked) {
-                                      // Select Sat-Sun and clear weekdays (mutual exclusive)
                                       const withoutWeekdays = removeMany(current, WEEKDAYS);
                                       setAllowedDays(addMany(withoutWeekdays, WEEKEND));
                                     } else {
-                                      // Remove Sat-Sun only
                                       setAllowedDays(removeMany(current, WEEKEND));
                                     }
                                   }}
@@ -1513,7 +1553,7 @@ export default function CouponFormMobile() {
               )}
 
               {/* =========================
-                  SERVICES TAB (UPDATED)
+                  SERVICES TAB
                  ========================= */}
               {activeTab === "Services" && (
                 <SectionCard title="Services" subtitle="Select services for this coupon (optional).">
@@ -1534,6 +1574,20 @@ export default function CouponFormMobile() {
                       <Plus className="h-4 w-4" />
                       Add Services
                     </button>
+                  </div>
+
+                  {/* ✅ show allow-all badges */}
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {Object.entries(formData.allow_all_by_service || {})
+                      .filter(([, v]) => !!v)
+                      .map(([k]) => (
+                        <span
+                          key={k}
+                          className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full"
+                        >
+                          Allow all: {k}
+                        </span>
+                      ))}
                   </div>
 
                   {/* ✅ Show selected hotel star categories */}
@@ -1823,10 +1877,11 @@ export default function CouponFormMobile() {
                           return <div className="py-10 text-center text-sm text-gray-600">No categories found.</div>;
                         }
 
-                        const activeMetaKey = SERVICE_META_KEY_BY_TITLE[activeCategory.title] || "";
+                        const activeMetaKey = (SERVICE_META_KEY_BY_TITLE[activeCategory.title] || "") as AllowAllKey | "";
                         const items: ServiceMetaItem[] = activeMetaKey ? servicesMeta[activeMetaKey] || [] : [];
 
                         const isHotelsTab = activeMetaKey === "hotels";
+                        const allowAllForTab = !!(activeMetaKey && servicePicker.allowAll?.[activeMetaKey]);
 
                         const hotelStarOptions = (() => {
                           if (!isHotelsTab) return [];
@@ -1863,8 +1918,44 @@ export default function CouponFormMobile() {
 
                         return (
                           <div className="space-y-4">
-                            {/* ✅ Hotels tab: Star Category selector */}
-                            {isHotelsTab && hotelStarOptions.length > 0 && (
+                            {/* ✅ Allow all toggle (skip tourmanager - not part of allowed_services) */}
+                            {activeMetaKey  && (
+                              <div className="rounded-2xl border border-gray-200 bg-white p-3">
+                                <label className="flex items-center justify-between">
+                                  <span className="text-sm font-semibold text-gray-900">Allow all {activeCategory.title}</span>
+                                  <input
+                                    type="checkbox"
+                                    className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                                    checked={allowAllForTab}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+
+                                      setServicePicker((prev) => {
+                                        // Clear selected items for this category when enabling allow all
+                                        const nextSelected = checked
+                                          ? prev.selected.filter((s) => s.categoryId !== activeCategory._id)
+                                          : prev.selected;
+
+                                        // For hotels: if allow all is ON, clear star categories too (means truly all)
+                                        const nextHotelCategories =
+                                          activeMetaKey === "hotels" && checked ? [] : prev.hotelCategories;
+
+                                        return {
+                                          ...prev,
+                                          selected: nextSelected,
+                                          hotelCategories: nextHotelCategories,
+                                          allowAll: { ...(prev.allowAll || {}), [activeMetaKey]: checked },
+                                        };
+                                      });
+                                    }}
+                                  />
+                                </label>
+                                <p className="text-[11px] text-gray-500 mt-2">If enabled, IDs will not be stored for this section.</p>
+                              </div>
+                            )}
+
+                            {/* ✅ Hotels tab: Star Category selector (disabled when allow all ON) */}
+                            {isHotelsTab && !allowAllForTab && hotelStarOptions.length > 0 && (
                               <div className="rounded-2xl border border-gray-200 bg-white p-3">
                                 <p className="text-sm font-semibold text-gray-900 mb-2">Select Star Categories</p>
 
@@ -1886,7 +1977,6 @@ export default function CouponFormMobile() {
                                             const nextSelected = checked
                                               ? prev.selected
                                               : prev.selected.filter((s) => {
-                                                  // only filter in Hotels category
                                                   if (normalizeTitle(s.categoryTitle) !== "hotels") return true;
 
                                                   const hotelItem = items.find((it) => it._id === s.itemId);
@@ -1915,7 +2005,7 @@ export default function CouponFormMobile() {
                               </div>
                             )}
 
-                            {/* ✅ Hotel list / normal list (same UI) */}
+                            {/* ✅ Hotel list / normal list */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                               {items.map((item) => {
                                 if (!item._id) return null;
@@ -1927,19 +2017,21 @@ export default function CouponFormMobile() {
 
                                 const { mediaUrl, title, subtitle, chip, priceLabel, ratingLabel } = getServiceCardContent(activeMetaKey, item);
 
+                                const disabled = allowAllForTab || isBlockedByCategory;
+
                                 return (
                                   <button
                                     key={item._id}
                                     type="button"
-                                    disabled={isBlockedByCategory}
-                                    aria-disabled={isBlockedByCategory}
+                                    disabled={disabled}
+                                    aria-disabled={disabled}
                                     onClick={() => {
-                                      if (isBlockedByCategory) return;
+                                      if (disabled) return;
                                       toggleSelect(item._id);
                                     }}
                                     className={[
                                       "w-full text-left rounded-2xl border p-3 transition",
-                                      isBlockedByCategory
+                                      disabled
                                         ? "border-gray-200 bg-gray-100 opacity-60 cursor-not-allowed"
                                         : isSelected
                                         ? "border-blue-400 bg-blue-50 shadow-sm"
@@ -1980,16 +2072,8 @@ export default function CouponFormMobile() {
                                         </div>
 
                                         <div className="mt-2 flex flex-wrap items-center gap-2">
-                                          {chip && (
-                                            <span className="inline-flex px-2 py-0.5 rounded-full bg-gray-100 text-[11px] text-gray-700">
-                                              {chip}
-                                            </span>
-                                          )}
-                                          {ratingLabel && (
-                                            <span className="inline-flex px-2 py-0.5 rounded-full bg-amber-50 text-[11px] text-amber-800">
-                                              {ratingLabel}
-                                            </span>
-                                          )}
+                                          {chip && <span className="inline-flex px-2 py-0.5 rounded-full bg-gray-100 text-[11px] text-gray-700">{chip}</span>}
+                                          {ratingLabel && <span className="inline-flex px-2 py-0.5 rounded-full bg-amber-50 text-[11px] text-amber-800">{ratingLabel}</span>}
                                         </div>
                                       </div>
                                     </div>
@@ -2002,11 +2086,13 @@ export default function CouponFormMobile() {
                       })()}
                   </div>
 
-                  {/* Footer (UPDATED: Done enabled when star category selected) */}
+                  {/* Footer (UPDATED: Done enabled also when allowAll picked) */}
                   <div className="sticky bottom-0 bg-white/90 backdrop-blur border-t border-gray-100 px-4 md:px-5 py-3">
                     {(() => {
                       const canDone =
-                        servicePicker.selected.length > 0 || (servicePicker.hotelCategories?.length ?? 0) > 0;
+                        servicePicker.selected.length > 0 ||
+                        (servicePicker.hotelCategories?.length ?? 0) > 0 ||
+                        Object.values(servicePicker.allowAll || {}).some(Boolean);
 
                       return (
                         <div className="flex items-center justify-between gap-3">

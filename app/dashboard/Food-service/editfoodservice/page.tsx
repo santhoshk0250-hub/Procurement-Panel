@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Utensils,
@@ -17,13 +17,12 @@ import {
   ChevronUp,
   Plus,
   HelpCircle,
-  IndianRupee
+  IndianRupee,
 } from "lucide-react";
 import { useFoodServiceStore } from "@/store/usefoodservice";
 
 // 🔤 Rich text editor
 import TinyMCETextEditor from "@/components/TinyMCETextEditor";
-
 
 /* ----------------------------- Types & Shapes ----------------------------- */
 
@@ -37,22 +36,46 @@ interface DietaryInfo {
   glutenFree: boolean;
   halal: boolean;
 }
+
 type FAQ = { q: string; a: string };
+
 interface SegregatedImageGroup {
   id: string;
   category: string;
   existingImages: string[]; // URLs from backend
-  images: ImageFile[];      // newly uploaded files
+  images: ImageFile[]; // newly uploaded files
+}
+
+/** ✅ Price Breakdown UI shape
+ * - taxes is PERCENT in UI
+ * - totalPrice is auto-calculated
+ */
+interface PriceBreakdownForm {
+  basePrice: string;
+  serviceCharges: string;
+  taxes: string; // percent (UI)
+  totalPrice: string; // auto
+  markup_min_price: string;
+  markup_max_price: string;
 }
 
 interface FoodFormData {
   name: string;
   description: string;
-  price: string; // keep as string in UI; cast on submit
+
+  // root price (we will keep in sync with basePrice)
+  price: string;
+
+  // ✅ NEW
+  priceBreakdown: PriceBreakdownForm;
+
   bannerUrl?: string | null;
   images: string[];
-  markup_min_price: number;
-  markup_max_price: number;
+
+  // keeping these because your existing API might still expect them
+  markup_min_price: number | null;
+  markup_max_price: number | null;
+
   category: Category | "";
   cuisineTags: string[];
   ingredients: string[];
@@ -63,9 +86,8 @@ interface FoodFormData {
   preparationTime: string;
   spiceLevel: SpiceLevel;
   dietaryInfo: DietaryInfo;
-  addonIds: string[]; // existing add-on IDs only
+  addonIds: string[];
   llm_chips?: FAQ[];
-
 }
 
 interface ImageFile {
@@ -87,7 +109,7 @@ interface LocalAddon {
   tempId: string;
   name: string;
   description: string;
-  price: string; // as string per requested payload
+  price: string;
   category: AddonCategory;
   isAvailable: boolean;
   selected: boolean;
@@ -98,14 +120,11 @@ const nn = (v: string | number | "" | null | undefined) =>
   v === "" || v == null ? NaN : Number(v);
 const isFiniteNum = (v: any) => typeof v === "number" && Number.isFinite(v);
 
+const sanitizeHtml = (html: string) =>
+  html.replace(/[\n\r]/g, "").replace(/>\s+</g, "><");
+
 /* --------------------------------- Presets -------------------------------- */
-const CATEGORIES: Category[] = [
-  "breakfast",
-  "lunch",
-  "dinner",
-  "snacks",
-  "beverages",
-];
+const CATEGORIES: Category[] = ["breakfast", "lunch", "dinner", "snacks", "beverages"];
 const SPICE_LEVELS: SpiceLevel[] = ["mild", "medium", "hot", "extra-hot"];
 
 /* --------------------------------- Steps --------------------------------- */
@@ -115,8 +134,9 @@ const STEPS = [
   { key: "details", label: "Details", icon: <Salad className="size-4" /> },
   { key: "dietary", label: "Dietary", icon: <Flame className="size-4" /> },
   { key: "media", label: "Media", icon: <ImageIcon className="size-4" /> },
-   { key: "segregatedMedia", label: "Segregated Images", icon: <ImageIcon className="size-4" /> },
+  { key: "segregatedMedia", label: "Segregated Images", icon: <ImageIcon className="size-4" /> },
 ] as const;
+
 type StepKey = (typeof STEPS)[number]["key"];
 const LAST = STEPS.length - 1;
 
@@ -199,25 +219,59 @@ function TagComposer({
   );
 }
 
-const sanitizeHtml = (html: string) =>
-  html
-    .replace(/[\n\r]/g, "") // drop newline and carriage return characters
-    .replace(/>\s+</g, "><"); 
-
 /* --------------------------------- Main UI -------------------------------- */
 export default function EditFoodServiceFormMobile() {
   const router = useRouter();
   const { food } = useFoodServiceStore() as { food: any | null | undefined };
 
-  /* Guard: no food in store */
   const noFood = !food || !food._id;
 
   const [data, setData] = useState<FoodFormData>(() => {
+    const pb = food?.priceBreakdown ?? null;
+
+    const basePrice =
+      pb?.basePrice != null
+        ? String(pb.basePrice)
+        : food?.price != null
+        ? String(food.price)
+        : "";
+
+    const serviceCharges = pb?.serviceCharges != null ? String(pb.serviceCharges) : "0";
+
+    // We store taxes as % in UI.
+    // If backend stores amount, we cannot reliably infer percent without additional info.
+    // So default to 0% unless your API also returns a percent.
+    const taxesPercent = pb?.taxes != null ? String(pb.taxes) : "0";
+
+    const markupMin =
+      pb?.markup_min_price != null
+        ? String(pb.markup_min_price)
+        : food?.markup_min_price != null
+        ? String(food.markup_min_price)
+        : "";
+
+    const markupMax =
+      pb?.markup_max_price != null
+        ? String(pb.markup_max_price)
+        : food?.markup_max_price != null
+        ? String(food.markup_max_price)
+        : "";
+
+    const totalPrice = pb?.totalPrice != null ? String(pb.totalPrice) : "";
+
     if (!food) {
       return {
         name: "",
         description: "",
         price: "",
+        priceBreakdown: {
+          basePrice: "",
+          serviceCharges: "0",
+          taxes: "0",
+          totalPrice: "",
+          markup_min_price: "",
+          markup_max_price: "",
+        },
         bannerUrl: null,
         images: [],
         category: "",
@@ -225,20 +279,29 @@ export default function EditFoodServiceFormMobile() {
         ingredients: [],
         allergens: [],
         rating: "",
-         markup_min_price: null,
-  markup_max_price: null,
         reviewCount: "",
         isAvailable: true,
         preparationTime: "",
         spiceLevel: "mild",
+        markup_min_price: null,
+        markup_max_price: null,
         dietaryInfo: { vegetarian: false, vegan: false, glutenFree: false, halal: false },
         addonIds: [],
       };
     }
+
     return {
       name: String(food.name ?? ""),
       description: String(food.description ?? ""),
-      price: String(food.price ?? ""),
+      price: basePrice, // keep root price = basePrice
+      priceBreakdown: {
+        basePrice,
+        serviceCharges,
+        taxes: taxesPercent, // percent UI
+        totalPrice,
+        markup_min_price: markupMin,
+        markup_max_price: markupMax,
+      },
       bannerUrl: String(food.banner ?? "") || null,
       images: Array.isArray(food.images) ? food.images : [],
       category: (food.category ?? "") as Category,
@@ -262,32 +325,20 @@ export default function EditFoodServiceFormMobile() {
     };
   });
 
-    
-  
-
   const [stepIndex, setStepIndex] = useState(0);
   const step = STEPS[stepIndex];
   const [submitting, setSubmitting] = useState(false);
 
-  // ---------- Rich Text ----------
+  // LLM chips
+  const [llmChips, setLlmChips] = useState<FAQ[]>(
+    food?.llm_chips && food.llm_chips.length ? food.llm_chips : [{ q: "", a: "" }]
+  );
 
-
-    // NEW: LLM chips state + editors
-      const [llmChips, setLlmChips] = useState<FAQ[]>(
-        food?.llm_chips && food.llm_chips.length ? food.llm_chips : [{ q: "", a: "" }]
-      );
-  
- const addLlmChip = () => {
-  setLlmChips((p) => [...p, { q: "", a: "" }]);
-};
-
-const remLlmChip = (idx: number) => {
-  setLlmChips((p) => (p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)));
-};
-
-    
-      const setLlmChip = (idx: number, next: Partial<FAQ>) =>
-        setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
+  const addLlmChip = () => setLlmChips((p) => [...p, { q: "", a: "" }]);
+  const remLlmChip = (idx: number) =>
+    setLlmChips((p) => (p.length <= 1 ? [{ q: "", a: "" }] : p.filter((_, i) => i !== idx)));
+  const setLlmChip = (idx: number, next: Partial<FAQ>) =>
+    setLlmChips((p) => p.map((c, i) => (i === idx ? { ...c, ...next } : c)));
 
   // gallery
   const [newImages, setNewImages] = useState<ImageFile[]>([]);
@@ -298,29 +349,27 @@ const remLlmChip = (idx: number) => {
 
   // banner
   const [newBanner, setNewBanner] = useState<ImageFile | null>(null);
-  const [existingBannerUrl, setExistingBannerUrl] = useState<string | null>(
-    food?.banner || null
-  );
+  const [existingBannerUrl, setExistingBannerUrl] = useState<string | null>(food?.banner || null);
   const bannerInputRef = useRef<HTMLInputElement | null>(null);
 
-  // ---------- Add-ons (existing from API + prefill from store.addonsFull) ----------
+  // Add-ons
   const [addons, setAddons] = useState<Addon[]>(
     Array.isArray(food?.addonsFull) ? (food!.addonsFull as Addon[]) : []
   );
   const [addonsLoading, setAddonsLoading] = useState(false);
   const [addonsError, setAddonsError] = useState<string | null>(null);
 
-  // ---------- Local (new) add-ons ----------
+  // Local add-ons
   const [localAddons, setLocalAddons] = useState<LocalAddon[]>([]);
 
-  // Dropdown/Modal state
+  // Dropdown state
   const [addonQuery, setAddonQuery] = useState("");
   const [addonsOpen, setAddonsOpen] = useState(false);
   const [addonsOpenUp, setAddonsOpenUp] = useState(false);
   const addonsDropdownRef = useRef<HTMLDivElement | null>(null);
   const addonsTriggerRef = useRef<HTMLButtonElement | null>(null);
 
-  // Create Add-on modal (local only)
+  // Create add-on modal
   const [createOpen, setCreateOpen] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [createErr, setCreateErr] = useState<string | null>(null);
@@ -331,110 +380,75 @@ const remLlmChip = (idx: number) => {
     category: AddonCategory | "";
     isAvailable: boolean;
   }>({ name: "", description: "", price: "", category: "", isAvailable: true });
-   // segregated images (category-wise)
 
-  const [segregatedGroups, setSegregatedGroups] = useState<SegregatedImageGroup[]>(() => {
-   const seg = food?.segregated_images || food?.segregatedImages; // depend on your API key
-   if (Array.isArray(seg) && seg.length > 0) {
-     return seg.map((g: any, idx: number) => ({
-       id: `seg-${idx}`,
-       category: g.category || "",
-       existingImages: Array.isArray(g.urls) ? g.urls : [],
-       images: [], // no local uploads initially
-     }));
-   }
-   return [{ id: "seg-0", category: "", existingImages: [], images: [] }];
- });
-
-  
-  const addSegGroup = () => {
-  setSegregatedGroups((prev) => [
-    ...prev,
-    {
-      id: `seg-${prev.length}`,
-      category: "",
-      existingImages: [],
-      images: [],
-    },
-  ]);
-};
-
-const removeSegGroup = (id: string) => {
-  setSegregatedGroups((prev) => {
-    const toRemove = prev.find((g) => g.id === id);
-    toRemove?.images.forEach((img) => URL.revokeObjectURL(img.preview));
-
-    const next = prev.filter((g) => g.id !== id);
-    return next.length
-      ? next
-      : [{ id: "seg-0", category: "", existingImages: [], images: [] }];
-  });
-};
-
-  
-    const updateSegGroupCategory = (id: string, category: string) => {
-      setSegregatedGroups((prev) =>
-        prev.map((g) => (g.id === id ? { ...g, category } : g))
-      );
-    };
-  
-    const handleSegImagesUpload = (
-      id: string,
-      e: React.ChangeEvent<HTMLInputElement>
-    ) => {
-      const files = e.target.files ? Array.from(e.target.files) : [];
-      if (!files.length) return;
-      const mapped: ImageFile[] = files.map((file) => ({
-        file,
-        preview: URL.createObjectURL(file),
-      }));
-      setSegregatedGroups((prev) =>
-        prev.map((g) =>
-          g.id === id ? { ...g, images: [...g.images, ...mapped] } : g
-        )
-      );
-      e.target.value = "";
-    };
-  
-    const removeSegImage = (groupId: string, idx: number) => {
-      setSegregatedGroups((prev) =>
-        prev.map((g) => {
-          if (g.id !== groupId) return g;
-          const img = g.images[idx];
-          if (img?.preview) URL.revokeObjectURL(img.preview);
-          return {
-            ...g,
-            images: g.images.filter((_, i) => i !== idx),
-          };
-        })
-      );
-    };
-
-    const removeExistingSegImage = (groupId: string, url: string) => {
-  setSegregatedGroups((prev) =>
-    prev.map((g) =>
-      g.id === groupId
-        ? { ...g, existingImages: g.existingImages.filter((u) => u !== url) }
-        : g
-    )
-  );
-};
   const resetCreateForm = () =>
     setCreateForm({ name: "", description: "", price: "", category: "", isAvailable: true });
 
-  // Selected summary (existing + local)
-  const addonsSelectedSummary = useMemo(() => {
-    const existingNames = data.addonIds
-      .map((id) => addons.find((a) => a._id === id)?.name)
-      .filter(Boolean) as string[];
-    const localNames = localAddons.filter((a) => a.selected).map((a) => a.name);
-    const names = [...existingNames, ...localNames];
-    if (addonsLoading) return "Loading add-ons…";
-    if (addonsError) return "Failed to load add-ons";
-    if (names.length === 0) return "Select add-ons";
-    if (names.length <= 2) return names.join(", ");
-    return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
-  }, [data.addonIds, addons, localAddons, addonsLoading, addonsError]);
+  // segregated images
+  const [segregatedGroups, setSegregatedGroups] = useState<SegregatedImageGroup[]>(() => {
+    const seg = food?.segregated_images || food?.segregatedImages;
+    if (Array.isArray(seg) && seg.length > 0) {
+      return seg.map((g: any, idx: number) => ({
+        id: `seg-${idx}`,
+        category: g.category || "",
+        existingImages: Array.isArray(g.urls) ? g.urls : [],
+        images: [],
+      }));
+    }
+    return [{ id: "seg-0", category: "", existingImages: [], images: [] }];
+  });
+
+  const addSegGroup = () => {
+    setSegregatedGroups((prev) => [
+      ...prev,
+      { id: `seg-${prev.length}`, category: "", existingImages: [], images: [] },
+    ]);
+  };
+
+  const removeSegGroup = (id: string) => {
+    setSegregatedGroups((prev) => {
+      const toRemove = prev.find((g) => g.id === id);
+      toRemove?.images.forEach((img) => URL.revokeObjectURL(img.preview));
+      const next = prev.filter((g) => g.id !== id);
+      return next.length ? next : [{ id: "seg-0", category: "", existingImages: [], images: [] }];
+    });
+  };
+
+  const updateSegGroupCategory = (id: string, category: string) => {
+    setSegregatedGroups((prev) => prev.map((g) => (g.id === id ? { ...g, category } : g)));
+  };
+
+  const handleSegImagesUpload = (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (!files.length) return;
+    const mapped: ImageFile[] = files.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+    setSegregatedGroups((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, images: [...g.images, ...mapped] } : g))
+    );
+    e.target.value = "";
+  };
+
+  const removeSegImage = (groupId: string, idx: number) => {
+    setSegregatedGroups((prev) =>
+      prev.map((g) => {
+        if (g.id !== groupId) return g;
+        const img = g.images[idx];
+        if (img?.preview) URL.revokeObjectURL(img.preview);
+        return { ...g, images: g.images.filter((_, i) => i !== idx) };
+      })
+    );
+  };
+
+  const removeExistingSegImage = (groupId: string, url: string) => {
+    setSegregatedGroups((prev) =>
+      prev.map((g) =>
+        g.id === groupId ? { ...g, existingImages: g.existingImages.filter((u) => u !== url) } : g
+      )
+    );
+  };
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -458,7 +472,7 @@ const removeSegGroup = (id: string) => {
     setAddonsOpenUp(!hasRoomBelow);
   }, [addonsOpen, addonQuery, addons.length, localAddons.length]);
 
-  // Fetch all add-ons and merge with store's addonsFull (dedupe by _id)
+  // Fetch all add-ons
   useEffect(() => {
     let cancelled = false;
     async function fetchAllAddons() {
@@ -476,6 +490,7 @@ const removeSegGroup = (id: string) => {
         const firstJson = await firstRes.json();
         const list: Addon[] = firstJson?.data ?? [];
         const pages = Number(firstJson?.pagination?.pages ?? 1);
+
         for (let p = 2; p <= pages; p++) {
           const url = `${base}addons/getall?page=${p}&limit=100`;
           const res = await fetch(url, { method: "GET" });
@@ -484,11 +499,8 @@ const removeSegGroup = (id: string) => {
           if (Array.isArray(j?.data)) list.push(...j.data);
         }
 
-        // Merge with prefilled addons (from store)
         const map = new Map<string, Addon>();
-        (Array.isArray(food?.addonsFull) ? (food!.addonsFull as Addon[]) : []).forEach((a) =>
-          map.set(a._id, a)
-        );
+        (Array.isArray(food?.addonsFull) ? (food!.addonsFull as Addon[]) : []).forEach((a) => map.set(a._id, a));
         list.forEach((a) => {
           if (!map.has(a._id)) map.set(a._id, a);
         });
@@ -508,48 +520,95 @@ const removeSegGroup = (id: string) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [food?._id]);
 
+  /* -------------------------- Price Breakdown Helpers -------------------------- */
+  const onPB = (name: keyof PriceBreakdownForm, val: any) =>
+    setData((p) => ({ ...p, priceBreakdown: { ...p.priceBreakdown, [name]: val } }));
+
+  const pbTaxAmount = useMemo(() => {
+    const b = nn(data.priceBreakdown.basePrice);
+    const s = nn(data.priceBreakdown.serviceCharges);
+    const pct = nn(data.priceBreakdown.taxes); // percent
+    if (!Number.isFinite(b) || !Number.isFinite(s) || !Number.isFinite(pct)) return "";
+    const taxable = Math.max(0, b + s);
+    const taxAmt = Math.max(0, (taxable * pct) / 100);
+    return String(Math.round(taxAmt * 100) / 100);
+  }, [data.priceBreakdown.basePrice, data.priceBreakdown.serviceCharges, data.priceBreakdown.taxes]);
+
+  const pbTotal = useMemo(() => {
+    const b = nn(data.priceBreakdown.basePrice);
+    const s = nn(data.priceBreakdown.serviceCharges);
+    const taxAmt = nn(pbTaxAmount);
+    if (!Number.isFinite(b) || !Number.isFinite(s) || !Number.isFinite(taxAmt)) return "";
+    return String(Math.max(0, b + s + taxAmt));
+  }, [data.priceBreakdown.basePrice, data.priceBreakdown.serviceCharges, pbTaxAmount]);
+
+  // keep totalPrice + root price + root markups synced
+  useEffect(() => {
+    setData((p) => ({
+      ...p,
+      price: p.priceBreakdown.basePrice || p.price,
+      markup_min_price:
+        p.priceBreakdown.markup_min_price === "" ? p.markup_min_price : Number(p.priceBreakdown.markup_min_price || 0),
+      markup_max_price:
+        p.priceBreakdown.markup_max_price === "" ? p.markup_max_price : Number(p.priceBreakdown.markup_max_price || 0),
+      priceBreakdown: {
+        ...p.priceBreakdown,
+        totalPrice: pbTotal,
+      },
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pbTotal]);
+
   /* ------------------------------- Validation ------------------------------ */
   const isStepValid = (k: StepKey) => {
     if (k === "basic") {
-      return (
+      const baseOk =
         data.name.trim().length > 0 &&
         data.category !== "" &&
-        isFiniteNum(nn(data.price)) &&
-        nn(data.price) >= 0
-      );
+        isFiniteNum(nn(data.priceBreakdown.basePrice)) &&
+        nn(data.priceBreakdown.basePrice) >= 0 &&
+        isFiniteNum(nn(data.preparationTime)) &&
+        nn(data.preparationTime) >= 0;
+
+      const scOk =
+        data.priceBreakdown.serviceCharges === "" ||
+        (isFiniteNum(nn(data.priceBreakdown.serviceCharges)) && nn(data.priceBreakdown.serviceCharges) >= 0);
+
+      const taxOk =
+        data.priceBreakdown.taxes === "" ||
+        (isFiniteNum(nn(data.priceBreakdown.taxes)) && nn(data.priceBreakdown.taxes) >= 0);
+
+      const totalOk = pbTotal !== "" && isFiniteNum(nn(pbTotal)) && nn(pbTotal) >= 0;
+
+      return baseOk && scOk && taxOk && totalOk;
     }
     return true;
   };
 
   const canSubmit = useMemo(() => {
     const basicOK = isStepValid("basic");
-    // For edit, banner can be new or existing url
     const hasBanner = !!newBanner || !!existingBannerUrl;
     return basicOK && hasBanner;
-  }, [data, newBanner, existingBannerUrl]);
+  }, [newBanner, existingBannerUrl, data, pbTotal]);
 
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
 
   /* --------------------------------- Handlers ------------------------------ */
-  const onText = (name: keyof FoodFormData, val: any) =>
-    setData((p) => ({ ...p, [name]: val }));
+  const onText = (name: keyof FoodFormData, val: any) => setData((p) => ({ ...p, [name]: val }));
 
-  const addCuisine = (v: string) =>
-    setData((p) => ({ ...p, cuisineTags: [...p.cuisineTags, v] }));
+  const addCuisine = (v: string) => setData((p) => ({ ...p, cuisineTags: [...p.cuisineTags, v] }));
   const remCuisine = (i: number) =>
     setData((p) => ({ ...p, cuisineTags: p.cuisineTags.filter((_, idx) => idx !== i) }));
 
-  const addIngredient = (v: string) =>
-    setData((p) => ({ ...p, ingredients: [...p.ingredients, v] }));
+  const addIngredient = (v: string) => setData((p) => ({ ...p, ingredients: [...p.ingredients, v] }));
   const remIngredient = (i: number) =>
     setData((p) => ({ ...p, ingredients: p.ingredients.filter((_, idx) => idx !== i) }));
 
-  const addAllergen = (v: string) =>
-    setData((p) => ({ ...p, allergens: [...p.allergens, v] }));
+  const addAllergen = (v: string) => setData((p) => ({ ...p, allergens: [...p.allergens, v] }));
   const remAllergen = (i: number) =>
     setData((p) => ({ ...p, allergens: p.allergens.filter((_, idx) => idx !== i) }));
 
-  // Toggle existing add-on selection
+  // Add-ons
   const toggleAddon = (id: string) => {
     setData((p) => {
       const exists = p.addonIds.includes(id);
@@ -558,32 +617,20 @@ const removeSegGroup = (id: string) => {
     });
   };
 
-  // Toggle local add-on selection
   const toggleLocalAddon = (tempId: string) => {
-    setLocalAddons((prev) =>
-      prev.map((a) => (a.tempId === tempId ? { ...a, selected: !a.selected } : a))
-    );
+    setLocalAddons((prev) => prev.map((a) => (a.tempId === tempId ? { ...a, selected: !a.selected } : a)));
   };
 
-  /* --------------------- Create Add-on (LOCAL ONLY) --------------------- */
   const saveLocalAddon = () => {
     setCreateErr(null);
     const name = createForm.name.trim();
     const category = createForm.category;
     const priceStr = (createForm.price ?? "").toString().trim();
 
-    if (!name) {
-      setCreateErr("Name is required");
-      return;
-    }
-    if (!category) {
-      setCreateErr("Category is required");
-      return;
-    }
-    if (priceStr === "" || Number.isNaN(Number(priceStr)) || Number(priceStr) < 0) {
-      setCreateErr("Price must be a valid, non-negative number");
-      return;
-    }
+    if (!name) return setCreateErr("Name is required");
+    if (!category) return setCreateErr("Category is required");
+    if (priceStr === "" || Number.isNaN(Number(priceStr)) || Number(priceStr) < 0)
+      return setCreateErr("Price must be a valid, non-negative number");
 
     setCreateLoading(true);
     const newLocal: LocalAddon = {
@@ -602,6 +649,20 @@ const removeSegGroup = (id: string) => {
     resetCreateForm();
     setAddonsOpen(true);
   };
+
+  // Selected summary
+  const addonsSelectedSummary = useMemo(() => {
+    const existingNames = data.addonIds
+      .map((id) => addons.find((a) => a._id === id)?.name)
+      .filter(Boolean) as string[];
+    const localNames = localAddons.filter((a) => a.selected).map((a) => a.name);
+    const names = [...existingNames, ...localNames];
+    if (addonsLoading) return "Loading add-ons…";
+    if (addonsError) return "Failed to load add-ons";
+    if (names.length === 0) return "Select add-ons";
+    if (names.length <= 2) return names.join(", ");
+    return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
+  }, [data.addonIds, addons, localAddons, addonsLoading, addonsError]);
 
   /* ------------------------------- Media Uploads --------------------------- */
   const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -633,6 +694,10 @@ const removeSegGroup = (id: string) => {
     });
   };
 
+  const removeExistingImage = (url: string) => {
+    setExistingImageUrls((prev) => prev.filter((u) => u !== url));
+  };
+
   /* --------------------------------- Nav ---------------------------------- */
   const goNext = () => {
     if (!isStepValid(step.key)) return;
@@ -640,6 +705,7 @@ const removeSegGroup = (id: string) => {
     setStepIndex((i) => Math.min(LAST, i + 1));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
   const goBack = () => {
     setStepIndex((i) => Math.max(0, i - 1));
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -653,20 +719,45 @@ const removeSegGroup = (id: string) => {
     try {
       setSubmitting(true);
 
+      // ✅ Compute amount values for DB schema
+      const basePriceNum = Number(data.priceBreakdown.basePrice || 0);
+      const serviceChargesNum = Number(data.priceBreakdown.serviceCharges || 0);
+      const taxPercentNum = Number(data.priceBreakdown.taxes || 0);
+
+      const taxable = Math.max(0, basePriceNum + serviceChargesNum);
+      const taxAmountNum = Math.max(0, (taxable * taxPercentNum) / 100);
+      const totalPriceNum = Math.max(0, taxable + taxAmountNum);
+
+      const markupMinNum = Number(data.priceBreakdown.markup_min_price || 0);
+      const markupMaxNum = Number(data.priceBreakdown.markup_max_price || 0);
+
       const payload: any = {
         name: data.name.trim(),
         description: data.description.trim(),
-        price: Number(data.price || 0),
+
+        // keep root price for your old code paths
+        price: basePriceNum,
+
+        // ✅ required by mongoose schema
+        priceBreakdown: {
+          basePrice: basePriceNum,
+          serviceCharges: serviceChargesNum,
+          taxes: Number(data.priceBreakdown.taxes), // amount
+          totalPrice: Number((Math.round(totalPriceNum * 100) / 100).toFixed(2)),
+          markup_min_price: markupMinNum,
+          markup_max_price: markupMaxNum,
+        },
+
+        // keeping these too (backward compat)
+        markup_min_price: markupMinNum,
+        markup_max_price: markupMaxNum,
+
         category: data.category,
-        markup_min_price: data.markup_min_price,
-        markup_max_price: data.markup_max_price,
         cuisine: data.cuisineTags.map((s) => s.trim()).filter(Boolean),
         ingredients: data.ingredients.map((s) => s.trim()).filter(Boolean),
         allergens: data.allergens.map((s) => s.trim()).filter(Boolean),
-        rating:
-          data.rating === "" || data.rating == null ? 0 : Math.max(0, Math.min(5, Number(data.rating))),
-        reviewCount:
-          data.reviewCount === "" || data.reviewCount == null ? 0 : Math.max(0, Number(data.reviewCount)),
+        rating: data.rating === "" || data.rating == null ? 0 : Math.max(0, Math.min(5, Number(data.rating))),
+        reviewCount: data.reviewCount === "" || data.reviewCount == null ? 0 : Math.max(0, Number(data.reviewCount)),
         isAvailable: !!data.isAvailable,
         preparationTime: Number(data.preparationTime || 0),
         spiceLevel: data.spiceLevel,
@@ -676,12 +767,12 @@ const removeSegGroup = (id: string) => {
           glutenFree: !!data.dietaryInfo.glutenFree,
           halal: !!data.dietaryInfo.halal,
         },
-          llm_chips: llmChips
-  .map((c) => ({
-    q: (c.q || "").trim(),
-    a: sanitizeHtml((c.a || "").trim()),
-  }))
-  .filter((c) => c.q || c.a),
+        llm_chips: llmChips
+          .map((c) => ({
+            q: (c.q || "").trim(),
+            a: sanitizeHtml((c.a || "").trim()),
+          }))
+          .filter((c) => c.q || c.a),
 
         addons: data.addonIds.filter(Boolean),
         newaddons: localAddons
@@ -689,18 +780,17 @@ const removeSegGroup = (id: string) => {
           .map(({ name, description, price, category, isAvailable }) => ({
             name,
             description,
-            price, // keep string
+            price,
             category,
             isAvailable,
           })),
-            segregated_images: segregatedGroups
-  .map((g) => ({
-    category: g.category.trim(),
-    // match DB shape: { category, urls: string[] }
-    urls: g.existingImages,
-    // later you can also append uploaded files here once backend supports it
-  }))
-  .filter((g) => g.category || g.urls.length > 0),
+
+        segregated_images: segregatedGroups
+          .map((g) => ({
+            category: g.category.trim(),
+            urls: g.existingImages,
+          }))
+          .filter((g) => g.category || g.urls.length > 0),
       };
 
       const form = new FormData();
@@ -711,12 +801,13 @@ const removeSegGroup = (id: string) => {
 
       existingImageUrls.forEach((url) => form.append("images_keep", url));
       newImages.forEach((img) => form.append("images", img.file));
-  segregatedGroups.forEach((group, gIdx) => {
+
+      segregatedGroups.forEach((group, gIdx) => {
         group.images.forEach((img) => {
-          // backend can use field name + index to know which category it belongs to
           form.append(`segregated_images_${gIdx}`, img.file);
         });
       });
+
       form.append(
         "images_change_summary",
         JSON.stringify({
@@ -726,13 +817,11 @@ const removeSegGroup = (id: string) => {
         })
       );
 
-      // Guessing update endpoint shape; adjust if your backend differs
       const url = `${process.env.NEXT_PUBLIC_API_BASE}food-services/update/${food._id}`;
       const res = await fetch(url, { method: "PATCH", body: form });
 
       if (res.ok) {
         alert("Food item updated successfully! 🎉");
-        // Navigate back to listing or detail
         router.push("/dashboard/Food-service");
       } else {
         const text = await res.text();
@@ -747,16 +836,40 @@ const removeSegGroup = (id: string) => {
     }
   };
 
-  const removeExistingImage = (url: string) => {
-    setExistingImageUrls((prev) => prev.filter((u) => u !== url));
-  };
-
   const resetAll = () => {
     if (!food) return;
+
+    const pb = food?.priceBreakdown ?? null;
+    const basePrice =
+      pb?.basePrice != null ? String(pb.basePrice) : food?.price != null ? String(food.price) : "";
+    const serviceCharges = pb?.serviceCharges != null ? String(pb.serviceCharges) : "0";
+    const taxesPercent = pb?.taxesPercent != null ? String(pb.taxesPercent) : "0";
+
+    const markupMin =
+      pb?.markup_min_price != null
+        ? String(pb.markup_min_price)
+        : food?.markup_min_price != null
+        ? String(food.markup_min_price)
+        : "";
+    const markupMax =
+      pb?.markup_max_price != null
+        ? String(pb.markup_max_price)
+        : food?.markup_max_price != null
+        ? String(food.markup_max_price)
+        : "";
+
     setData({
       name: String(food.name ?? ""),
       description: String(food.description ?? ""),
-      price: String(food.price ?? ""),
+      price: basePrice,
+      priceBreakdown: {
+        basePrice,
+        serviceCharges,
+        taxes: taxesPercent,
+        totalPrice: pb?.totalPrice != null ? String(pb.totalPrice) : "",
+        markup_min_price: markupMin,
+        markup_max_price: markupMax,
+      },
       bannerUrl: String(food.banner ?? "") || null,
       images: Array.isArray(food.images) ? food.images : [],
       category: (food.category ?? "") as Category,
@@ -778,13 +891,17 @@ const removeSegGroup = (id: string) => {
       },
       addonIds: Array.isArray(food.addons) ? food.addons : [],
     });
+
     setNewImages([]);
     setExistingImageUrls(Array.isArray(food.images) ? food.images : []);
+
     if (newBanner?.preview) URL.revokeObjectURL(newBanner.preview);
     setNewBanner(null);
     setExistingBannerUrl(food.banner || null);
+
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (bannerInputRef.current) bannerInputRef.current.value = "";
+
     setLocalAddons([]);
     setAddonQuery("");
   };
@@ -876,147 +993,239 @@ const removeSegGroup = (id: string) => {
       <main className="max-w-3xl mx-auto p-4 sm:p-6 pb-36">
         {/* BASIC */}
         {step.key === "basic" && (
-          <SectionCard
-            title="Basic Information"
-            subtitle="Name, price, category and availability."
-            icon={<Utensils className="size-5 text-blue-600" />}
-            requiredHint
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Name" required>
-                <input
-                  type="text"
-                  className="input"
-                  value={data.name}
-                  onChange={(e) => onText("name", e.target.value)}
-                  placeholder="Paneer Tikka"
-                  disabled={submitting}
-                />
-              </Field>
-
-              <Field label="Price (₹)" required>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  className="input"
-                  value={data.price}
-                  onChange={(e) => onText("price", e.target.value)}
-                  placeholder="199"
-                  disabled={submitting}
-                />
-              </Field>
-
-              <Field label="Category" required>
-                <select
-                  className="input"
-                  value={data.category}
-                  onChange={(e) => onText("category", e.target.value as Category)}
-                  disabled={submitting}
+                <SectionCard
+                  title="Basic Information"
+                  subtitle="Name, price, price breakdown, category and availability."
+                  icon={<Utensils className="size-5 text-blue-600" />}
+                  requiredHint
                 >
-                  <option value="">Select category</option>
-                  {CATEGORIES.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label="Spice level">
-                <select
-                  className="input"
-                  value={data.spiceLevel}
-                  onChange={(e) => onText("spiceLevel", e.target.value as SpiceLevel)}
-                  disabled={submitting}
-                >
-                  {SPICE_LEVELS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label="Available now?">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onText("isAvailable", !data.isAvailable)}
-                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold ${
-                      data.isAvailable
-                        ? "border-green-500 bg-green-50 text-green-700"
-                        : "border-gray-300 bg-white text-gray-700"
-                    }`}
-                  >
-                    <Check className={`size-4 ${data.isAvailable ? "opacity-100" : "opacity-30"}`} />
-                    {data.isAvailable ? "Available" : "Mark available"}
-                  </button>
-                </div>
-              </Field>
-
-              <Field label="Preparation time (minutes)" required>
-                <div className="relative">
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    className="input pr-14"
-                    value={data.preparationTime}
-                    onChange={(e) => onText("preparationTime", e.target.value)}
-                    placeholder="15"
-                    disabled={submitting}
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 inline-flex items-center gap-1">
-                    <Clock3 className="size-3.5" /> mins
-                  </span>
-                </div>
-              </Field>
-               <Field label="Markup Min Price (₹)">
-                                                          <div className="relative">
-                                                            <input
-                                                              type="number"
-                                                              className="input pl-9"
-                                                              min={0}
-                                                              value={(data as any).markup_min_price ?? ""}
-                                                              onChange={(e) => onText("markup_min_price", e.target.value)}
-                                                              placeholder="e.g., 200"
-                                                              disabled={submitting}
-                                                            />
-                                                            <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                                                          </div>
-                              </Field>
-                                          
-                              <Field label="Markup Max Price (₹)">
-                                                          <div className="relative">
-                                                            <input
-                                                              type="number"
-                                                              className="input pl-9"
-                                                              min={0}
-                                                              value={(data as any).markup_max_price ?? ""}
-                                                            onChange={(e) => onText("markup_max_price", e.target.value)}
-                                                              placeholder="e.g., 500"
-                                                              disabled={submitting}
-                                                            />
-                                                            <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                                                          </div>
-                              </Field>
-            </div>
-
-            <div className="mt-4">
-              <Field label="Description">
-                <div className="rounded-xl border border-gray-300 bg-white">
-                 <TinyMCETextEditor
-  value={data.description || ""}
-  onChange={(html) => setData((p) => ({ ...p, description: html }))}
-  placeholder="Write a short description…"
-/>
-
-                </div>
-              </Field>
-            </div>
-          </SectionCard>
-        )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field label="Name" required>
+                      <input
+                        type="text"
+                        className="input"
+                        value={data.name}
+                        onChange={(e) => onText("name", e.target.value)}
+                        placeholder="Paneer Tikka"
+                        disabled={submitting}
+                      />
+                    </Field>
+      
+                    {/* Keep top price input, sync it with basePrice */}
+                    {/* <Field label="Price (₹)" required hint="Synced with Base Price">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        className="input"
+                        value={data.price}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setData((p) => ({
+                            ...p,
+                            price: v,
+                            priceBreakdown: { ...p.priceBreakdown, basePrice: v },
+                          }));
+                        }}
+                        placeholder="199"
+                        disabled={submitting}
+                      />
+                    </Field> */}
+      
+                    {/* PRICE BREAKDOWN AFTER PRICE */}
+                    <div className="sm:col-span-2">
+                      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3 sm:p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">Price Breakdown</p>
+                            <p className="text-[11px] text-gray-500">Total auto-calculates: base + service + taxes</p>
+                          </div>
+                        </div>
+      
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <Field label="Base Price (₹)" required>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                className="input pl-9"
+                                min={0}
+                                value={data.priceBreakdown.basePrice}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setData((p) => ({
+                                    ...p,
+                                    price: v,
+                                    priceBreakdown: { ...p.priceBreakdown, basePrice: v },
+                                  }));
+                                }}
+                                placeholder="e.g., 199"
+                                disabled={submitting}
+                              />
+                              <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            </div>
+                          </Field>
+      
+                          <Field label="Service Charges (₹)">
+                            <div className="relative">
+                              <input
+                                type="number"
+                                className="input pl-9"
+                                min={0}
+                                value={data.priceBreakdown.serviceCharges}
+                                onChange={(e) => onPB("serviceCharges", e.target.value)}
+                                placeholder="e.g., 10"
+                                disabled={submitting}
+                              />
+                              <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            </div>
+                          </Field>
+      
+                        <Field label="Taxes (%)">
+                            <div className="relative">
+                              <input
+                                type="number"
+                                className="input pr-12"
+                                min={0}
+                                step="0.01"
+                                value={data.priceBreakdown.taxes} // percent
+                                onChange={(e) => onPB("taxes", e.target.value)}
+                                placeholder="e.g., 5"
+                                disabled={submitting}
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 font-semibold">
+                                %
+                              </span>
+                            </div>
+                            {/* optional helper line */}
+                            <p className="mt-1 text-[11px] text-gray-500">
+                              Tax amount: ₹{pbTaxAmount || "0"}
+                            </p>
+                          </Field>
+      
+                          <Field label="Total Price (₹)" required hint="Auto-calculated">
+                            <div className="relative">
+                              <input
+                                type="number"
+                                className="input pl-9"
+                                value={data.priceBreakdown.totalPrice}
+                                readOnly
+                                disabled
+                              />
+                              <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            </div>
+                          </Field>
+      
+                          <Field label="Markup Min Price (₹)" required>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                className="input pl-9"
+                                min={0}
+                                value={data.priceBreakdown.markup_min_price}
+                                onChange={(e) => onPB("markup_min_price", e.target.value)}
+                                placeholder="e.g., 200"
+                                disabled={submitting}
+                              />
+                              <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            </div>
+                          </Field>
+      
+                          <Field label="Markup Max Price (₹)" required>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                className="input pl-9"
+                                min={0}
+                                value={data.priceBreakdown.markup_max_price}
+                                onChange={(e) => onPB("markup_max_price", e.target.value)}
+                                placeholder="e.g., 500"
+                                disabled={submitting}
+                              />
+                              <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            </div>
+                          </Field>
+                        </div>
+                      </div>
+                    </div>
+      
+                    <Field label="Category" required>
+                      <select
+                        className="input"
+                        value={data.category}
+                        onChange={(e) => onText("category", e.target.value as Category)}
+                        disabled={submitting}
+                      >
+                        <option value="">Select category</option>
+                        {CATEGORIES.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+      
+                    <Field label="Spice level">
+                      <select
+                        className="input"
+                        value={data.spiceLevel}
+                        onChange={(e) => onText("spiceLevel", e.target.value as SpiceLevel)}
+                        disabled={submitting}
+                      >
+                        {SPICE_LEVELS.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+      
+                    <Field label="Available now?">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onText("isAvailable", !data.isAvailable)}
+                          className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold ${
+                            data.isAvailable ? "border-green-500 bg-green-50 text-green-700" : "border-gray-300 bg-white text-gray-700"
+                          }`}
+                        >
+                          <Check className={`size-4 ${data.isAvailable ? "opacity-100" : "opacity-30"}`} />
+                          {data.isAvailable ? "Available" : "Mark available"}
+                        </button>
+                      </div>
+                    </Field>
+      
+                    <Field label="Preparation time (minutes)" required>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          className="input pr-14"
+                          value={data.preparationTime}
+                          onChange={(e) => onText("preparationTime", e.target.value)}
+                          placeholder="15"
+                          disabled={submitting}
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 inline-flex items-center gap-1">
+                          <Clock3 className="size-3.5" /> mins
+                        </span>
+                      </div>
+                    </Field>
+                  </div>
+      
+                  <div className="mt-4">
+                    <Field label="Description">
+                      <div className="rounded-xl border border-gray-300 bg-white">
+                        <TinyMCETextEditor
+                          value={data.description || ""}
+                          onChange={(html) => setData((p) => ({ ...p, description: html }))}
+                          placeholder="Write a short description…"
+                        />
+                      </div>
+                    </Field>
+                  </div>
+                </SectionCard>
+              )}
 
         {/* DETAILS */}
         {step.key === "details" && (
@@ -1083,7 +1292,7 @@ const removeSegGroup = (id: string) => {
                 </Field>
               </div>
 
-              {/* --- Add-ons Dropdown + Create (LOCAL) --- */}
+              {/* Add-ons dropdown */}
               <div ref={addonsDropdownRef} className="relative">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-sm font-medium text-gray-700">Add-ons</span>
@@ -1103,7 +1312,6 @@ const removeSegGroup = (id: string) => {
                   </div>
                 </div>
 
-                {/* Trigger */}
                 <button
                   ref={addonsTriggerRef}
                   type="button"
@@ -1119,14 +1327,12 @@ const removeSegGroup = (id: string) => {
                   {addonsOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
                 </button>
 
-                {/* Dropdown Panel */}
                 {addonsOpen && !addonsLoading && !addonsError && (
                   <div
                     className={`absolute z-[80] w-full rounded-2xl border border-gray-200 bg-white shadow-lg ${
                       addonsOpenUp ? "bottom-full mb-2" : "top-full mt-2"
                     }`}
                   >
-                    {/* Search */}
                     <div className="p-2 border-b border-gray-100">
                       <input
                         className="input h-10"
@@ -1137,9 +1343,7 @@ const removeSegGroup = (id: string) => {
                       />
                     </div>
 
-                    {/* List (LOCAL first, then EXISTING) */}
                     <ul className="max-h-72 overflow-auto overscroll-contain" role="listbox" aria-multiselectable="true">
-                      {/* Local add-ons */}
                       {localAddons
                         .filter((a) => a.name.toLowerCase().includes(addonQuery.trim().toLowerCase()))
                         .map((a) => (
@@ -1164,7 +1368,6 @@ const removeSegGroup = (id: string) => {
                           </li>
                         ))}
 
-                      {/* Existing add-ons */}
                       {addons
                         .filter((a) => a.name.toLowerCase().includes(addonQuery.trim().toLowerCase()))
                         .map((a) => {
@@ -1181,9 +1384,7 @@ const removeSegGroup = (id: string) => {
                                   disabled={disabledItem}
                                 />
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium text-gray-900 truncate">
-                                    {a.name}
-                                  </p>
+                                  <p className="text-sm font-medium text-gray-900 truncate">{a.name}</p>
                                   <p className="text-xs text-gray-500 truncate">
                                     ₹{a.price}
                                     {a.category ? ` • ${a.category}` : ""}
@@ -1195,17 +1396,12 @@ const removeSegGroup = (id: string) => {
                           );
                         })}
 
-                      {localAddons.filter((a) =>
-                        a.name.toLowerCase().includes(addonQuery.trim().toLowerCase())
-                      ).length === 0 &&
-                        addons.filter((a) =>
-                          a.name.toLowerCase().includes(addonQuery.trim().toLowerCase())
-                        ).length === 0 && (
-                          <li className="px-4 py-3 text-sm text-gray-500">No add-ons found.</li>
-                        )}
+                      {localAddons.filter((a) => a.name.toLowerCase().includes(addonQuery.trim().toLowerCase())).length ===
+                        0 &&
+                        addons.filter((a) => a.name.toLowerCase().includes(addonQuery.trim().toLowerCase())).length ===
+                          0 && <li className="px-4 py-3 text-sm text-gray-500">No add-ons found.</li>}
                     </ul>
 
-                    {/* Actions */}
                     <div className="flex items-center justify-between gap-2 p-2 border-t border-gray-100">
                       <button
                         type="button"
@@ -1241,11 +1437,8 @@ const removeSegGroup = (id: string) => {
                   </div>
                 )}
 
-                {/* Selected chips (local + existing) */}
-                {(data.addonIds.length > 0 ||
-                  localAddons.some((a) => a.selected)) && (
+                {(data.addonIds.length > 0 || localAddons.some((a) => a.selected)) && (
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {/* local */}
                     {localAddons
                       .filter((a) => a.selected)
                       .map((a) => (
@@ -1265,7 +1458,7 @@ const removeSegGroup = (id: string) => {
                           </button>
                         </span>
                       ))}
-                    {/* existing */}
+
                     {data.addonIds.map((id) => {
                       const a = addons.find((x) => x._id === id);
                       return (
@@ -1289,72 +1482,72 @@ const removeSegGroup = (id: string) => {
                   </div>
                 )}
               </div>
-              {/* --- /Add-ons Dropdown + Create (LOCAL) --- */}
             </div>
           </SectionCard>
         )}
-   {/* NEW: LLM Chips */}
-                {step.key === "llmChips" && (
-                  <SectionCard
-                    title="LLM Chips"
-                    subtitle="Predefined Q&A snippets for the assistant."
-                    icon={<HelpCircle className="size-5 text-blue-600" />}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-gray-800">Chips</span>
-                      <button
-                        type="button"
-                        onClick={addLlmChip}
-                        disabled={submitting}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
-                      >
-                        <Plus className="size-3.5" />
-                        Add Chip
-                      </button>
-                    </div>
-        
-                    <div className="space-y-3">
-                      {llmChips.map((c, i) => (
-                        <div key={`llm-chip-${i}`} className="rounded-xl border border-gray-200 p-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-xs font-semibold text-gray-600">Chip #{i + 1}</p>
-                            <button
-                              type="button"
-                              onClick={() => remLlmChip(i)}
-                              disabled={submitting}
-                              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
-                            >
-                              <Trash2 className="size-3.5" />
-                              Remove
-                            </button>
-                          </div>
-                          <div className="space-y-3">
-                            <Field label="Question / Prompt">
-                              <input
-                                type="text"
-                                className="input w-full"
-                                value={c.q}
-                                onChange={(e) => setLlmChip(i, { q: e.target.value })}
-                                placeholder="e.g., Do you offer Jain or vegan meals?"
-                                disabled={submitting}
-                              />
-                            </Field>
-                            <Field label="Answer / Response">
-                              <div className="rounded-xl border border-gray-300 bg-white p-2">
-                              <TinyMCETextEditor
-  value={c.a || ""}
-  onChange={(html) => setLlmChip(i, { a: html })}
-  placeholder="Write the assistant’s response…"
-/>
 
-                              </div>
-                            </Field>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </SectionCard>
-                )}
+        {/* LLM Chips */}
+        {step.key === "llmChips" && (
+          <SectionCard
+            title="LLM Chips"
+            subtitle="Predefined Q&A snippets for the assistant."
+            icon={<HelpCircle className="size-5 text-blue-600" />}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold text-gray-800">Chips</span>
+              <button
+                type="button"
+                onClick={addLlmChip}
+                disabled={submitting}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+              >
+                <Plus className="size-3.5" />
+                Add Chip
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {llmChips.map((c, i) => (
+                <div key={`llm-chip-${i}`} className="rounded-xl border border-gray-200 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold text-gray-600">Chip #{i + 1}</p>
+                    <button
+                      type="button"
+                      onClick={() => remLlmChip(i)}
+                      disabled={submitting}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                    >
+                      <Trash2 className="size-3.5" />
+                      Remove
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    <Field label="Question / Prompt">
+                      <input
+                        type="text"
+                        className="input w-full"
+                        value={c.q}
+                        onChange={(e) => setLlmChip(i, { q: e.target.value })}
+                        placeholder="e.g., Do you offer Jain or vegan meals?"
+                        disabled={submitting}
+                      />
+                    </Field>
+                    <Field label="Answer / Response">
+                      <div className="rounded-xl border border-gray-300 bg-white p-2">
+                        <TinyMCETextEditor
+                          value={c.a || ""}
+                          onChange={(html) => setLlmChip(i, { a: html })}
+                          placeholder="Write the assistant’s response…"
+                        />
+                      </div>
+                    </Field>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+        )}
+
         {/* DIETARY */}
         {step.key === "dietary" && (
           <SectionCard
@@ -1390,268 +1583,248 @@ const removeSegGroup = (id: string) => {
         )}
 
         {/* MEDIA */}
-       {step.key === "media" && (
-        <SectionCard
-          title="Media"
-          subtitle="Upload a banner and gallery images."
-          icon={<ImageIcon className="size-5 text-blue-600" />}
-          requiredHint
-        >
-          {/* Banner (unchanged) */}
-          <h3 className="text-sm font-semibold text-blue-900 mb-2">Banner</h3>
-          <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50/50 p-3 sm:p-4">
+        {step.key === "media" && (
+          <SectionCard
+            title="Media"
+            subtitle="Upload a banner and gallery images."
+            icon={<ImageIcon className="size-5 text-blue-600" />}
+            requiredHint
+          >
+            <h3 className="text-sm font-semibold text-blue-900 mb-2">Banner</h3>
+            <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50/50 p-3 sm:p-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {existingBannerUrl || newBanner ? (
+                  <div className="relative aspect-square rounded-xl overflow-hidden border-2 border-blue-400 bg-white">
+                    <img
+                      src={newBanner?.preview || existingBannerUrl || ""}
+                      alt="Banner"
+                      className="w-full h-full object-cover"
+                      decoding="async"
+                      loading="lazy"
+                    />
+                    <button
+                      type="button"
+                      onClick={clearBanner}
+                      className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                      title="Remove banner"
+                      aria-label="Remove banner"
+                      disabled={submitting}
+                    >
+                      <X className="size-4" strokeWidth={3} />
+                    </button>
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                      <p className="text-white text-[10px] font-medium">BANNER</p>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="block aspect-square">
+                    <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-blue-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-blue-50">
+                      <ImageIcon className="size-6 text-blue-400" />
+                      <p className="mt-1 text-sm font-medium text-blue-900">Add Banner</p>
+                    </div>
+                    <input
+                      ref={bannerInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleBannerUpload}
+                      className="hidden"
+                      disabled={submitting}
+                    />
+                  </label>
+                )}
+              </div>
+            </div>
+
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">Gallery Images</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-              {existingBannerUrl || newBanner ? (
-                <div className="relative aspect-square rounded-xl overflow-hidden border-2 border-blue-400 bg-white">
-                  <img
-                    src={newBanner?.preview || existingBannerUrl || ""}
-                    alt="Banner"
-                    className="w-full h-full object-cover"
-                    decoding="async"
-                    loading="lazy"
-                  />
+              {existingImageUrls.map((url) => (
+                <div
+                  key={url}
+                  className="relative aspect-square rounded-xl overflow-hidden border border-gray-300 bg-gray-50 shadow-sm"
+                >
+                  <img src={url} alt="Existing" className="w-full h-full object-cover" />
                   <button
                     type="button"
-                    onClick={clearBanner}
+                    onClick={() => removeExistingImage(url)}
                     className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
-                    title="Remove banner"
-                    aria-label="Remove banner"
+                    title="Remove existing image"
+                    aria-label="Remove existing image"
                     disabled={submitting}
                   >
                     <X className="size-4" strokeWidth={3} />
                   </button>
                   <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
-                    <p className="text-white text-[10px] font-medium">BANNER</p>
+                    <p className="text-white text-[10px] font-medium">EXISTING</p>
                   </div>
                 </div>
-              ) : (
-                <label className="block aspect-square">
-                  <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-blue-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-blue-50">
-                    <ImageIcon className="size-6 text-blue-400" />
-                    <p className="mt-1 text-sm font-medium text-blue-900">Add Banner</p>
-                  </div>
-                  <input
-                    ref={bannerInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleBannerUpload}
-                    className="hidden"
+              ))}
+
+              {newImages.map((img, idx) => (
+                <div
+                  key={img.preview}
+                  className="relative aspect-square rounded-xl overflow-hidden border-2 border-dashed border-blue-400 bg-blue-50"
+                >
+                  <img src={img.preview} alt={`New ${idx + 1}`} className="w-full h-full object-cover opacity-80" />
+                  <button
+                    type="button"
+                    onClick={() => removeNewImage(idx)}
+                    className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                    title="Remove image"
+                    aria-label="Remove image"
                     disabled={submitting}
-                  />
-                </label>
-              )}
-            </div>
-          </div>
-
-          {/* Gallery (UPDATED) */}
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Gallery Images</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {/* Existing images with X to remove */}
-            {existingImageUrls.map((url) => (
-              <div
-                key={url}
-                className="relative aspect-square rounded-xl overflow-hidden border border-gray-300 bg-gray-50 shadow-sm"
-              >
-                <img src={url} alt="Existing" className="w-full h-full object-cover" />
-                <button
-                  type="button"
-                  onClick={() => removeExistingImage(url)}
-                  className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
-                  title="Remove existing image"
-                  aria-label="Remove existing image"
-                  disabled={submitting}
-                >
-                  <X className="size-4" strokeWidth={3} />
-                </button>
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
-                  <p className="text-white text-[10px] font-medium">EXISTING</p>
+                  >
+                    <X className="size-4" strokeWidth={3} />
+                  </button>
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                    <p className="text-white text-[10px] font-medium truncate">NEW</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
 
-            {/* New images (unchanged) */}
-            {newImages.map((img, idx) => (
-              <div
-                key={img.preview}
-                className="relative aspect-square rounded-xl overflow-hidden border-2 border-dashed border-blue-400 bg-blue-50"
-              >
-                <img
-                  src={img.preview}
-                  alt={`New ${idx + 1}`}
-                  className="w-full h-full object-cover opacity-80"
+              <label className="block aspect-square">
+                <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-gray-50">
+                  <ImageIcon className="size-6 text-gray-400" />
+                  <p className="mt-1 text-sm font-medium text-gray-700">Add Image</p>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImagesUpload}
+                  className="hidden"
+                  disabled={submitting}
                 />
-                <button
-                  type="button"
-                  onClick={() => removeNewImage(idx)}
-                  className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
-                  title="Remove image"
-                  aria-label="Remove image"
-                  disabled={submitting}
-                >
-                  <X className="size-4" strokeWidth={3} />
-                </button>
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
-                  <p className="text-white text-[10px] font-medium truncate">NEW</p>
-                </div>
-              </div>
-            ))}
+              </label>
+            </div>
+          </SectionCard>
+        )}
 
-            {/* Uploader (unchanged) */}
-            <label className="block aspect-square">
-              <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-gray-50">
-                <ImageIcon className="size-6 text-gray-400" />
-                <p className="mt-1 text-sm font-medium text-gray-700">Add Image</p>
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handleImagesUpload}
-                className="hidden"
+        {/* SEGREGATED */}
+        {step.key === "segregatedMedia" && (
+          <SectionCard
+            title="Segregated Images"
+            subtitle="Group images by category (e.g., Nature, Waterfall, Guest Images)."
+            icon={<ImageIcon className="size-5 text-blue-600" />}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-900">Categories & Images</h3>
+              <button
+                type="button"
+                onClick={addSegGroup}
                 disabled={submitting}
-              />
-            </label>
-          </div>
-        </SectionCard>
-      )}
-       {step.key === "segregatedMedia" && (
-                        <SectionCard
-                          title="Segregated Images"
-                          subtitle="Group images by category (e.g., Nature, Waterfall, Guest Images)."
-                          icon={<ImageIcon className="size-5 text-blue-600" />}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+              >
+                <Plus className="size-3.5" />
+                Add Category
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {segregatedGroups.map((group, idx) => (
+                <div key={group.id} className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-semibold text-gray-700">Category #{idx + 1}</p>
+                    <button
+                      type="button"
+                      onClick={() => removeSegGroup(group.id)}
+                      disabled={submitting}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                    >
+                      <X className="size-3.5" />
+                      Remove
+                    </button>
+                  </div>
+
+                  <Field label="Category name" required>
+                    <input
+                      type="text"
+                      className="input"
+                      value={group.category}
+                      onChange={(e) => updateSegGroupCategory(group.id, e.target.value)}
+                      placeholder="e.g., nature, waterfall, guest_images"
+                      disabled={submitting}
+                    />
+                  </Field>
+
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold text-gray-700 mb-1.5">
+                      Images ({group.existingImages.length + group.images.length})
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                      {group.existingImages.map((url) => (
+                        <div
+                          key={url}
+                          className="relative aspect-square rounded-xl overflow-hidden border border-gray-300 bg-gray-50 shadow-sm"
                         >
-                          <div className="flex items-center justify-between mb-3">
-                            <h3 className="text-sm font-semibold text-gray-900">
-                              Categories & Images
-                            </h3>
-                            <button
-                              type="button"
-                              onClick={addSegGroup}
-                              disabled={submitting}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
-                            >
-                              <Plus className="size-3.5" />
-                              Add Category
-                            </button>
+                          <img src={url} alt="Existing" className="w-full h-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => removeExistingSegImage(group.id, url)}
+                            className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                            title="Remove image"
+                            aria-label="Remove image"
+                            disabled={submitting}
+                          >
+                            <X className="size-4" strokeWidth={3} />
+                          </button>
+                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                            <p className="text-white text-[10px] font-medium">EXISTING</p>
                           </div>
-              
-                          <div className="space-y-4">
-                            {segregatedGroups.map((group, idx) => (
-                              <div
-                                key={group.id}
-                                className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4"
-                              >
-                                <div className="flex items-center justify-between mb-3">
-                                  <p className="text-xs font-semibold text-gray-700">
-                                    Category #{idx + 1}
-                                  </p>
-                                  <button
-                                    type="button"
-                                    onClick={() => removeSegGroup(group.id)}
-                                    disabled={submitting}
-                                    className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
-                                  >
-                                    <X className="size-3.5" />
-                                    Remove
-                                  </button>
-                                </div>
-              
-                                <Field label="Category name" required>
-                                  <input
-                                    type="text"
-                                    className="input"
-                                    value={group.category}
-                                    onChange={(e) =>
-                                      updateSegGroupCategory(group.id, e.target.value)
-                                    }
-                                    placeholder="e.g., nature, waterfall, guest_images"
-                                    disabled={submitting}
-                                  />
-                                </Field>
-              
-                               <div className="mt-3">
-        <p className="text-xs font-semibold text-gray-700 mb-1.5">
-          Images ({group.existingImages.length + group.images.length})
-        </p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          {/* Existing URLs from backend */}
-          {group.existingImages.map((url) => (
-            <div
-              key={url}
-              className="relative aspect-square rounded-xl overflow-hidden border border-gray-300 bg-gray-50 shadow-sm"
-            >
-              <img src={url} alt="Existing" className="w-full h-full object-cover" />
-              <button
-                type="button"
-                onClick={() => removeExistingSegImage(group.id, url)}
-                className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
-                title="Remove image"
-                aria-label="Remove image"
-                disabled={submitting}
-              >
-                <X className="size-4" strokeWidth={3} />
-              </button>
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
-                <p className="text-white text-[10px] font-medium">EXISTING</p>
-              </div>
-            </div>
-          ))}
-      
-          {/* Newly uploaded (local) files */}
-          {group.images.map((img, imgIdx) => (
-            <div
-              key={img.preview}
-              className="relative aspect-square rounded-xl overflow-hidden border-2 border-dashed border-blue-400 bg-blue-50"
-            >
-              <img
-                src={img.preview}
-                alt={`Segregated ${idx + 1}-${imgIdx + 1}`}
-                className="w-full h-full object-cover opacity-80"
-              />
-              <button
-                type="button"
-                onClick={() => removeSegImage(group.id, imgIdx)}
-                className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
-                title="Remove image"
-                aria-label="Remove image"
-                disabled={submitting}
-              >
-                <X className="size-4" strokeWidth={3} />
-              </button>
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
-                <p className="text-white text-[10px] font-medium truncate">NEW</p>
-              </div>
-            </div>
-          ))}
-      
-          {/* Uploader */}
-          <label className="block aspect-square">
-            <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-gray-50">
-              <ImageIcon className="size-6 text-gray-400" />
-              <p className="mt-1 text-sm font-medium text-gray-700">Add Image</p>
-            </div>
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => handleSegImagesUpload(group.id, e)}
-              disabled={submitting}
-            />
-          </label>
-        </div>
-      </div>
-      
-                              </div>
-                            ))}
+                        </div>
+                      ))}
+
+                      {group.images.map((img, imgIdx) => (
+                        <div
+                          key={img.preview}
+                          className="relative aspect-square rounded-xl overflow-hidden border-2 border-dashed border-blue-400 bg-blue-50"
+                        >
+                          <img
+                            src={img.preview}
+                            alt={`Segregated ${idx + 1}-${imgIdx + 1}`}
+                            className="w-full h-full object-cover opacity-80"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeSegImage(group.id, imgIdx)}
+                            className="absolute top-1 right-1 size-6 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-700 shadow-md active:scale-95"
+                            title="Remove image"
+                            aria-label="Remove image"
+                            disabled={submitting}
+                          >
+                            <X className="size-4" strokeWidth={3} />
+                          </button>
+                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                            <p className="text-white text-[10px] font-medium truncate">NEW</p>
                           </div>
-                        </SectionCard>
-                      )}
+                        </div>
+                      ))}
+
+                      <label className="block aspect-square">
+                        <div className="flex flex-col items-center justify-center w-full h-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 transition-colors bg-white hover:bg-gray-50">
+                          <ImageIcon className="size-6 text-gray-400" />
+                          <p className="mt-1 text-sm font-medium text-gray-700">Add Image</p>
+                        </div>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => handleSegImagesUpload(group.id, e)}
+                          disabled={submitting}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+        )}
       </main>
 
       {/* Sticky footer */}
-<div className="fixed bottom-0 right-0 left-0 lg:left-64 z-40 bg-gray-50/95 backdrop-blur safe-bottom pt-2">
+      <div className="fixed bottom-0 right-0 left-0 lg:left-64 z-40 bg-gray-50/95 backdrop-blur safe-bottom pt-2">
         <div className="mx-auto max-w-3xl px-4 sm:px-6 pb-2">
           <div className="rounded-2xl border border-gray-200 bg-white shadow-xl shadow-gray-900/5">
             <div className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -1808,7 +1981,9 @@ const removeSegGroup = (id: string) => {
               <button
                 type="button"
                 onClick={saveLocalAddon}
-                className={`px-4 py-2 rounded-xl text-sm font-semibold text-white ${createLoading ? "bg-blue-300" : "bg-blue-600 hover:bg-blue-700"}`}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold text-white ${
+                  createLoading ? "bg-blue-300" : "bg-blue-600 hover:bg-blue-700"
+                }`}
                 disabled={createLoading}
               >
                 <span className="inline-flex items-center gap-2">
@@ -1830,9 +2005,16 @@ const removeSegGroup = (id: string) => {
         .textarea {
           @apply w-full min-h-[112px] px-4 py-3 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-[16px] placeholder:text-gray-400 transition-all resize-y;
         }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        .safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem); }
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+        .safe-bottom {
+          padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem);
+        }
       `}</style>
     </form>
   );

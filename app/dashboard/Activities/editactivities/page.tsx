@@ -507,8 +507,8 @@ const removeSegGroup = (id: string) => {
         taxRate: a.taxRate != null ? String(a.taxRate) : "",
         taxIncluded: !!a.taxIncluded,
         serviceCharges: a.serviceCharges != null ? String(a.serviceCharges) : "",
-        markup_min_price: a.markup_min_price || null,
-        markup_max_price: a.markup_max_price || null,
+        markup_min_price: a.priceBreakdown?.markup_min_price || null,
+        markup_max_price: a.priceBreakdown?.markup_max_price || null,
         openTime: a.openTime || "",
         closeTime: a.closeTime || "",
         duration: a.duration != null ? String(a.duration) : "",
@@ -1026,8 +1026,7 @@ const remFaq = (idx: number) =>
         taxRate,
         taxIncluded: !!data.taxIncluded,
         serviceCharges,
-        markup_min_price: data.markup_min_price,
-        markup_max_price: data.markup_max_price,
+      
         openTime: data.openTime,
         closeTime: data.closeTime,
         duration: Number(data.duration || 0),
@@ -1137,6 +1136,8 @@ const remFaq = (idx: number) =>
           serviceCharges,
           taxes,
           totalPrice,
+          markup_min_price: data.markup_min_price,
+           markup_max_price: data.markup_max_price,
         },
 
        llm_chips: llmChips

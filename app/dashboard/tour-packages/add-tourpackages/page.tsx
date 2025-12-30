@@ -2422,7 +2422,8 @@ return { ...slot, activities: nextActs };
             const title = normalizeTitle(c?.title);
 
             // Always hide Tour Package
-            if (title === "tour packages") return false;
+           if (["tour packages", "hotels"].includes(title)) return false;
+
 
             if (isDaytime) {
               // 7AM - 6PM: hide Nightlife

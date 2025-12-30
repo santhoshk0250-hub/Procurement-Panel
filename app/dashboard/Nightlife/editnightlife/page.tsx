@@ -388,8 +388,8 @@ function nightlifeToFormData(n: any): NightlifeFormData {
     taxRate: n.tax != null ? String(n.tax) : "",
     taxIncluded: !!n.taxIncluded,
     serviceCharges: n.serviceCharge != null ? String(n.serviceCharge) : "",
-markup_min_price: n.markup_min_price != null ? Number(n.markup_min_price) : null, 
-    markup_max_price: n.markup_max_price != null ? Number(n.markup_max_price) : null,
+    markup_min_price: n.priceBreakdown?.markup_min_price != null ? Number(n.priceBreakdown?.markup_min_price) : null, 
+    markup_max_price: n.priceBreakdown?.markup_max_price != null ? Number(n.priceBreakdown?.markup_max_price) : null,
     openTime: n.openTime || "",
     closeTime: n.closeTime || "",
     duration: n.duration != null ? String(n.duration) : "",
@@ -1112,8 +1112,7 @@ const removeExistingVideo = (idx: number) =>
         descriptionLong: data.descriptionLong.trim() || undefined,
         destination: data.destination.trim(),
         type: data.type.trim() || undefined,
-        markup_min_price: data.markup_min_price,
-        markup_max_price: data.markup_max_price,
+    
         vendorPrice,
         price,
         taxRate,
@@ -1241,6 +1240,8 @@ const removeExistingVideo = (idx: number) =>
           serviceCharges,
           taxes,
           totalPrice,
+          markup_min_price: data.markup_min_price,
+          markup_max_price: data.markup_max_price,
         },
 
        llm_chips: llmChips
