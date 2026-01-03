@@ -46,8 +46,8 @@ export default function Sidebar() {
       { label: "Food Service",      href: "/dashboard/Food-service",     icon: UtensilsCrossed, category: "Travel Services" },
       { label: "Tour Manager",       href: "/dashboard/tour-managers",    icon: UserCog, category: "Travel Services" },
       { label: "Tour Packages",       href: "/dashboard/tour-packages",    icon: Luggage, category: "Travel Services" },
-      // { label: "About Us",          href: "/dashboard/about-us",         icon: Info, category: "General" },
-      // { label: "Certifications",    href: "/dashboard/certifications",   icon: FileText, category: "General" },
+      { label: "About Us",          href: "/dashboard/about-us",         icon: Info, category: "General" },
+      { label: "Certifications",    href: "/dashboard/certifications",   icon: FileText, category: "General" },
     ],
     []
   );

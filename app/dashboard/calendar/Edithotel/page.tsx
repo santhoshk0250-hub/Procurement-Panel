@@ -32,6 +32,17 @@ type RailwayDistance = {
   distance_km: number;
 };
 
+type GalleryMedia = {
+  thumbnail: File | null;
+  video: File | null;
+};
+
+type GalleryPreviews = {
+  thumbnail: string;  // existing url OR new objectURL
+  video: string;      // existing url OR new objectURL
+};
+
+
 type Location = {
   address?: string;
   city?: string;
@@ -323,6 +334,7 @@ type PetPolicy = {
 
 type TabId =
   | "about"
+  |"gallery"
   | "location"
   | "features"
   | "media"
@@ -364,6 +376,21 @@ const [markupMaxPrice, setMarkupMaxPrice] = useState<number | "">("");
   const [programName, setProgramName] = useState("");
   const [pointsAccrual, setPointsAccrual] = useState(false);
   const [pointsRedemption, setPointsRedemption] = useState(false);
+const [galleryMedia, setGalleryMedia] = useState<GalleryMedia>({
+  thumbnail: null,
+  video: null,
+});
+
+const [galleryPreviews, setGalleryPreviews] = useState<GalleryPreviews>({
+  thumbnail: "",
+  video: "",
+});
+
+// store existing urls separately so we can send if no new file uploaded
+const [existingGallery, setExistingGallery] = useState<{ thumbnail: string; video: string }>({
+  thumbnail: "",
+  video: "",
+});
 
   // Location fields
   const [address, setAddress] = useState("");
@@ -601,6 +628,7 @@ const [gymOpeningTime, setGymOpeningTime] = useState<Dayjs | null>(
 
 const tabs: { id: TabId; label: string }[] = [
   { id: "about", label: "About" },
+  { id: "gallery", label: "Gallery" },
   { id: "location", label: "Location" },
   { id: "features", label: "Features" },
   { id: "media", label: "Media" },
@@ -674,6 +702,24 @@ useEffect(() => {
         ? hotel.hotel_amenities
         : [{ name: "", details: "" }]
     );
+// ✅ gallery (existing)
+const existingThumb = (hotel as any)?.thumbnail?.image || "";
+const existingVideo = (hotel as any)?.thumbnail?.video || "";
+
+setExistingGallery({
+  thumbnail: existingThumb,
+  video: existingVideo,
+});
+
+setGalleryPreviews({
+  thumbnail: existingThumb,
+  video: existingVideo,
+});
+
+// reset new uploads when loading hotel
+setGalleryMedia({ thumbnail: null, video: null });
+
+
   setPreviews({
       room: hotel.media_gallery?.room || [],
       lobby: hotel.media_gallery?.lobby || [],
@@ -855,7 +901,7 @@ useEffect(() => {
 
 const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 const [specialAnchorEl, setSpecialAnchorEl] = useState<HTMLElement | null>(null);
-const [activeTab, setActiveTab] = useState<"about" | "location" | "features" | "media" | "rooms"|"availability"|"pricing"|"dining"|"services"|"events"|"experiences"|"policies" >("about");
+const [activeTab, setActiveTab] = useState<"about" | "gallery" |"location" | "features" | "media" | "rooms"|"availability"|"pricing"|"dining"|"services"|"events"|"experiences"|"policies" >("about");
 // figure out the last tab and whether we're on it
 const lastTabId = tabs[tabs.length - 1]?.id;
 const isOnLastTab = activeTab === lastTabId;
@@ -1274,6 +1320,22 @@ const removeImage = (type: keyof MediaGallery, index: number) => {
     if (marketId) formData.append("market_id", marketId);
 if (markupMinPrice !== "") formData.append("markup_min_price", String(markupMinPrice));
 if (markupMaxPrice !== "") formData.append("markup_max_price", String(markupMaxPrice));
+
+  // ✅ Gallery: if new file uploaded => send file
+if (galleryMedia.thumbnail) {
+  formData.append("gallery[thumbnail]", galleryMedia.thumbnail);
+} else if (existingGallery.thumbnail) {
+  // ✅ no new file => keep existing url
+  formData.append("gallery[thumbnail]", existingGallery.thumbnail);
+}
+
+// ✅ Video
+if (galleryMedia.video) {
+  formData.append("gallery[videos]", galleryMedia.video);
+} else if (existingGallery.video) {
+  formData.append("gallery[videos]", existingGallery.video);
+}
+
     // -------------------- Loyalty Program --------------------
     if (programName) {
       formData.append(
@@ -1624,6 +1686,52 @@ const handleSpecialBlackoutChange = (
   setRooms(updatedRooms);
 };
 
+
+  // ---------- Gallery handlers ----------
+const uploadGalleryThumbnail = (file: File | null) => {
+  if (!file) return;
+
+  // revoke old preview if it was an object url (not an existing http url)
+  if (galleryPreviews.thumbnail && galleryPreviews.thumbnail.startsWith("blob:")) {
+    URL.revokeObjectURL(galleryPreviews.thumbnail);
+  }
+
+  setGalleryMedia((prev) => ({ ...prev, thumbnail: file }));
+  setGalleryPreviews((prev) => ({ ...prev, thumbnail: URL.createObjectURL(file) }));
+};
+
+const uploadGalleryVideo = (file: File | null) => {
+  if (!file) return;
+
+  if (galleryPreviews.video && galleryPreviews.video.startsWith("blob:")) {
+    URL.revokeObjectURL(galleryPreviews.video);
+  }
+
+  setGalleryMedia((prev) => ({ ...prev, video: file }));
+  setGalleryPreviews((prev) => ({ ...prev, video: URL.createObjectURL(file) }));
+};
+
+const removeGalleryThumbnail = () => {
+  if (galleryPreviews.thumbnail?.startsWith("blob:")) {
+    URL.revokeObjectURL(galleryPreviews.thumbnail);
+  }
+
+  setGalleryMedia((prev) => ({ ...prev, thumbnail: null }));
+  setGalleryPreviews((prev) => ({ ...prev, thumbnail: "" }));
+  setExistingGallery((prev) => ({ ...prev, thumbnail: "" })); // ✅ remove existing too
+};
+
+const removeGalleryVideo = () => {
+  if (galleryPreviews.video?.startsWith("blob:")) {
+    URL.revokeObjectURL(galleryPreviews.video);
+  }
+
+  setGalleryMedia((prev) => ({ ...prev, video: null }));
+  setGalleryPreviews((prev) => ({ ...prev, video: "" }));
+  setExistingGallery((prev) => ({ ...prev, video: "" })); // ✅ remove existing too
+};
+
+
 const formatDate = (date: string | Date | undefined) => {
   if (!date) return "";
   const d = new Date(date);
@@ -1850,6 +1958,7 @@ useEffect(() => {
       {/* Tab Content */}
       <div className="mt-4">
         {activeTab === "about"}
+        {activeTab === "gallery"}
         {activeTab === "location"}
         {activeTab === "features"}
         {activeTab === "media"}
@@ -2107,6 +2216,98 @@ useEffect(() => {
         </label>
       </div>
     </div>
+  </div>
+)}
+
+{activeTab === "gallery" && (
+  <div className="space-y-8">
+    {/* ---------- Thumbnail (required) ---------- */}
+    <div>
+      <h2 className="text-lg font-semibold text-gray-700 mb-2">
+        Thumbnail (required)
+      </h2>
+
+      <div className="border rounded-xl p-4">
+        <div className="flex items-start gap-4">
+          {/* thumbnail preview tile */}
+          <div className="relative w-28 h-28 rounded-xl overflow-hidden border bg-gray-50">
+            {galleryPreviews.thumbnail ? (
+              <>
+                <img
+                  src={galleryPreviews.thumbnail}
+                  alt="thumbnail"
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={removeGalleryThumbnail}
+                  className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-7 h-7 flex items-center justify-center hover:bg-red-700"
+                  aria-label="Remove thumbnail"
+                >
+                  ✕
+                </button>
+              </>
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
+                No thumbnail
+              </div>
+            )}
+          </div>
+
+          {/* upload button */}
+          <div>
+            <label className="inline-flex items-center gap-2 cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+              <span className="text-sm font-medium">
+                {galleryPreviews.thumbnail ? "Replace" : "+ Upload"}
+              </span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => uploadGalleryThumbnail(e.target.files?.[0] || null)}
+                className="hidden"
+              />
+            </label>
+            <p className="text-xs text-gray-500 mt-2">
+              Best: square image (e.g., 800×800)
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+   {/* ---------- Videos (single) ---------- */}
+<div>
+  <h2 className="text-lg font-semibold text-gray-700 mb-2">Video</h2>
+
+  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    {galleryPreviews.video ? (
+      <div className="relative rounded-xl overflow-hidden border bg-gray-50">
+        <video controls src={galleryPreviews.video} className="w-full h-40 object-cover" />
+        <button
+          type="button"
+          onClick={removeGalleryVideo}
+          className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-7 h-7 flex items-center justify-center hover:bg-red-700"
+          aria-label="Remove video"
+        >
+          ✕
+        </button>
+      </div>
+    ) : null}
+
+    <label className="cursor-pointer rounded-xl border-2 border-dashed bg-white h-40 flex flex-col items-center justify-center text-gray-500 hover:bg-gray-50">
+      <div className="text-2xl">🎥</div>
+      <div className="text-sm font-medium mt-1">
+        {galleryPreviews.video ? "Replace Video" : "Add Video"}
+      </div>
+      <input
+        type="file"
+        accept="video/*"
+        onChange={(e) => uploadGalleryVideo(e.target.files?.[0] || null)}
+        className="hidden"
+      />
+    </label>
+  </div>
+</div>
+
   </div>
 )}
   {/* ---------------- Location Tab ---------------- */}

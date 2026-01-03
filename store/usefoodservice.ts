@@ -13,8 +13,9 @@ export type IDType = string | { $oid: string };
 export type Category = "breakfast" | "lunch" | "dinner" | "snacks" | "beverages";
 export type SpiceLevel = "mild" | "medium" | "hot" | "extra-hot";
 
+// ✅ categories are still strings in segregated groups (free text)
 export interface ActivitySegregatedImageGroup {
-  category: Category;
+  category: string; // was Category; keep as string because your segregated UI uses custom labels like "nature"
   urls: string[];
 }
 
@@ -61,7 +62,10 @@ export interface FoodService {
 
   name: string;
   description: string;
-  category: Category;
+
+  // ✅ NEW: multi categories
+  categories: Category[];
+
   cuisine: string[];
   ingredients: string[];
   allergens: string[];
@@ -116,7 +120,8 @@ export interface FoodFormUIValues {
     markup_max_price: string | number | "" | null;
   };
 
-  category: Category | "";
+  // ✅ NEW multi categories
+  categories: Category[];
   cuisineTags: string[];
   ingredients: string[];
   allergens: string[];
@@ -141,6 +146,8 @@ export interface FoodFormUIValues {
    2) Helpers
    ========================================================== */
 
+const ALLOWED_CATEGORIES: Category[] = ["breakfast", "lunch", "dinner", "snacks", "beverages"];
+
 const num = (v: unknown, fallback = 0) => {
   if (v === "" || v == null) return fallback;
   const n = Number(v);
@@ -149,6 +156,15 @@ const num = (v: unknown, fallback = 0) => {
 const clamp0 = (n: number) => (Number.isFinite(n) ? Math.max(0, n) : 0);
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+const normalizeCategories = (input: unknown): Category[] => {
+  const arr = (Array.isArray(input) ? input : input != null ? [input] : [])
+    .map((s) => String(s).trim().toLowerCase())
+    .filter(Boolean);
+
+  const unique = Array.from(new Set(arr));
+  return unique.filter((c) => (ALLOWED_CATEGORIES as string[]).includes(c)) as Category[];
+};
 
 /** ✅ taxesPercent -> taxes amount + total calc */
 export const computePriceBreakdown = (args: {
@@ -189,10 +205,15 @@ export const fromFormUI = (ui: FoodFormUIValues): FoodService => {
     markup_max_price: ui.priceBreakdown?.markup_max_price ?? ui.markup_max_price ?? 0,
   });
 
+  const categories = normalizeCategories(ui.categories);
+
   return {
     name: ui.name.trim(),
     description: (ui.description || "").trim(),
-    category: (ui.category || "breakfast") as Category,
+
+    // ✅ multi categories (fallback to ["breakfast"] so state is always valid)
+    categories: categories.length ? categories : ["breakfast"],
+
     cuisine: (ui.cuisineTags || []).map((s) => s.trim()).filter(Boolean),
     ingredients: (ui.ingredients || []).map((s) => s.trim()).filter(Boolean),
     allergens: (ui.allergens || []).map((s) => s.trim()).filter(Boolean),
@@ -222,7 +243,7 @@ export const fromFormUI = (ui: FoodFormUIValues): FoodService => {
 
     segregated_images: Array.isArray(ui.segregated_images)
       ? ui.segregated_images.map((g) => ({
-          category: g.category,
+          category: String(g.category || "").trim(),
           urls: Array.isArray(g.urls) ? g.urls.filter(Boolean) : [],
         }))
       : [],
@@ -245,7 +266,13 @@ export interface FoodAPIItem {
 
   banner?: string | null;
   images?: string[];
+
+  // ✅ NEW in API
+  categories?: string[];
+
+  // (optional legacy)
   category?: string;
+
   cuisine?: string[];
   ingredients?: string[];
   allergens?: string[];
@@ -266,15 +293,8 @@ export interface FoodAPIItem {
   __v?: number;
 }
 
-const asCategory = (c?: string): Category =>
-  (["breakfast", "lunch", "dinner", "snacks", "beverages"] as const).includes(c as Category)
-    ? (c as Category)
-    : "breakfast";
-
 const asSpice = (s?: string): SpiceLevel =>
-  (["mild", "medium", "hot", "extra-hot"] as const).includes(s as SpiceLevel)
-    ? (s as SpiceLevel)
-    : "mild";
+  (["mild", "medium", "hot", "extra-hot"] as const).includes(s as SpiceLevel) ? (s as SpiceLevel) : "mild";
 
 const normalizePBFromAPI = (x: FoodAPIItem): PriceBreakdown => {
   const pb = x.priceBreakdown ?? {};
@@ -307,7 +327,6 @@ const normalizePBFromAPI = (x: FoodAPIItem): PriceBreakdown => {
       : 0
   );
 
-  // taxesPercent may or may not be sent by API
   const taxesPercent = Number.isFinite(pb.taxesPercent as number) ? (pb.taxesPercent as number) : undefined;
 
   return {
@@ -324,11 +343,19 @@ const normalizePBFromAPI = (x: FoodAPIItem): PriceBreakdown => {
 export const fromAPI = (x: FoodAPIItem): FoodService => {
   const pb = normalizePBFromAPI(x);
 
+  // ✅ Prefer new API field `categories`, fallback to legacy `category`
+  const categories =
+    Array.isArray(x.categories) && x.categories.length
+      ? normalizeCategories(x.categories)
+      : normalizeCategories(x.category);
+
   return {
     _id: x._id,
     name: (x.name ?? "").trim(),
     description: (x.description ?? "").trim(),
-    category: asCategory(x.category),
+
+    categories: categories.length ? categories : ["breakfast"],
+
     cuisine: Array.isArray(x.cuisine) ? x.cuisine.filter(Boolean) : [],
     ingredients: Array.isArray(x.ingredients) ? x.ingredients.filter(Boolean) : [],
     allergens: Array.isArray(x.allergens) ? x.allergens.filter(Boolean) : [],
@@ -365,7 +392,7 @@ export const fromAPI = (x: FoodAPIItem): FoodService => {
 
     segregated_images: Array.isArray(x.segregated_images)
       ? x.segregated_images.map((g) => ({
-          category: g.category,
+          category: String(g.category || "").trim(),
           urls: Array.isArray(g.urls) ? g.urls.filter(Boolean) : [],
         }))
       : [],
@@ -419,7 +446,7 @@ export const useFoodServiceStore = create<FoodServiceStoreState>()(
     }),
     {
       name: "food-service-storage",
-      version: 2, // ✅ bump because schema changed
+      version: 3, // ✅ bump because schema changed again (category -> categories)
     }
   )
 );
@@ -431,7 +458,10 @@ export const useFoodServiceStore = create<FoodServiceStoreState>()(
 export const BLANK_FOOD_SERVICE: FoodService = {
   name: "",
   description: "",
-  category: "breakfast",
+
+  // ✅ multi
+  categories: ["breakfast"],
+
   cuisine: [],
   ingredients: [],
   allergens: [],

@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Box,
   Typography,
@@ -24,7 +25,14 @@ import {
   CircularProgress,
   Pagination,
   Stack,
+  Checkbox,
+  Divider,
+  Stepper,
+  Step,
+  StepLabel,
+  useMediaQuery,
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import {
   Search,
   ContentCopy,
@@ -48,12 +56,14 @@ import {
 /* ================== Helpers ================== */
 
 const asCategory = (c?: string): Category =>
-  (["breakfast","lunch","dinner","snacks","beverages"] as const).includes(c as Category)
+  (["breakfast", "lunch", "dinner", "snacks", "beverages"] as const).includes(
+    c as Category
+  )
     ? (c as Category)
     : "breakfast";
 
 const asSpice = (s?: string): SpiceLevel =>
-  (["mild","medium","hot","extra-hot"] as const).includes(s as SpiceLevel)
+  (["mild", "medium", "hot", "extra-hot"] as const).includes(s as SpiceLevel)
     ? (s as SpiceLevel)
     : "mild";
 
@@ -70,6 +80,10 @@ const money = (n?: number) =>
 
 /* ================== Component ================== */
 const FoodServicesDashboard: React.FC = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const router = useRouter();
+
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<FoodAPIItem | null>(null);
   const [foods, setFoods] = useState<FoodAPIItem[]>([]);
@@ -152,6 +166,137 @@ const FoodServicesDashboard: React.FC = () => {
   /* ------- Delete dialog ------- */
   const [confirmOpen, setConfirmOpen] = useState(false);
 
+  /* =========================
+     ✅ MARKUP MODAL (Food)
+  ========================= */
+  const [openMarkupModal, setOpenMarkupModal] = useState(false);
+  const [markupStep, setMarkupStep] = useState<0 | 1>(0);
+  const [selectedFoodIds, setSelectedFoodIds] = useState<string[]>([]);
+  const [markupMinPrice, setMarkupMinPrice] = useState<number | "">("");
+  const [markupMaxPrice, setMarkupMaxPrice] = useState<number | "">("");
+  const [savingMarkup, setSavingMarkup] = useState(false);
+
+  // modal list
+  const [modalFoodsRaw, setModalFoodsRaw] = useState<FoodAPIItem[]>([]);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalFetchedOnce, setModalFetchedOnce] = useState(false);
+
+  // ✅ Modal: fetch ALL food items
+  const fetchAllFoodsForModal = async () => {
+    setModalLoading(true);
+    try {
+      // NOTE: If your backend requires a special "fetchall" endpoint, change this.
+      const res = await axios.get(
+        `${process.env.NEXT_PUBLIC_API_BASE}food-services/getall`
+      );
+      const items: FoodAPIItem[] = res.data.data || res.data.items || [];
+      setModalFoodsRaw(Array.isArray(items) ? items : []);
+      setModalFetchedOnce(true);
+    } catch (e) {
+      console.error("Error fetching all food items for modal:", e);
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const toggleFoodSelection = (id: string) => {
+    setSelectedFoodIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const openMarkup = async () => {
+    setMarkupStep(0);
+    setSelectedFoodIds([]);
+    setMarkupMinPrice("");
+    setMarkupMaxPrice("");
+    setSearch("");
+    setOpenMarkupModal(true);
+
+    if (!modalFetchedOnce) {
+      await fetchAllFoodsForModal();
+    }
+  };
+
+  const closeMarkup = () => setOpenMarkupModal(false);
+
+  const modalFoods = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return modalFoodsRaw;
+
+    return modalFoodsRaw.filter((f) => {
+      const hay = [
+        unwrapId(f._id as any),
+        f.name,
+        f.category,
+        f.cuisine?.join(" "),
+        f.ingredients?.join(" "),
+        f.allergens?.join(" "),
+        f.spiceLevel as string,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(term);
+    });
+  }, [modalFoodsRaw, search]);
+
+  const handleSubmitMarkup = async () => {
+    if (!selectedFoodIds.length) return;
+
+    const min = markupMinPrice === "" ? undefined : Number(markupMinPrice);
+    const max = markupMaxPrice === "" ? undefined : Number(markupMaxPrice);
+
+    if (min !== undefined && max !== undefined && max < min) {
+      alert("Markup Max Price must be >= Markup Min Price");
+      return;
+    }
+
+    setSavingMarkup(true);
+    try {
+      // ✅ CHANGE this route/payload if your backend uses different keys
+      await axios.put(`${process.env.NEXT_PUBLIC_API_BASE}food-services/bulk-markup`, {
+        foodIds: selectedFoodIds,
+        markup_min_price: min,
+        markup_max_price: max,
+      });
+
+      // Optional optimistic update if your API returns these fields / you store them
+      setFoods((prev: any) =>
+        prev.map((f: any) =>
+          selectedFoodIds.includes(unwrapId(f._id))
+            ? {
+                ...f,
+                ...(min !== undefined ? { minPrice: min } : {}),
+                ...(max !== undefined ? { maxPrice: max } : {}),
+              }
+            : f
+        )
+      );
+
+      setModalFoodsRaw((prev: any) =>
+        prev.map((f: any) =>
+          selectedFoodIds.includes(unwrapId(f._id))
+            ? {
+                ...f,
+                ...(min !== undefined ? { minPrice: min } : {}),
+                ...(max !== undefined ? { maxPrice: max } : {}),
+              }
+            : f
+        )
+      );
+
+      setOpenMarkupModal(false);
+      router.push("/dashboard/Food-service"); // ✅ change if your route differs
+      router.refresh();
+    } catch (e) {
+      console.error("❌ bulk markup update error:", e);
+      alert("Failed to update markup");
+    } finally {
+      setSavingMarkup(false);
+    }
+  };
+
   return (
     <Box sx={{ p: 3, backgroundColor: "white", minHeight: "70vh" }}>
       {/* Top bar */}
@@ -180,15 +325,32 @@ const FoodServicesDashboard: React.FC = () => {
           sx={{ width: { xs: "100%", sm: 420 } }}
         />
 
-        <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" } }}>
-          
+        {/* ✅ Same layout style as Rentals dashboard (Markup + 2 buttons) */}
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", sm: "repeat(3, auto)" },
+            gap: 1.5,
+            width: "100%",
+            alignItems: "center",
+          }}
+        >
+          <Button
+            onClick={openMarkup}
+            variant="outlined"
+            fullWidth
+            sx={{ height: 40, fontWeight: 700 }}
+          >
+            Markup
+          </Button>
+
           <Button
             href="/dashboard/services?type=food-service"
             component={Link as any}
-            fullWidth
             variant="outlined"
             startIcon={<AddCircleOutline />}
-            sx={{ width: { xs: "100%", sm: "auto" } }}
+            fullWidth
+            sx={{ height: 40, fontWeight: 700 }}
           >
             Add Services
           </Button>
@@ -196,10 +358,10 @@ const FoodServicesDashboard: React.FC = () => {
           <Button
             href="/dashboard/Food-service/addfoodservice"
             component={Link as any}
-            fullWidth
-            sx={{ width: { xs: "100%", sm: "auto" } }}
             variant="contained"
             startIcon={<AddCircleOutline />}
+            fullWidth
+            sx={{ height: 40, fontWeight: 700 }}
           >
             Add Food
           </Button>
@@ -260,11 +422,17 @@ const FoodServicesDashboard: React.FC = () => {
               const category = asCategory(f.category);
 
               return (
-                <Card key={id || f.name} sx={{ width: "100%", maxWidth: 450, mx: "auto" }}>
+                <Card
+                  key={id || f.name}
+                  sx={{ width: "100%", maxWidth: 450, mx: "auto" }}
+                >
                   <Box sx={{ position: "relative" }}>
                     <CardMedia
                       component="img"
-                      image={mainImage({ banner: f.banner ?? undefined, images: f.images })}
+                      image={mainImage({
+                        banner: f.banner ?? undefined,
+                        images: f.images,
+                      })}
                       alt={f.name || "Food item"}
                       sx={{
                         objectFit: "cover",
@@ -290,10 +458,17 @@ const FoodServicesDashboard: React.FC = () => {
                         color="primary"
                         icon={<Restaurant />}
                         label={`${price}`}
-                        sx={{ bgcolor: "primary.main", color: "primary.contrastText" }}
+                        sx={{
+                          bgcolor: "primary.main",
+                          color: "primary.contrastText",
+                        }}
                       />
                       {category && (
-                        <Chip size="small" icon={<LocalDining />} label={category} />
+                        <Chip
+                          size="small"
+                          icon={<LocalDining />}
+                          label={category}
+                        />
                       )}
                       {spice && (
                         <Chip
@@ -332,6 +507,7 @@ const FoodServicesDashboard: React.FC = () => {
                       >
                         {f.name}
                       </Typography>
+
                       {!!f.rating && (
                         <Chip
                           size="small"
@@ -353,53 +529,70 @@ const FoodServicesDashboard: React.FC = () => {
                         overflow: "hidden",
                       }}
                       title={f.description}
-                      // API returns HTML; we keep it raw to preview
                       dangerouslySetInnerHTML={{ __html: f.description ?? "" }}
                     />
 
-                   <Stack spacing={1} mt={1}>
-  {/* Highlighted cuisine chip */}
-  {cuisine && (
-    <Chip
-      size="medium"
-      icon={<Fastfood fontSize="small" />}
-      label={cuisine}
-      color="secondary"
-      sx={{
-        alignSelf: "flex-start",
-        fontWeight: 600,
-        px: { xs: 1.2, sm: 1.8 },
-        borderRadius: 999,
-        boxShadow: 1,
-        fontSize: { xs: "0.75rem", sm: "0.8125rem" },
-      }}
-    />
-  )}
+                    <Stack spacing={1} mt={1}>
+                      {cuisine && (
+                        <Chip
+                          size="medium"
+                          icon={<Fastfood fontSize="small" />}
+                          label={cuisine}
+                          color="secondary"
+                          sx={{
+                            alignSelf: "flex-start",
+                            fontWeight: 600,
+                            px: { xs: 1.2, sm: 1.8 },
+                            borderRadius: 999,
+                            boxShadow: 1,
+                            fontSize: { xs: "0.75rem", sm: "0.8125rem" },
+                          }}
+                        />
+                      )}
 
-  {/* Other tags in a separate row */}
-  <Stack direction="row" spacing={0.75} flexWrap="wrap" sx={{ gap: 0.75 }}>
-    {diet.vegetarian && <Chip size="small" color="success" label="Vegetarian" />}
-    {diet.vegan && <Chip size="small" color="success" label="Vegan" />}
-    {diet.glutenFree && <Chip size="small" color="success" label="Gluten-Free" />}
-    {diet.halal && <Chip size="small" color="success" label="Halal" />}
-    {allergens && (
-      <Tooltip title={`Allergens: ${allergens}`}>
-        <Chip size="small" color="warning" label="Allergens" />
-      </Tooltip>
-    )}
-    {typeof f.preparationTime === "number" && (
-      <Chip size="small" label={`~${f.preparationTime} min`} />
-    )}
-    <Chip
-      size="small"
-      color={f.isAvailable ? "success" : "default"}
-      icon={f.isAvailable ? <CheckCircle fontSize="small" /> : <Cancel fontSize="small" />}
-      label={f.isAvailable ? "Available" : "Unavailable"}
-    />
-    {!!f.addons?.length && <Chip size="small" label={`${f.addons.length} add-ons`} />}
-  </Stack>
-</Stack>
-
+                      <Stack
+                        direction="row"
+                        spacing={0.75}
+                        flexWrap="wrap"
+                        sx={{ gap: 0.75 }}
+                      >
+                        {diet.vegetarian && (
+                          <Chip size="small" color="success" label="Vegetarian" />
+                        )}
+                        {diet.vegan && (
+                          <Chip size="small" color="success" label="Vegan" />
+                        )}
+                        {diet.glutenFree && (
+                          <Chip size="small" color="success" label="Gluten-Free" />
+                        )}
+                        {diet.halal && (
+                          <Chip size="small" color="success" label="Halal" />
+                        )}
+                        {allergens && (
+                          <Tooltip title={`Allergens: ${allergens}`}>
+                            <Chip size="small" color="warning" label="Allergens" />
+                          </Tooltip>
+                        )}
+                        {typeof f.preparationTime === "number" && (
+                          <Chip size="small" label={`~${f.preparationTime} min`} />
+                        )}
+                        <Chip
+                          size="small"
+                          color={f.isAvailable ? "success" : "default"}
+                          icon={
+                            f.isAvailable ? (
+                              <CheckCircle fontSize="small" />
+                            ) : (
+                              <Cancel fontSize="small" />
+                            )
+                          }
+                          label={f.isAvailable ? "Available" : "Unavailable"}
+                        />
+                        {!!f.addons?.length && (
+                          <Chip size="small" label={`${f.addons.length} add-ons`} />
+                        )}
+                      </Stack>
+                    </Stack>
                   </CardContent>
 
                   <CardActions
@@ -413,9 +606,12 @@ const FoodServicesDashboard: React.FC = () => {
                       gap: { xs: 1, sm: 0 },
                     }}
                   >
-                    <Stack direction="row" spacing={1} sx={{ width: { xs: "100%", sm: "auto" } }}>
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      sx={{ width: { xs: "100%", sm: "auto" } }}
+                    >
                       <Button
-                        key="edit"
                         component={Link as any}
                         href={`/dashboard/Food-service/editfoodservice`}
                         onClick={() => handleEdit(f)}
@@ -436,6 +632,7 @@ const FoodServicesDashboard: React.FC = () => {
                         Delete
                       </Button>
                     </Stack>
+
                     <Typography
                       variant="caption"
                       color="text.secondary"
@@ -460,12 +657,291 @@ const FoodServicesDashboard: React.FC = () => {
         </>
       )}
 
+      {/* ✅ MARKUP MODAL (Food) */}
+      <Dialog
+        open={openMarkupModal}
+        onClose={closeMarkup}
+        fullScreen={isMobile}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 2,
+            }}
+          >
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                Select Food Items
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Select items and continue to apply markup.
+              </Typography>
+            </Box>
+
+            <Chip
+              label={`Selected: ${selectedFoodIds.length}`}
+              variant="outlined"
+              sx={{ fontWeight: 800 }}
+            />
+          </Box>
+        </DialogTitle>
+
+        <DialogContent sx={{ pt: 1 }}>
+          <Stepper activeStep={markupStep} sx={{ mb: 2 }}>
+            <Step>
+              <StepLabel>Select</StepLabel>
+            </Step>
+            <Step>
+              <StepLabel>Markup</StepLabel>
+            </Step>
+          </Stepper>
+
+          {markupStep === 0 ? (
+            <>
+              <TextField
+                size="small"
+                placeholder="Search food items..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Search />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{
+                  width: "100%",
+                  mb: 2,
+                  "& .MuiOutlinedInput-root": { borderRadius: 1.5, height: 40 },
+                }}
+              />
+
+              <Divider sx={{ mb: 2 }} />
+
+              {modalLoading ? (
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    py: 6,
+                  }}
+                >
+                  <CircularProgress />
+                </Box>
+              ) : (
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" },
+                    gap: 1.25,
+                    maxHeight: isMobile ? "63vh" : "52vh",
+                    overflow: "auto",
+                    pr: 0.5,
+                  }}
+                >
+                  {modalFoods.map((f) => {
+                    const oid = unwrapId(f._id as any);
+                    const checked = selectedFoodIds.includes(oid);
+
+                    return (
+                      <Card
+                        key={oid || f.name}
+                        onClick={() => toggleFoodSelection(oid)}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.25,
+                          p: 1,
+                          borderRadius: 2,
+                          cursor: "pointer",
+                          border: checked ? "2px solid" : "1px solid",
+                          borderColor: checked ? "primary.main" : "divider",
+                          boxShadow: "none",
+                          transition: "0.15s",
+                          "&:hover": { borderColor: "primary.main" },
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            width: 72,
+                            height: 56,
+                            borderRadius: 2,
+                            overflow: "hidden",
+                            flexShrink: 0,
+                            bgcolor: "grey.100",
+                          }}
+                        >
+                          <CardMedia
+                            component="img"
+                            image={mainImage({
+                              banner: f.banner ?? undefined,
+                              images: f.images,
+                            })}
+                            alt={f.name || "Food"}
+                            loading="lazy"
+                            sx={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                              display: "block",
+                            }}
+                          />
+                        </Box>
+
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography
+                            sx={{
+                              fontWeight: 900,
+                              fontSize: 14,
+                              lineHeight: 1.2,
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                              overflow: "hidden",
+                            }}
+                          >
+                            {f.name || "—"}
+                          </Typography>
+
+                          <Typography
+                            variant="body2"
+                            color="text.secondary"
+                            sx={{
+                              fontSize: 12,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {asCategory(f.category)} • {money(f.price)}
+                          </Typography>
+                        </Box>
+
+                        <Checkbox
+                          checked={checked}
+                          onChange={() => toggleFoodSelection(oid)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </Card>
+                    );
+                  })}
+
+                  {!modalFoods.length && !modalLoading && (
+                    <Box sx={{ gridColumn: "1 / -1", py: 4, textAlign: "center" }}>
+                      <Typography color="text.secondary">
+                        No food items found.
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+              )}
+            </>
+          ) : (
+            <>
+              <Typography sx={{ fontWeight: 900, mb: 0.5 }}>
+                Add markup for selected food items
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                This will update markup prices for{" "}
+                <b>{selectedFoodIds.length}</b> items.
+              </Typography>
+
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" },
+                  gap: 2,
+                }}
+              >
+                <TextField
+                  label="Markup Min Price"
+                  type="number"
+                  value={markupMinPrice}
+                  onChange={(e) =>
+                    setMarkupMinPrice(e.target.value ? Number(e.target.value) : "")
+                  }
+                  inputProps={{ min: 0 }}
+                  fullWidth
+                />
+                <TextField
+                  label="Markup Max Price"
+                  type="number"
+                  value={markupMaxPrice}
+                  onChange={(e) =>
+                    setMarkupMaxPrice(e.target.value ? Number(e.target.value) : "")
+                  }
+                  inputProps={{ min: 0 }}
+                  fullWidth
+                />
+              </Box>
+            </>
+          )}
+        </DialogContent>
+
+        <DialogActions
+          sx={{
+            px: 2,
+            py: 1.5,
+            gap: 1,
+            justifyContent: "space-between",
+            borderTop: "1px solid",
+            borderColor: "divider",
+          }}
+        >
+          <Button
+            onClick={closeMarkup}
+            color="inherit"
+            variant="outlined"
+            sx={{ borderRadius: 1.5, height: 36, fontWeight: 800 }}
+          >
+            Cancel
+          </Button>
+
+          {markupStep === 0 ? (
+            <Button
+              variant="contained"
+              disabled={!selectedFoodIds.length || modalLoading}
+              onClick={() => setMarkupStep(1)}
+              sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
+            >
+              Continue
+            </Button>
+          ) : (
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <Button
+                variant="outlined"
+                onClick={() => setMarkupStep(0)}
+                sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
+              >
+                Back
+              </Button>
+              <Button
+                variant="contained"
+                onClick={handleSubmitMarkup}
+                disabled={savingMarkup}
+                sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
+              >
+                {savingMarkup ? "Saving..." : "Submit"}
+              </Button>
+            </Box>
+          )}
+        </DialogActions>
+      </Dialog>
+
       {/* Delete Confirmation */}
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
         <DialogTitle>Delete Item</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete <strong>{selected?.name || "this item"}</strong>? This action cannot be undone.
+            Delete <strong>{selected?.name || "this item"}</strong>? This action
+            cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

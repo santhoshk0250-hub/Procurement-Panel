@@ -512,17 +512,6 @@ const router = useRouter();
                       )}
                     </Stack>
 
-                    <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
-                      <Tooltip title="Copy vehicleId">
-                        <IconButton size="small" onClick={() => copyVehicleId(v.vehicleId)} sx={{ mr: -0.5 }}>
-                          <ContentCopy fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Typography variant="body2" fontWeight={600}>
-                        {v.vehicleId || "—"}
-                      </Typography>
-                    </Stack>
-
                     <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
                       {(v as any).speedLimit && (
                         <Chip size="small" icon={<Speed fontSize="small" />} label={`Speed: ${(v as any).speedLimit}`} />

@@ -45,6 +45,19 @@ type Location = {
   distance_from_railway_station?: RailwayDistance[];
 };
 
+type GalleryMedia = {
+  thumbnail: File | null;
+  videos: File | null;
+};
+
+type GalleryPreviews = {
+  thumbnail: string;
+  videos: string; // video preview urls
+};
+
+
+
+
 type ContactInfo = {
   phone?: string;
   email?: string;
@@ -329,6 +342,7 @@ interface AmenitiesProps {
 
 type TabId =
   | "about"
+  |"gallery"
   | "location"
   | "features"
   | "media"
@@ -359,7 +373,16 @@ const AddHotelPage: React.FC = () => {
 // Markup fields
 const [markupMinPrice, setMarkupMinPrice] = useState<number | "">("");
 const [markupMaxPrice, setMarkupMaxPrice] = useState<number | "">("");
+// ✅ state
+const [galleryMedia, setGalleryMedia] = useState<GalleryMedia>({
+  thumbnail: null,
+  videos: null,
+});
 
+const [galleryPreviews, setGalleryPreviews] = useState<GalleryPreviews>({
+  thumbnail: "",
+  videos: null,
+});
   // Loyalty Program fields
   const [programName, setProgramName] = useState("");
   const [pointsAccrual, setPointsAccrual] = useState(false);
@@ -694,6 +717,7 @@ const [Loader,setLoader]=useState<boolean>(false);
 
 const tabs: { id: TabId; label: string }[] = [
   { id: "about", label: "About" },
+  {id:"gallery",label:"Gallery"},
   { id: "location", label: "Location" },
   { id: "features", label: "Features" },
   { id: "media", label: "Media" },
@@ -853,6 +877,42 @@ const handleRoomChange = <K extends keyof Room>(
     updated[idx].bedding_configuration = { ...updated[idx].bedding_configuration, [field]: value };
     setRooms(updated);
   };
+
+  // ---------- Gallery handlers ----------
+const uploadGalleryThumbnail = (file: File | null) => {
+  if (!file) return;
+
+  // replace existing thumbnail
+  setGalleryMedia((prev) => ({ ...prev, thumbnail: file }));
+
+  // replace preview url
+  if (galleryPreviews.thumbnail) URL.revokeObjectURL(galleryPreviews.thumbnail);
+  setGalleryPreviews((prev) => ({ ...prev, thumbnail: URL.createObjectURL(file) }));
+};
+
+const uploadGalleryVideo = (file: File | null) => {
+  if (!file) return;
+
+  // replace existing preview url
+  if (galleryPreviews.videos) URL.revokeObjectURL(galleryPreviews.videos);
+
+  setGalleryMedia((prev) => ({ ...prev, videos: file }));
+  setGalleryPreviews((prev) => ({ ...prev, videos: URL.createObjectURL(file) }));
+};
+
+const removeGalleryVideo = () => {
+  if (galleryPreviews.videos) URL.revokeObjectURL(galleryPreviews.videos);
+  setGalleryMedia((prev) => ({ ...prev, videos: null }));
+  setGalleryPreviews((prev) => ({ ...prev, videos: "" }));
+};
+
+
+const removeGalleryThumbnail = () => {
+  if (galleryPreviews.thumbnail) URL.revokeObjectURL(galleryPreviews.thumbnail);
+  setGalleryMedia((prev) => ({ ...prev, thumbnail: null }));
+  setGalleryPreviews((prev) => ({ ...prev, thumbnail: "" }));
+};
+
   /* ------------- Pricing Handlers ------------- */
 const handlePricingChange = (idx: number, field: keyof Pricing, value: any) => {
   const updatedRooms = [...rooms];
@@ -1229,6 +1289,15 @@ if (markupMaxPrice !== "") formData.append("markup_max_price", String(markupMaxP
       );
     }
 
+    // ---------- Gallery formData ----------
+    if (galleryMedia.thumbnail) {
+      formData.append("gallery[thumbnail]", galleryMedia.thumbnail);
+    }
+    if (galleryMedia.videos) {
+      formData.append("gallery[videos]", galleryMedia.videos);
+    }
+
+
     // Media Gallery: handle multiple images + video
     if (mediaGallery.room) {
       mediaGallery.room.forEach((file: File) =>
@@ -1525,7 +1594,7 @@ const handleSpaChange = (field: keyof Wellness['spa'], value: any) => {
   }
 
    const yearOptions = Array.from({ length: new Date().getFullYear() - 2000 + 1 }, (_, i) => 2000 + i);
-  const [activeTab, setActiveTab] = useState<"about" | "location" | "features" | "media" | "rooms"|"availability"|"pricing"|"dining"|"services"|"events"|"experiences"|"policies" >("about");
+  const [activeTab, setActiveTab] = useState<"about" |"gallery" |"location" | "features" | "media" | "rooms"|"availability"|"pricing"|"dining"|"services"|"events"|"experiences"|"policies" >("about");
 
 const handleAddBlock = (roomIdx: number) => {
   const updatedRooms = [...rooms];
@@ -1743,6 +1812,7 @@ const handleSpecialBlackoutChange = (
       {/* Tab Content */}
       <div className="mt-3 sm:mt-4">
         {activeTab === "about"}
+        {activeTab === "gallery"}
         {activeTab === "location"}
         {activeTab === "features"}
         {activeTab === "media"}
@@ -1996,6 +2066,100 @@ const handleSpecialBlackoutChange = (
     </div>
   </div>
 )}
+  {/* ---------------- About Tab ---------------- */}
+
+{activeTab === "gallery" && (
+  <div className="space-y-8">
+    {/* ---------- Thumbnail (required) ---------- */}
+    <div>
+      <h2 className="text-lg font-semibold text-gray-700 mb-2">
+        Thumbnail (required)
+      </h2>
+
+      <div className="border rounded-xl p-4">
+        <div className="flex items-start gap-4">
+          {/* thumbnail preview tile */}
+          <div className="relative w-28 h-28 rounded-xl overflow-hidden border bg-gray-50">
+            {galleryPreviews.thumbnail ? (
+              <>
+                <img
+                  src={galleryPreviews.thumbnail}
+                  alt="thumbnail"
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={removeGalleryThumbnail}
+                  className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-7 h-7 flex items-center justify-center hover:bg-red-700"
+                  aria-label="Remove thumbnail"
+                >
+                  ✕
+                </button>
+              </>
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
+                No thumbnail
+              </div>
+            )}
+          </div>
+
+          {/* upload button */}
+          <div>
+            <label className="inline-flex items-center gap-2 cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+              <span className="text-sm font-medium">
+                {galleryPreviews.thumbnail ? "Replace" : "+ Upload"}
+              </span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => uploadGalleryThumbnail(e.target.files?.[0] || null)}
+                className="hidden"
+              />
+            </label>
+            <p className="text-xs text-gray-500 mt-2">
+              Best: square image (e.g., 800×800)
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+   {/* ---------- Videos (single) ---------- */}
+<div>
+  <h2 className="text-lg font-semibold text-gray-700 mb-2">Video</h2>
+
+  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    {galleryPreviews.videos ? (
+      <div className="relative rounded-xl overflow-hidden border bg-gray-50">
+        <video controls src={galleryPreviews.videos} className="w-full h-40 object-cover" />
+        <button
+          type="button"
+          onClick={removeGalleryVideo}
+          className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-7 h-7 flex items-center justify-center hover:bg-red-700"
+          aria-label="Remove video"
+        >
+          ✕
+        </button>
+      </div>
+    ) : null}
+
+    <label className="cursor-pointer rounded-xl border-2 border-dashed bg-white h-40 flex flex-col items-center justify-center text-gray-500 hover:bg-gray-50">
+      <div className="text-2xl">🎥</div>
+      <div className="text-sm font-medium mt-1">
+        {galleryPreviews.videos ? "Replace Video" : "Add Video"}
+      </div>
+      <input
+        type="file"
+        accept="video/*"
+        onChange={(e) => uploadGalleryVideo(e.target.files?.[0] || null)}
+        className="hidden"
+      />
+    </label>
+  </div>
+</div>
+
+  </div>
+)}
+
   {/* ---------------- Location Tab ---------------- */}
  {activeTab === "location" && (
   <div className="space-y-4 sm:space-y-6">

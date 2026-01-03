@@ -66,7 +66,7 @@ interface FoodFormData {
 
   bannerUrl?: string | null;
   images: string[];
-  category: Category | "";
+  categories: Category[];
   cuisineTags: string[];
   ingredients: string[];
   allergens: string[];
@@ -137,7 +137,7 @@ const BLANK: FoodFormData = {
   },
   bannerUrl: null,
   images: [],
-  category: "",
+   categories: [],
   cuisineTags: [],
   ingredients: [],
   allergens: [],
@@ -476,7 +476,7 @@ const pbTotal = useMemo(() => {
 
       return (
         data.name.trim().length > 0 &&
-        data.category !== "" &&
+        data.categories.length > 0 &&
         isFiniteNum(bp) &&
         bp >= 0 &&
         isFiniteNum(tp) &&
@@ -645,7 +645,7 @@ const totalPriceNum = Math.max(0, taxable + taxAmountNum);
           markup_max_price: Number(data.priceBreakdown.markup_max_price || 0),
         },
 
-        category: data.category,
+        categories: data.categories,
         cuisine: data.cuisineTags.map((s) => s.trim()).filter(Boolean),
         ingredients: data.ingredients.map((s) => s.trim()).filter(Boolean),
         allergens: data.allergens.map((s) => s.trim()).filter(Boolean),
@@ -981,21 +981,37 @@ const totalPriceNum = Math.max(0, taxable + taxAmountNum);
                 </div>
               </div>
 
-              <Field label="Category" required>
-                <select
-                  className="input"
-                  value={data.category}
-                  onChange={(e) => onText("category", e.target.value as Category)}
-                  disabled={submitting}
-                >
-                  <option value="">Select category</option>
-                  {CATEGORIES.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+             <Field label="Category" required>
+  <div className="grid grid-cols-2 gap-2">
+    {CATEGORIES.map((c) => {
+      const checked = data.categories.includes(c);
+
+      return (
+        <label
+          key={c}
+          className="flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-3 py-2"
+        >
+          <input
+            type="checkbox"
+            className="size-4"
+            checked={checked}
+            onChange={() => {
+              setData((p) => ({
+                ...p,
+                categories: checked
+                  ? p.categories.filter((x) => x !== c)
+                  : [...p.categories, c],
+              }));
+            }}
+            disabled={submitting}
+          />
+          <span className="text-sm text-gray-800">{c}</span>
+        </label>
+      );
+    })}
+  </div>
+</Field>
+
 
               <Field label="Spice level">
                 <select

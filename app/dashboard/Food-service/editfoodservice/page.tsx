@@ -76,7 +76,7 @@ interface FoodFormData {
   markup_min_price: number | null;
   markup_max_price: number | null;
 
-  category: Category | "";
+  categories: Category[];
   cuisineTags: string[];
   ingredients: string[];
   allergens: string[];
@@ -218,7 +218,43 @@ function TagComposer({
     </div>
   );
 }
+/* ------------------------------ Multi Category Picker ----------------------------- */
+function CategoryMultiSelect({
+  values,
+  onChange,
+  disabled,
+}: {
+  values: Category[];
+  onChange: (next: Category[]) => void;
+  disabled?: boolean;
+}) {
+  const toggle = (c: Category) => {
+    if (values.includes(c)) onChange(values.filter((x) => x !== c));
+    else onChange([...values, c]);
+  };
 
+  return (
+    <div className="flex flex-wrap gap-2">
+      {CATEGORIES.map((c) => {
+        const active = values.includes(c);
+        return (
+          <button
+            key={c}
+            type="button"
+            onClick={() => toggle(c)}
+            disabled={disabled}
+            className={`px-3 py-2 rounded-xl border text-sm font-semibold capitalize transition ${
+              active ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+            } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
+          >
+            {active ? "✓ " : ""}
+            {c}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 /* --------------------------------- Main UI -------------------------------- */
 export default function EditFoodServiceFormMobile() {
   const router = useRouter();
@@ -259,6 +295,13 @@ export default function EditFoodServiceFormMobile() {
 
     const totalPrice = pb?.totalPrice != null ? String(pb.totalPrice) : "";
 
+      const categoriesFromFood: Category[] =
+      Array.isArray(food?.categories) && food.categories.length
+        ? (food.categories as Category[])
+        : food?.category
+        ? ([food.category] as Category[])
+        : [];
+
     if (!food) {
       return {
         name: "",
@@ -274,7 +317,7 @@ export default function EditFoodServiceFormMobile() {
         },
         bannerUrl: null,
         images: [],
-        category: "",
+        categories: [],
         cuisineTags: [],
         ingredients: [],
         allergens: [],
@@ -304,7 +347,7 @@ export default function EditFoodServiceFormMobile() {
       },
       bannerUrl: String(food.banner ?? "") || null,
       images: Array.isArray(food.images) ? food.images : [],
-      category: (food.category ?? "") as Category,
+      categories: categoriesFromFood.filter((c) => CATEGORIES.includes(c)),
       cuisineTags: Array.isArray(food.cuisine) ? food.cuisine : [],
       ingredients: Array.isArray(food.ingredients) ? food.ingredients : [],
       allergens: Array.isArray(food.allergens) ? food.allergens : [],
@@ -564,7 +607,8 @@ export default function EditFoodServiceFormMobile() {
     if (k === "basic") {
       const baseOk =
         data.name.trim().length > 0 &&
-        data.category !== "" &&
+          Array.isArray(data.categories) &&
+        data.categories.length > 0 &&
         isFiniteNum(nn(data.priceBreakdown.basePrice)) &&
         nn(data.priceBreakdown.basePrice) >= 0 &&
         isFiniteNum(nn(data.preparationTime)) &&
@@ -752,7 +796,7 @@ export default function EditFoodServiceFormMobile() {
         markup_min_price: markupMinNum,
         markup_max_price: markupMaxNum,
 
-        category: data.category,
+         categories: data.categories,
         cuisine: data.cuisineTags.map((s) => s.trim()).filter(Boolean),
         ingredients: data.ingredients.map((s) => s.trim()).filter(Boolean),
         allergens: data.allergens.map((s) => s.trim()).filter(Boolean),
@@ -857,7 +901,12 @@ export default function EditFoodServiceFormMobile() {
         : food?.markup_max_price != null
         ? String(food.markup_max_price)
         : "";
-
+  const categoriesFromFood: Category[] =
+      Array.isArray(food?.categories) && food.categories.length
+        ? (food.categories as Category[])
+        : food?.category
+        ? ([food.category] as Category[])
+        : [];
     setData({
       name: String(food.name ?? ""),
       description: String(food.description ?? ""),
@@ -872,7 +921,7 @@ export default function EditFoodServiceFormMobile() {
       },
       bannerUrl: String(food.banner ?? "") || null,
       images: Array.isArray(food.images) ? food.images : [],
-      category: (food.category ?? "") as Category,
+      categories: categoriesFromFood.filter((c) => CATEGORIES.includes(c)),
       cuisineTags: Array.isArray(food.cuisine) ? food.cuisine : [],
       ingredients: Array.isArray(food.ingredients) ? food.ingredients : [],
       allergens: Array.isArray(food.allergens) ? food.allergens : [],
@@ -1148,21 +1197,16 @@ export default function EditFoodServiceFormMobile() {
                       </div>
                     </div>
       
-                    <Field label="Category" required>
-                      <select
-                        className="input"
-                        value={data.category}
-                        onChange={(e) => onText("category", e.target.value as Category)}
-                        disabled={submitting}
-                      >
-                        <option value="">Select category</option>
-                        {CATEGORIES.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
+                      {/* ✅ NEW multi categories */}
+              <div className="sm:col-span-2">
+                <Field label="Categories" required hint="Select one or more">
+                  <CategoryMultiSelect
+                    values={data.categories}
+                    onChange={(next) => setData((p) => ({ ...p, categories: next }))}
+                    disabled={submitting}
+                  />
+                </Field>
+              </div>
       
                     <Field label="Spice level">
                       <select

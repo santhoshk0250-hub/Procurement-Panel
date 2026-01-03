@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, MouseEvent } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
 import {
@@ -16,8 +16,6 @@ import {
   IconButton,
   Chip,
   Tooltip,
-  Menu,
-  MenuItem,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -28,10 +26,11 @@ import {
   Stack,
   useMediaQuery,
   useTheme,
+  Switch,
+  FormControlLabel,
 } from "@mui/material";
 import {
   Search,
-  MoreVert,
   ContentCopy,
   CheckCircle,
   Schedule,
@@ -87,7 +86,7 @@ const toText = (html: string, max = 140) => {
     return s.length > max ? s.slice(0, max).trim() + "…" : s.trim();
   } catch {
     const s = html?.replace(/<[^>]+>/g, "") || "";
-    return s.length > 140 ? s.slice(0, 140).trim() + "…" : s.trim();
+    return s.length > max ? s.slice(0, max).trim() + "…" : s.trim();
   }
 };
 
@@ -97,8 +96,6 @@ const CouponsDashboard: React.FC = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const [search, setSearch] = useState("");
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [selected, setSelected] = useState<Coupon | null>(null);
 
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,6 +103,11 @@ const CouponsDashboard: React.FC = () => {
   const [page, setPage] = useState<number>(1);
   const [pages, setPages] = useState<number>(1);
 
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [selected, setSelected] = useState<Coupon | null>(null);
+
+  // Track which coupon is currently toggling (to disable its switch)
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const { setCoupon } = useCouponStore();
 
@@ -156,19 +158,8 @@ const CouponsDashboard: React.FC = () => {
     });
   }, [search, coupons]);
 
-
-
-  const closeMenu = () => setAnchorEl(null);
-
   const handleEdit = (c: Coupon) => {
     setCoupon(c);
-    closeMenu();
-  };
-
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const askDelete = () => {
-    setConfirmOpen(true);
-    closeMenu();
   };
 
   const handleDelete = async () => {
@@ -181,7 +172,6 @@ const CouponsDashboard: React.FC = () => {
 
       setCoupons((prev) => prev.filter((x) => unwrapId(x._id) !== unwrapId(selected._id)));
       setSelected(null);
-      closeMenu();
     } catch (e) {
       console.error("Delete failed:", e);
       alert("Failed to delete coupon");
@@ -193,6 +183,67 @@ const CouponsDashboard: React.FC = () => {
       await navigator.clipboard.writeText(code);
     } catch {}
   };
+
+  const toggleActive = async (c: Coupon) => {
+  const id = unwrapId(c._id);
+  if (!id) return;
+
+  const currentStatus = c.status ?? { is_active: false, is_deleted: false };
+  const current = !!currentStatus.is_active;
+  const next = !current;
+
+  // optimistic UI update (keeps required fields)
+  setCoupons((prev) =>
+    prev.map((x) => {
+      if (unwrapId(x._id) !== id) return x;
+
+      const s = x.status ?? { is_active: false, is_deleted: false };
+
+      return {
+        ...x,
+        status: {
+          ...s,
+          is_active: next,
+          // ensure required field exists
+          is_deleted: s.is_deleted ?? false,
+        },
+      };
+    })
+  );
+
+  setTogglingId(id);
+
+  try {
+    await axios.patch(`${process.env.NEXT_PUBLIC_API_BASE}coupons/toggle/${id}`, {
+      is_active: next,
+    });
+  } catch (e) {
+    console.error("Toggle failed:", e);
+
+    // rollback (keeps required fields)
+    setCoupons((prev) =>
+      prev.map((x) => {
+        if (unwrapId(x._id) !== id) return x;
+
+        const s = x.status ?? { is_active: false, is_deleted: false };
+
+        return {
+          ...x,
+          status: {
+            ...s,
+            is_active: current,
+            is_deleted: s.is_deleted ?? false,
+          },
+        };
+      })
+    );
+
+    alert("Failed to update coupon status");
+  } finally {
+    setTogglingId(null);
+  }
+};
+
 
   const now = new Date();
 
@@ -282,7 +333,9 @@ const CouponsDashboard: React.FC = () => {
           >
             {filtered.map((c) => {
               const state = within(now, c.date_rules?.valid_from, c.date_rules?.valid_to);
-              const isActive = c.status?.is_active ?? (state === "active");
+
+              // ✅ Switch value comes ONLY from backend field status.is_active (initial + after toggle)
+              const isActive = !!c.status?.is_active;
 
               const statusChip =
                 state === "active" ? (
@@ -301,18 +354,19 @@ const CouponsDashboard: React.FC = () => {
                 );
 
               const validityText = formatValidity(c);
+              const id = unwrapId(c._id);
 
               return (
                 <Card
-                  key={unwrapId(c._id)}
+                  key={id}
                   sx={{
                     width: {
-                      xs: "100%", // mobile: full width
-                      sm: "calc(50% - 8px)", // 2 columns
-                      md: "calc(33.333% - 10.7px)", // 3 columns
-                      lg: "calc(25% - 12px)", // 4 columns
+                      xs: "100%",
+                      sm: "calc(50% - 8px)",
+                      md: "calc(33.333% - 10.7px)",
+                      lg: "calc(25% - 12px)",
                     },
-                    maxWidth: { xs: 520, sm: "none" }, // keep nice centered width on phones
+                    maxWidth: { xs: 520, sm: "none" },
                     display: "flex",
                     flexDirection: "column",
                     borderRadius: 2,
@@ -329,8 +383,6 @@ const CouponsDashboard: React.FC = () => {
                         height: isMobile ? 160 : 140,
                       }}
                     />
-
-                 
 
                     <Box
                       sx={{
@@ -423,6 +475,19 @@ const CouponsDashboard: React.FC = () => {
                         Delete
                       </Button>
                     </Stack>
+
+                    {/* ✅ Toggle button */}
+                    <FormControlLabel
+                      sx={{ m: 0 }}
+                      control={
+                        <Switch
+                          checked={isActive}
+                          onChange={() => toggleActive(c)}
+                          disabled={togglingId === id}
+                        />
+                      }
+                      label={isActive ? "Active" : "Inactive"}
+                    />
                   </CardActions>
                 </Card>
               );
@@ -431,7 +496,12 @@ const CouponsDashboard: React.FC = () => {
 
           {/* Pagination */}
           <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
-            <Pagination count={pages} page={page} onChange={(e, value) => setPage(value)} color="primary" />
+            <Pagination
+              count={pages}
+              page={page}
+              onChange={(e, value) => setPage(value)}
+              color="primary"
+            />
           </Box>
         </>
       )}

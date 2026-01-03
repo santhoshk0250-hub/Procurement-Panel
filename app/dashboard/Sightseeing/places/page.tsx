@@ -568,16 +568,6 @@ const SightseeingDashboard: React.FC = () => {
                           </Stack>
                         )}
                       </Box>
-
-                      <Tooltip title="Copy _id">
-                        <IconButton
-                          size="small"
-                          onClick={() => copyId(id)}
-                          sx={{ ml: 0.5 }}
-                        >
-                          <ContentCopy fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
                     </Stack>
 
                     {/* Meta chips */}
