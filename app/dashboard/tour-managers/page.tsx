@@ -10,10 +10,6 @@ import {
   Button,
   TextField,
   InputAdornment,
-  Card,
-  CardMedia,
-  CardContent,
-  CardActions,
   Chip,
   Tooltip,
   Dialog,
@@ -35,6 +31,8 @@ import {
   MenuItem,
   Select,
   useMediaQuery,
+  Card,
+  CardMedia,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 
@@ -46,9 +44,11 @@ import {
   CurrencyRupee,
   AddCircleOutline,
   WorkspacePremium,
+  Edit as EditIcon,
 } from "@mui/icons-material";
 
 import { useTourManagerStore, type TourManager } from "@/store/tourmanagerStore";
+import CommonServiceCard, { type ServiceChip } from "@/components/dashboard/CommonServiceCard";
 
 /* ================== Types ================== */
 type MongoId = string | { $oid: string };
@@ -67,6 +67,12 @@ const money = (n?: number) =>
 const stripHtml = (html?: string) =>
   (html || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 
+const clampText = (s: string, max = 140) => {
+  const t = (s || "").replace(/\s+/g, " ").trim();
+  if (!t) return "—";
+  return t.length > max ? `${t.slice(0, max).trim()}…` : t;
+};
+
 const roleLabel = (tm: TourManager) => {
   const slug = (tm.slug || "").toLowerCase();
   if (slug.includes("guide")) return "Tour Guide";
@@ -84,6 +90,9 @@ const languagesToText = (lang?: string[][]) => {
 
 // ✅ slug normalizer
 const normalizeSlug = (tm: TourManager): string => (tm.slug || "").trim();
+
+// ✅ prevents TS widening (string -> literal union)
+const chip = (c: ServiceChip) => c;
 
 /* ================== Component ================== */
 const TourManagersDashboard: React.FC = () => {
@@ -181,15 +190,12 @@ const TourManagersDashboard: React.FC = () => {
   const fetchAllForModal = async () => {
     setModalLoading(true);
     try {
-      // ✅ change to YOUR "get all (no pagination)" endpoint if different
-      // example: tour-manager/fetchall OR tour-manager/getallwithoutpagination
+      // ✅ if you have a dedicated "fetch all" endpoint, use it here
       const res = await axios.get<any>(
         `${process.env.NEXT_PUBLIC_API_BASE}tour-manager/fetch`
       );
 
-      const list: TourManager[] =
-        res.data?.data || res.data?.items || res.data || [];
-
+      const list: TourManager[] = res.data?.data || res.data?.items || res.data || [];
       setModalItemsRaw(Array.isArray(list) ? list : []);
       setModalFetchedOnce(true);
     } catch (e) {
@@ -200,9 +206,7 @@ const TourManagersDashboard: React.FC = () => {
   };
 
   const toggleSelection = (id: string) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
   const openMarkup = async () => {
@@ -256,10 +260,7 @@ const TourManagersDashboard: React.FC = () => {
           return hay.includes(term);
         });
 
-    const bySlug = slugFilter
-      ? bySearch.filter((tm) => normalizeSlug(tm) === slugFilter)
-      : bySearch;
-
+    const bySlug = slugFilter ? bySearch.filter((tm) => normalizeSlug(tm) === slugFilter) : bySearch;
     return bySlug;
   }, [modalItemsRaw, modalSearch, slugFilter]);
 
@@ -276,15 +277,11 @@ const TourManagersDashboard: React.FC = () => {
 
     setSavingMarkup(true);
     try {
-      // ✅ change to your real bulk markup endpoint
-      await axios.put(
-        `${process.env.NEXT_PUBLIC_API_BASE}tour-manager/bulk-markup`,
-        {
-          tourManagerIds: selectedIds,
-          markupMinPrice: min,
-          markupMaxPrice: max,
-        }
-      );
+      await axios.put(`${process.env.NEXT_PUBLIC_API_BASE}tour-manager/bulk-markup`, {
+        tourManagerIds: selectedIds,
+        markupMinPrice: min,
+        markupMaxPrice: max,
+      });
 
       // optimistic update: current page list
       setItems((prev: any) =>
@@ -358,13 +355,7 @@ const TourManagersDashboard: React.FC = () => {
             alignItems: "center",
           }}
         >
-          {/* ✅ Markup */}
-          <Button
-            onClick={openMarkup}
-            variant="outlined"
-            fullWidth
-            sx={{ height: 40, fontWeight: 700 }}
-          >
+          <Button onClick={openMarkup} variant="outlined" fullWidth sx={{ height: 40, fontWeight: 700 }}>
             Markup
           </Button>
 
@@ -383,30 +374,14 @@ const TourManagersDashboard: React.FC = () => {
 
       {/* Loader / Empty states */}
       {loading ? (
-        <Box
-          sx={{
-            minHeight: "50vh",
-            display: "grid",
-            placeItems: "center",
-            textAlign: "center",
-            gap: 2,
-          }}
-        >
+        <Box sx={{ minHeight: "50vh", display: "grid", placeItems: "center", textAlign: "center", gap: 2 }}>
           <CircularProgress size={50} />
           <Typography variant="body1" color="text.secondary">
             Loading tour managers / guides…
           </Typography>
         </Box>
       ) : filtered.length === 0 ? (
-        <Box
-          sx={{
-            minHeight: "40vh",
-            display: "grid",
-            placeItems: "center",
-            textAlign: "center",
-            gap: 1,
-          }}
-        >
+        <Box sx={{ minHeight: "40vh", display: "grid", placeItems: "center", textAlign: "center", gap: 1 }}>
           <Typography variant="h6">No tour managers found</Typography>
           <Typography variant="body2" color="text.secondary">
             Try a different search or add a new tour manager / guide.
@@ -414,211 +389,142 @@ const TourManagersDashboard: React.FC = () => {
         </Box>
       ) : (
         <>
-          {/* Cards grid */}
+          {/* ✅ CommonServiceCard grid */}
           <Box
             sx={{
               display: "grid",
               gridTemplateColumns: {
                 xs: "1fr",
-                sm: "repeat(auto-fill, minmax(340px, 1fr))",
-                md: "repeat(auto-fill, minmax(360px, 1fr))",
+                sm: "repeat(2, minmax(0, 1fr))",
+                lg: "repeat(3, minmax(0, 1fr))",
               },
-              gap: { xs: 2, sm: 2.5, md: 3 },
+              gap: 2.5,
             }}
           >
             {filtered.map((tm) => {
-              const id = unwrapId(tm._id);
-              const priceTag = money((tm as any).price_breakdown?.totalPrice);
+              const id = unwrapId(tm._id) || (tm as any).managerId || tm.title || "";
+              const role = roleLabel(tm);
+
               const langs = languagesToText(tm.language);
               const timeRange =
                 (tm as any).timings?.from && (tm as any).timings?.to
                   ? `${(tm as any).timings.from} – ${(tm as any).timings.to}`
                   : "";
-              const role = roleLabel(tm);
+
+              const priceTag = money((tm as any).price_breakdown?.totalPrice);
+              const rating = (tm as any).rating ? Number((tm as any).rating).toFixed(1) : "";
+
+              const title = tm.title || "—";
+              const desc = clampText(stripHtml(tm.description || ""), 140);
+
+              const subtitleChip: ServiceChip = chip({
+                label: role,
+                variant: "outlined",
+              });
+
+              const topLeftChips: ServiceChip[] = [
+                ...((tm as any).managerId
+                  ? [
+                      chip({
+                        icon: <People fontSize="small" />,
+                        label: String((tm as any).managerId),
+                        color: "primary",
+                        sx: { bgcolor: "primary.main", color: "primary.contrastText" },
+                      }),
+                    ]
+                  : []),
+                ...(priceTag !== "-"
+                  ? [
+                      chip({
+                        icon: <CurrencyRupee fontSize="small" />,
+                        label: priceTag,
+                        color: "success",
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+              ];
+
+              const topRightChips: ServiceChip[] = [
+                ...(rating
+                  ? [
+                      chip({
+                        icon: <WorkspacePremium fontSize="small" />,
+                        label: rating,
+                        color: "success",
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+              ];
+
+              const metaChips: ServiceChip[] = [
+                ...(langs
+                  ? [
+                      chip({
+                        icon: <People fontSize="small" />,
+                        label: langs,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+                ...(timeRange
+                  ? [
+                      chip({
+                        icon: <AccessTime fontSize="small" />,
+                        label: timeRange,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+                ...(((tm as any).inclusions?.length
+                  ? [
+                      chip({
+                        label: "Includes",
+                        color: "success",
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []) as ServiceChip[]),
+                ...(((tm as any).exclusions?.length
+                  ? [
+                      chip({
+                        label: "Excludes",
+                        color: "warning",
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []) as ServiceChip[]),
+                ...(((tm as any).tourManagerProfiles?.length
+                  ? [
+                      chip({
+                        icon: <People fontSize="small" />,
+                        label: `${(tm as any).tourManagerProfiles.length} profile${
+                          (tm as any).tourManagerProfiles.length > 1 ? "s" : ""
+                        }`,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []) as ServiceChip[]),
+              ];
 
               return (
-                <Card
-                  key={id || (tm as any).managerId || tm.title}
-                  sx={{ width: "100%", maxWidth: 450, mx: "auto" }}
-                >
-                  <Box sx={{ position: "relative" }}>
-                    <CardMedia
-                      component="img"
-                      image={mainImage(tm)}
-                      alt={tm.title || "Tour manager"}
-                      sx={{
-                        objectFit: "cover",
-                        width: "100%",
-                        height: { xs: 200, sm: 180, md: 170 },
-                        borderRadius: 1,
-                      }}
-                    />
-
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        left: 8,
-                        top: 8,
-                        display: "flex",
-                        gap: 0.5,
-                        flexWrap: "wrap",
-                        maxWidth: "calc(100% - 16px)",
-                      }}
-                    >
-                      {(tm as any).managerId && (
-                        <Chip
-                          size="small"
-                          color="primary"
-                          icon={<People />}
-                          label={(tm as any).managerId}
-                          sx={{
-                            bgcolor: "primary.main",
-                            color: "primary.contrastText",
-                          }}
-                        />
-                      )}
-                      <Chip
-                        size="small"
-                        label={role}
-                        icon={<WorkspacePremium />}
-                        sx={{ bgcolor: "background.paper", opacity: 0.9 }}
-                      />
-                      {priceTag !== "-" && (
-                        <Chip
-                          size="small"
-                          icon={<CurrencyRupee />}
-                          label={priceTag}
-                          sx={{
-                            bgcolor: "success.light",
-                            color: "success.contrastText",
-                          }}
-                        />
-                      )}
-                    </Box>
-                  </Box>
-
-                  <CardContent sx={{ pb: 1, px: { xs: 1.5, sm: 2 } }}>
-                    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-                      <Typography
-                        variant="h6"
-                        sx={{
-                          fontSize: { xs: "1rem", sm: "1.15rem" },
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          flex: 1,
-                        }}
-                        title={tm.title}
-                      >
-                        {tm.title}
-                      </Typography>
-
-                      {(tm as any).rating && (
-                        <Chip
-                          size="small"
-                          color="success"
-                          icon={<WorkspacePremium />}
-                          label={Number((tm as any).rating).toFixed(1)}
-                        />
-                      )}
-                    </Stack>
-
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      mt={1}
-                      sx={{
-                        display: "-webkit-box",
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
-                        overflow: "hidden",
-                      }}
-                      title={stripHtml(tm.description)}
-                      dangerouslySetInnerHTML={{
-                        __html: tm.description ?? "",
-                      }}
-                    />
-
-                    <Stack spacing={1.2} mt={1.5}>
-                      {langs && (
-                        <Chip
-                          size="medium"
-                          icon={<People fontSize="small" />}
-                          label={langs}
-                          color="secondary"
-                          sx={{
-                            alignSelf: "flex-start",
-                            fontWeight: 600,
-                            px: { xs: 1.2, sm: 1.8 },
-                            borderRadius: 999,
-                            boxShadow: 1,
-                            fontSize: { xs: "0.75rem", sm: "0.8125rem" },
-                          }}
-                        />
-                      )}
-
-                      <Stack direction="row" spacing={0.75} flexWrap="wrap" sx={{ gap: 0.75 }}>
-                        {timeRange && (
-                          <Chip size="small" icon={<AccessTime fontSize="small" />} label={timeRange} />
-                        )}
-
-                        {!!(tm as any).inclusions?.length && (
-                          <Tooltip title={`Inclusions: ${(tm as any).inclusions.join(", ")}`}>
-                            <Chip size="small" color="success" label="Includes" />
-                          </Tooltip>
-                        )}
-
-                        {!!(tm as any).exclusions?.length && (
-                          <Tooltip title={`Exclusions: ${(tm as any).exclusions.join(", ")}`}>
-                            <Chip size="small" color="warning" label="Excludes" />
-                          </Tooltip>
-                        )}
-
-                        {!!(tm as any).tourManagerProfiles?.length && (
-                          <Chip
-                            size="small"
-                            icon={<People fontSize="small" />}
-                            label={`${(tm as any).tourManagerProfiles.length} profile${
-                              (tm as any).tourManagerProfiles.length > 1 ? "s" : ""
-                            }`}
-                          />
-                        )}
-                      </Stack>
-                    </Stack>
-                  </CardContent>
-
-                  <CardActions
-                    sx={{
-                      justifyContent: "space-between",
-                      px: { xs: 1.5, sm: 2 },
-                      pb: { xs: 1.5, sm: 2 },
-                      pt: 0.5,
-                      flexDirection: { xs: "column", sm: "row" },
-                      alignItems: { xs: "stretch", sm: "center" },
-                      gap: { xs: 1, sm: 0 },
-                    }}
-                  >
-                    <Stack direction="row" spacing={1} sx={{ width: { xs: "100%", sm: "auto" } }}>
-                      <Button
-                        component={Link as any}
-                        href={`/dashboard/tour-managers/edit`}
-                        size="small"
-                        onClick={() => handleEdit(tm)}
-                        sx={{ flex: { xs: 1, sm: "initial" } }}
-                      >
-                        Edit
-                      </Button>
-
-                      {id && (
-                        <Tooltip title="Copy ID">
-                          <IconButton size="small" onClick={() => copyToClipboard(id)}>
-                            <ContentCopy fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </Stack>
-                  </CardActions>
-                </Card>
+                <CommonServiceCard
+                  key={id || title}
+                  id={id}
+                  title={title}
+                  image={mainImage(tm)}
+                  subtitleChip={subtitleChip}
+                  description={desc}
+                  topLeftChips={topLeftChips}
+                  topRightChips={topRightChips}
+                  metaChips={metaChips}
+                  editHref="/dashboard/tour-managers/edit"
+                  onEdit={() => handleEdit(tm)}
+                  onDelete={() => {
+                    /* your UI currently doesn't delete from card; keep noop */
+                  }}
+                />
               );
             })}
           </Box>
@@ -738,16 +644,7 @@ const TourManagersDashboard: React.FC = () => {
                           "&:hover": { borderColor: "primary.main" },
                         }}
                       >
-                        <Box
-                          sx={{
-                            width: 72,
-                            height: 56,
-                            borderRadius: 2,
-                            overflow: "hidden",
-                            flexShrink: 0,
-                            bgcolor: "grey.100",
-                          }}
-                        >
+                        <Box sx={{ width: 72, height: 56, borderRadius: 2, overflow: "hidden", flexShrink: 0, bgcolor: "grey.100" }}>
                           <CardMedia
                             component="img"
                             image={cover}
@@ -772,20 +669,12 @@ const TourManagersDashboard: React.FC = () => {
                             {tm.title || "—"}
                           </Typography>
 
-                          <Typography
-                            variant="body2"
-                            color="text.secondary"
-                            sx={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
-                          >
+                          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             {role} • {langs || "—"}
                           </Typography>
                         </Box>
 
-                        <Checkbox
-                          checked={checked}
-                          onChange={() => toggleSelection(tid)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
+                        <Checkbox checked={checked} onChange={() => toggleSelection(tid)} onClick={(e) => e.stopPropagation()} />
                       </Card>
                     );
                   })}
@@ -842,12 +731,7 @@ const TourManagersDashboard: React.FC = () => {
           </Button>
 
           {markupStep === 0 ? (
-            <Button
-              variant="contained"
-              disabled={!selectedIds.length || modalLoading}
-              onClick={() => setMarkupStep(1)}
-              sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
-            >
+            <Button variant="contained" disabled={!selectedIds.length || modalLoading} onClick={() => setMarkupStep(1)} sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}>
               Continue
             </Button>
           ) : (
@@ -855,12 +739,7 @@ const TourManagersDashboard: React.FC = () => {
               <Button variant="outlined" onClick={() => setMarkupStep(0)} sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}>
                 Back
               </Button>
-              <Button
-                variant="contained"
-                onClick={handleSubmitMarkup}
-                disabled={savingMarkup}
-                sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
-              >
+              <Button variant="contained" onClick={handleSubmitMarkup} disabled={savingMarkup} sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}>
                 {savingMarkup ? "Saving..." : "Submit"}
               </Button>
             </Box>

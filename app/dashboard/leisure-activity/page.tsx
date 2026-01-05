@@ -10,10 +10,6 @@ import {
   Button,
   TextField,
   InputAdornment,
-  Card,
-  CardMedia,
-  CardContent,
-  CardActions,
   Chip,
   Dialog,
   DialogTitle,
@@ -33,6 +29,8 @@ import {
   MenuItem,
   Select,
   useMediaQuery,
+  Card,
+  CardMedia,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import {
@@ -49,7 +47,15 @@ import {
   Star as StarIcon,
   AddCircleOutline,
 } from "@mui/icons-material";
-import { useLeisureActivityStore, LeisureActivitydata } from "@/store/leisureActivityStore";
+
+import CommonServiceCard, {
+  type ServiceChip,
+} from "@/components/dashboard/CommonServiceCard";
+
+import {
+  useLeisureActivityStore,
+  LeisureActivitydata,
+} from "@/store/leisureActivityStore";
 
 /* ================== Types (match your API) ================== */
 type ApiResponse = {
@@ -84,13 +90,11 @@ const toText = (html: string, max = 140) => {
 const price = (n?: number) =>
   typeof n === "number" && !Number.isNaN(n) ? `₹${n}` : "-";
 
-// Normalize Mongo-style _id into a plain string for React key & API calls
 const getIdString = (id: LeisureActivitydata["_id"]): string | undefined => {
   if (!id) return undefined;
   return typeof id === "string" ? id : (id as any).$oid;
 };
 
-// ✅ category normalizer (string | string[] -> string[])
 const normalizeCategories = (a: any): string[] => {
   const c = a?.category;
   if (!c) return [];
@@ -98,19 +102,24 @@ const normalizeCategories = (a: any): string[] => {
   return [String(c)];
 };
 
+// ✅ same trick as Food dashboard: prevents TS from widening types
+const chip = (c: ServiceChip) => c;
+
 /* ================== Component ================== */
 const LeisureActivityDashboard: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const router = useRouter();
 
   const [search, setSearch] = useState("");
   const [activities, setActivities] = useState<LeisureActivitydata[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState<number>(1);
   const [pages, setPages] = useState<number>(1);
- const router = useRouter();
+
   const [selected, setSelected] = useState<LeisureActivitydata | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+
   const { setActivity } = useLeisureActivityStore();
 
   const fetchActivities = async (pageNum: number) => {
@@ -185,8 +194,7 @@ const LeisureActivityDashboard: React.FC = () => {
   };
 
   // =========================
-  // ✅ MARKUP MODAL (GET ALL NO PAGINATION)
-  // ✅ Filter based on CATEGORY
+  // ✅ MARKUP MODAL
   // =========================
   const [openMarkupModal, setOpenMarkupModal] = useState(false);
   const [markupStep, setMarkupStep] = useState<0 | 1>(0);
@@ -195,21 +203,18 @@ const LeisureActivityDashboard: React.FC = () => {
   const [markupMaxPrice, setMarkupMaxPrice] = useState<number | "">("");
   const [savingMarkup, setSavingMarkup] = useState(false);
 
-  // modal filters
   const [modalSearch, setModalSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("");
 
-  // modal list (ALL activities)
-  const [modalActivitiesRaw, setModalActivitiesRaw] = useState<LeisureActivitydata[]>([]);
+  const [modalActivitiesRaw, setModalActivitiesRaw] = useState<
+    LeisureActivitydata[]
+  >([]);
   const [modalLoading, setModalLoading] = useState(false);
   const [modalFetchedOnce, setModalFetchedOnce] = useState(false);
 
   const fetchAllActivitiesForModal = async () => {
     setModalLoading(true);
     try {
-      // ✅ replace with your "get all (no pagination)" endpoint if different
-      // Example:
-      // const res = await axios.get(`${joinUrl(API_BASE, "/leisure-activities/getallwithoutpagination")}`)
       const res = await axios.get<any>(
         `${joinUrl(API_BASE, "/leisure-activities/getallnopagination")}`
       );
@@ -248,7 +253,6 @@ const LeisureActivityDashboard: React.FC = () => {
 
   const closeMarkup = () => setOpenMarkupModal(false);
 
-  // ✅ build category options from ALL activities
   const categoryOptions = useMemo(() => {
     const set = new Set<string>();
     modalActivitiesRaw.forEach((a: any) => {
@@ -301,14 +305,12 @@ const LeisureActivityDashboard: React.FC = () => {
 
     setSavingMarkup(true);
     try {
-      // ✅ replace with your real bulk markup endpoint if different
       await axios.put(`${joinUrl(API_BASE, "/leisure-activities/bulk-markup")}`, {
         activityIds: selectedIds,
         markupMinPrice: min,
         markupMaxPrice: max,
       });
 
-      // optimistic update: current page list
       setActivities((prev: any) =>
         prev.map((a: any) => {
           const aid = getIdString(a._id) || a.name;
@@ -321,7 +323,6 @@ const LeisureActivityDashboard: React.FC = () => {
         })
       );
 
-      // optimistic update: modal list
       setModalActivitiesRaw((prev: any) =>
         prev.map((a: any) => {
           const aid = getIdString(a._id) || a.name;
@@ -333,8 +334,9 @@ const LeisureActivityDashboard: React.FC = () => {
           };
         })
       );
+
       setOpenMarkupModal(false);
-       await router.push("/dashboard/leisure-activity");
+      await router.push("/dashboard/leisure-activity");
     } catch (e) {
       console.error("❌ leisure activity bulk markup update error:", e);
       alert("Failed to update markup");
@@ -380,7 +382,6 @@ const LeisureActivityDashboard: React.FC = () => {
             alignItems: "center",
           }}
         >
-          {/* ✅ Markup button */}
           <Button
             onClick={openMarkup}
             variant="outlined"
@@ -446,13 +447,26 @@ const LeisureActivityDashboard: React.FC = () => {
         </Box>
       ) : (
         <>
-          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: {
+                xs: "1fr",
+                sm: "repeat(auto-fill, minmax(340px, 1fr))",
+                md: "repeat(auto-fill, minmax(360px, 1fr))",
+              },
+              gap: { xs: 2, sm: 2.5, md: 3 },
+            }}
+          >
             {filtered.map((a: any) => {
-              const idStr = getIdString(a._id) ?? a.name;
+              const idStr = getIdString(a._id) ?? a.name ?? "";
               const cover = a.thumbnail || a.images?.[0] || PLACEHOLDER_IMG;
               const desc = toText(a.description);
+
               const finalPrice =
-                a.priceBreakdown?.totalPrice ?? a.price ?? a.priceBreakdown?.basePrice;
+                a.priceBreakdown?.totalPrice ??
+                a.price ??
+                a.priceBreakdown?.basePrice;
 
               const pickupLabel =
                 a.pickupAreas && a.pickupAreas.length
@@ -461,136 +475,73 @@ const LeisureActivityDashboard: React.FC = () => {
                   ? `Pickup: ${a.pickupType}`
                   : "";
 
+              const ratingChip = typeof a.rating === "number"
+                ? chip({
+                    icon: <StarIcon fontSize="small" />,
+                    label: `${a.rating} (${a.reviewCount ?? 0})`,
+                  })
+                : undefined;
+
+              const topLeftChips: ServiceChip[] = [
+                chip({
+                  icon: <LocalOffer />,
+                  label: price(finalPrice),
+                  color: "primary",
+                  sx: { bgcolor: "primary.main", color: "primary.contrastText" },
+                }),
+              ];
+
+              const topRightChips: ServiceChip[] = [
+                chip({ icon: <ImageIcon />, label: String(a.images?.length ?? 0) }),
+                chip({ icon: <OndemandVideo />, label: String(a.videos?.length ?? 0) }),
+              ];
+
+              const metaChips: ServiceChip[] = [
+                chip({
+                  icon: <AccessTime fontSize="small" />,
+                  label: `${a.duration} ${a.durationType === "min" ? "min" : "hrs"}`,
+                }),
+                chip({
+                  icon: <TodayIcon fontSize="small" />,
+                  label: a.operatingHours ? a.operatingHours : a.bestTimeToVisit || "Timing: —",
+                }),
+                ...(pickupLabel
+                  ? [chip({ icon: <RouteIcon fontSize="small" />, label: pickupLabel })]
+                  : []),
+              ];
+
               return (
-                <Card key={idStr} sx={{ width: 360 }}>
-                  <Box sx={{ position: "relative" }}>
-                    <CardMedia
-                      component="img"
-                      image={cover}
-                      alt={a.title || a.name}
-                      sx={{
-                        objectFit: "cover",
-                        width: "100%",
-                        height: 170,
-                        borderRadius: 1,
-                      }}
-                    />
-
-                    {/* Price & rating badge */}
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        left: 8,
-                        top: 8,
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 0.5,
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <Chip
-                        size="small"
-                        color="primary"
-                        icon={<LocalOffer />}
-                        label={price(finalPrice)}
-                        sx={{
-                          bgcolor: "primary.main",
-                          color: "primary.contrastText",
-                        }}
-                      />
-                      {typeof a.rating === "number" && (
-                        <Chip
-                          size="small"
-                          icon={<StarIcon fontSize="small" />}
-                          label={`${a.rating} (${a.reviewCount ?? 0})`}
-                        />
-                      )}
-                    </Box>
-
-                    {/* Media count */}
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        right: 8,
-                        bottom: 8,
-                        display: "flex",
-                        gap: 0.5,
-                      }}
-                    >
-                      <Chip size="small" icon={<ImageIcon />} label={a.images?.length ?? 0} />
-                      <Chip size="small" icon={<OndemandVideo />} label={a.videos?.length ?? 0} />
-                    </Box>
-                  </Box>
-
-                  <CardContent sx={{ pb: 1 }}>
-                    <Stack direction="row" alignItems="center" justifyContent="space-between">
-                      <Typography variant="h6" noWrap title={a.title || a.name}>
-                        {a.title || a.name}
-                      </Typography>
-                      <Chip size="small" icon={<PlaceIcon fontSize="small" />} label={a.destination || "—"} />
-                    </Stack>
-
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }} title={desc}>
-                      {desc || "—"}
-                    </Typography>
-
-                    <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-                      <Chip
-                        size="small"
-                        icon={<AccessTime fontSize="small" />}
-                        label={`${a.duration} ${a.durationType === "min" ? "min" : "hrs"}`}
-                      />
-
-                      <Chip
-                        size="small"
-                        icon={<TodayIcon fontSize="small" />}
-                        label={a.operatingHours ? a.operatingHours : a.bestTimeToVisit || "Timing: —"}
-                      />
-
-                      {pickupLabel && (
-                        <Chip size="small" icon={<RouteIcon fontSize="small" />} label={pickupLabel} />
-                      )}
-                    </Stack>
-                  </CardContent>
-
-                  <CardActions
-                    sx={{
-                      justifyContent: "space-between",
-                      px: 2,
-                      pb: 2,
-                      pt: 0.5,
-                    }}
-                  >
-                    <Stack direction="row" spacing={1}>
-                      <Button
-                        component={Link as any}
-                        href={`/dashboard/leisure-activity/edit_leisure_activity`}
-                        onClick={() => handleEdit(a)}
-                        size="small"
-                        startIcon={<EditIcon fontSize="small" />}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        color="error"
-                        size="small"
-                        startIcon={<DeleteIcon fontSize="small" />}
-                        onClick={() => {
-                          setSelected(a);
-                          setConfirmOpen(true);
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </Stack>
-                  </CardActions>
-                </Card>
+                <CommonServiceCard
+                  key={idStr}
+                  id={idStr}
+                  title={a.title || a.name || "—"}
+                  image={cover}
+                  subtitleChip={chip({
+                    icon: <PlaceIcon fontSize="small" />,
+                    label: a.destination || "—",
+                  })}
+                  description={desc || "—"}
+                  topLeftChips={topLeftChips}
+                  topRightChips={topRightChips}
+                  metaChips={metaChips}
+                  editHref="/dashboard/leisure-activity/edit_leisure_activity"
+                  onEdit={() => handleEdit(a)}
+                  onDelete={() => {
+                    setSelected(a);
+                    setConfirmOpen(true);
+                  }}
+                />
               );
             })}
           </Box>
 
           <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
-            <Pagination count={pages} page={page} onChange={(e, value) => setPage(value)} color="primary" />
+            <Pagination
+              count={pages}
+              page={page}
+              onChange={(e, value) => setPage(value)}
+              color="primary"
+            />
           </Box>
         </>
       )}
@@ -600,7 +551,9 @@ const LeisureActivityDashboard: React.FC = () => {
         <DialogTitle>Delete Activity</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete <strong>{selected?.title || selected?.name || "this activity"}</strong>? This action cannot be undone.
+            Delete{" "}
+            <strong>{selected?.title || selected?.name || "this activity"}</strong>
+            ? This action cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -621,9 +574,22 @@ const LeisureActivityDashboard: React.FC = () => {
       </Dialog>
 
       {/* ✅ MARKUP MODAL (CATEGORY FILTER) */}
-      <Dialog open={openMarkupModal} onClose={() => setOpenMarkupModal(false)} fullScreen={isMobile} maxWidth="md" fullWidth>
+      <Dialog
+        open={openMarkupModal}
+        onClose={closeMarkup}
+        fullScreen={isMobile}
+        maxWidth="md"
+        fullWidth
+      >
         <DialogTitle sx={{ pb: 1 }}>
-          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 2,
+            }}
+          >
             <Box>
               <Typography variant="h6" sx={{ fontWeight: 900 }}>
                 Select Activities
@@ -632,7 +598,11 @@ const LeisureActivityDashboard: React.FC = () => {
                 Filter by category and continue.
               </Typography>
             </Box>
-            <Chip label={`Selected: ${selectedIds.length}`} variant="outlined" sx={{ fontWeight: 800 }} />
+            <Chip
+              label={`Selected: ${selectedIds.length}`}
+              variant="outlined"
+              sx={{ fontWeight: 800 }}
+            />
           </Box>
         </DialogTitle>
 
@@ -659,7 +629,11 @@ const LeisureActivityDashboard: React.FC = () => {
               >
                 <FormControl size="small" fullWidth>
                   <InputLabel>Category</InputLabel>
-                  <Select label="Category" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                  <Select
+                    label="Category"
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                  >
                     <MenuItem value="">All</MenuItem>
                     {categoryOptions.map((c) => (
                       <MenuItem key={c} value={c}>
@@ -681,14 +655,27 @@ const LeisureActivityDashboard: React.FC = () => {
                       </InputAdornment>
                     ),
                   }}
-                  sx={{ width: "100%", "& .MuiOutlinedInput-root": { borderRadius: 1.5, height: 40 } }}
+                  sx={{
+                    width: "100%",
+                    "& .MuiOutlinedInput-root": {
+                      borderRadius: 1.5,
+                      height: 40,
+                    },
+                  }}
                 />
               </Box>
 
               <Divider sx={{ mb: 2 }} />
 
               {modalLoading ? (
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", py: 6 }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    py: 6,
+                  }}
+                >
                   <CircularProgress />
                 </Box>
               ) : (
@@ -705,8 +692,12 @@ const LeisureActivityDashboard: React.FC = () => {
                   {modalActivities.map((a: any) => {
                     const aid = getIdString(a._id) || a.name;
                     const checked = selectedIds.includes(aid);
-                    const cover = a.thumbnail || a.images?.[0] || PLACEHOLDER_IMG;
-                    const pr = a.priceBreakdown?.totalPrice ?? a.price ?? a.priceBreakdown?.basePrice;
+                    const cover =
+                      a.thumbnail || a.images?.[0] || PLACEHOLDER_IMG;
+                    const pr =
+                      a.priceBreakdown?.totalPrice ??
+                      a.price ??
+                      a.priceBreakdown?.basePrice;
 
                     return (
                       <Card
@@ -726,13 +717,27 @@ const LeisureActivityDashboard: React.FC = () => {
                           "&:hover": { borderColor: "primary.main" },
                         }}
                       >
-                        <Box sx={{ width: 72, height: 56, borderRadius: 2, overflow: "hidden", flexShrink: 0, bgcolor: "grey.100" }}>
+                        <Box
+                          sx={{
+                            width: 72,
+                            height: 56,
+                            borderRadius: 2,
+                            overflow: "hidden",
+                            flexShrink: 0,
+                            bgcolor: "grey.100",
+                          }}
+                        >
                           <CardMedia
                             component="img"
                             image={cover}
                             alt={a.title || a.name || "Activity"}
                             loading="lazy"
-                            sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                            sx={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                              display: "block",
+                            }}
                           />
                         </Box>
 
@@ -754,22 +759,41 @@ const LeisureActivityDashboard: React.FC = () => {
                           <Typography
                             variant="body2"
                             color="text.secondary"
-                            sx={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                            sx={{
+                              fontSize: 12,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
                           >
                             {(normalizeCategories(a)[0] || "—") +
                               " • ₹" +
-                              (typeof pr === "number" ? pr.toLocaleString("en-IN") : "—")}
+                              (typeof pr === "number"
+                                ? pr.toLocaleString("en-IN")
+                                : "—")}
                           </Typography>
                         </Box>
 
-                        <Checkbox checked={checked} onChange={() => toggleSelection(aid)} onClick={(e) => e.stopPropagation()} />
+                        <Checkbox
+                          checked={checked}
+                          onChange={() => toggleSelection(aid)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
                       </Card>
                     );
                   })}
 
                   {!modalActivities.length && !modalLoading && (
-                    <Box sx={{ gridColumn: "1 / -1", py: 4, textAlign: "center" }}>
-                      <Typography color="text.secondary">No activities found.</Typography>
+                    <Box
+                      sx={{
+                        gridColumn: "1 / -1",
+                        py: 4,
+                        textAlign: "center",
+                      }}
+                    >
+                      <Typography color="text.secondary">
+                        No activities found.
+                      </Typography>
                     </Box>
                   )}
                 </Box>
@@ -777,17 +801,28 @@ const LeisureActivityDashboard: React.FC = () => {
             </>
           ) : (
             <>
-              <Typography sx={{ fontWeight: 900, mb: 0.5 }}>Add markup for selected activities</Typography>
+              <Typography sx={{ fontWeight: 900, mb: 0.5 }}>
+                Add markup for selected activities
+              </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                This will update markup prices for <b>{selectedIds.length}</b> activities.
+                This will update markup prices for{" "}
+                <b>{selectedIds.length}</b> activities.
               </Typography>
 
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" }, gap: 2 }}>
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" },
+                  gap: 2,
+                }}
+              >
                 <TextField
                   label="Markup Min Price"
                   type="number"
                   value={markupMinPrice}
-                  onChange={(e) => setMarkupMinPrice(e.target.value ? Number(e.target.value) : "")}
+                  onChange={(e) =>
+                    setMarkupMinPrice(e.target.value ? Number(e.target.value) : "")
+                  }
                   inputProps={{ min: 0 }}
                   fullWidth
                 />
@@ -795,7 +830,9 @@ const LeisureActivityDashboard: React.FC = () => {
                   label="Markup Max Price"
                   type="number"
                   value={markupMaxPrice}
-                  onChange={(e) => setMarkupMaxPrice(e.target.value ? Number(e.target.value) : "")}
+                  onChange={(e) =>
+                    setMarkupMaxPrice(e.target.value ? Number(e.target.value) : "")
+                  }
                   inputProps={{ min: 0 }}
                   fullWidth
                 />
@@ -814,7 +851,12 @@ const LeisureActivityDashboard: React.FC = () => {
             borderColor: "divider",
           }}
         >
-          <Button onClick={() => setOpenMarkupModal(false)} color="inherit" variant="outlined" sx={{ borderRadius: 1.5, height: 36, fontWeight: 800 }}>
+          <Button
+            onClick={closeMarkup}
+            color="inherit"
+            variant="outlined"
+            sx={{ borderRadius: 1.5, height: 36, fontWeight: 800 }}
+          >
             Cancel
           </Button>
 
@@ -829,7 +871,11 @@ const LeisureActivityDashboard: React.FC = () => {
             </Button>
           ) : (
             <Box sx={{ display: "flex", gap: 1 }}>
-              <Button variant="outlined" onClick={() => setMarkupStep(0)} sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}>
+              <Button
+                variant="outlined"
+                onClick={() => setMarkupStep(0)}
+                sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
+              >
                 Back
               </Button>
               <Button

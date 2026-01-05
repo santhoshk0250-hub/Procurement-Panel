@@ -11,8 +11,6 @@ import {
   InputAdornment,
   Card,
   CardMedia,
-  CardContent,
-  CardActions,
   Chip,
   Dialog,
   DialogTitle,
@@ -45,6 +43,9 @@ import {
   Tune,
 } from "@mui/icons-material";
 import { useTourPackageStore, type PackageModel } from "@/store/tourpackagesStore";
+
+// ✅ shared card
+import CommonServiceCard, { type ServiceChip } from "@/components/dashboard/CommonServiceCard";
 
 /* ================== Types ================== */
 type IDType = string | { $oid: string };
@@ -94,13 +95,22 @@ export interface TourPackage {
   max_pax?: number;
   total_days?: number;
   total_nights?: number;
+
+  description?: string;
+
+  // some APIs use iscustomizable, you requested isCustomizable
+  iscustomizable?: boolean;
+  isCustomizable?: boolean;
+
+  // you requested this field
+  markup_price_mode?: "min" | "max" | "both" | string;
+
   price_breakdown?: PriceBreakdown;
   computedPrice?: ComputedPrice;
   segregated_images?: { category?: string; urls?: string[] }[];
   transport?: Transport;
   inclusions?: string[];
   exclusions?: string[];
-  iscustomizable?: boolean;
   createdAt?: string;
   updatedAt?: string;
 
@@ -115,6 +125,17 @@ export interface TourPackage {
 const unwrapId = (id?: IDType): string =>
   typeof id === "string" ? id : (id as any)?.$oid ?? "";
 
+const toText = (html: string, max = 140) => {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html || "", "text/html");
+    const s = doc.body.textContent || "";
+    return s.length > max ? s.slice(0, max).trim() + "…" : s.trim();
+  } catch {
+    const s = html?.replace(/<[^>]+>/g, "") || "";
+    return s.length > max ? s.slice(0, max).trim() + "…" : s.trim();
+  }
+};
 const mainImage = (p: TourPackage) =>
   p.thumbnail_image ||
   p.segregated_images?.find((g) => g.category === "Hotel")?.urls?.[0] ||
@@ -127,15 +148,18 @@ const formatINR = (n?: number) =>
 
 const perPersonPrice = (p: TourPackage) => {
   const fromBreakdown =
-    p.price_breakdown?.totalPrice_per_person ?? p.price_breakdown?.basePrice_per_person;
+    p.price_breakdown?.totalPrice_per_person ??
+    p.price_breakdown?.basePrice_per_person;
   const fromComputed =
-    p.computedPrice?.totalPrice_per_person ?? p.computedPrice?.basePrice_per_person;
+    p.computedPrice?.totalPrice_per_person ??
+    p.computedPrice?.basePrice_per_person;
 
   const value = fromBreakdown ?? fromComputed;
   return formatINR(value);
 };
 
-const minTotalPrice = (p: TourPackage) => formatINR(p.computedPrice?.totalPrice_for_min_pax);
+const minTotalPrice = (p: TourPackage) =>
+  formatINR(p.computedPrice?.totalPrice_for_min_pax);
 
 const maxTotalPrice = (p: TourPackage) =>
   formatINR(p.computedPrice?.totalPrice_for_max_pax_if_all_booked_at_min_price);
@@ -170,6 +194,15 @@ const shortPerServiceText = (p: TourPackage) => {
   const text = mapped.join(" · ");
   return text.length > 90 ? `${text.slice(0, 87)}…` : text;
 };
+
+const clampText = (s: string, max = 140) => {
+  const t = (s || "").replace(/\s+/g, " ").trim();
+  if (!t) return "—";
+  return t.length > max ? `${t.slice(0, max).trim()}…` : t;
+};
+
+// ✅ keep TS happy (color literal types)
+const chip = (c: ServiceChip) => c;
 
 /* ================== Component ================== */
 const TourPackagesDashboard: React.FC = () => {
@@ -218,10 +251,12 @@ const TourPackagesDashboard: React.FC = () => {
         paxText(p),
         p.transport?.type,
         p.transport?.details,
+        p.description,
         (p.inclusions || []).join(" "),
         (p.exclusions || []).join(" "),
         shortPerServiceText(p),
         p.computedPrice?.calculation_basis,
+        p.markup_price_mode,
       ]
         .filter(Boolean)
         .join(" ")
@@ -234,9 +269,13 @@ const TourPackagesDashboard: React.FC = () => {
     if (!selected) return;
     try {
       await axios.delete(
-        `${process.env.NEXT_PUBLIC_API_BASE}tour-packages/delete/${unwrapId(selected._id)}`
+        `${process.env.NEXT_PUBLIC_API_BASE}tour-packages/delete/${unwrapId(
+          selected._id
+        )}`
       );
-      setPackages((prev) => prev.filter((x) => unwrapId(x._id) !== unwrapId(selected._id)));
+      setPackages((prev) =>
+        prev.filter((x) => unwrapId(x._id) !== unwrapId(selected._id))
+      );
       setSelected(null);
     } catch (e) {
       console.error("Delete failed:", e);
@@ -269,7 +308,6 @@ const TourPackagesDashboard: React.FC = () => {
   const fetchAllPackagesForModal = async () => {
     setModalLoading(true);
     try {
-
       const res = await axios.get<any>(
         `${process.env.NEXT_PUBLIC_API_BASE}tour-packages/fetchwithoutpagination`
       );
@@ -287,7 +325,9 @@ const TourPackagesDashboard: React.FC = () => {
   };
 
   const toggleSelection = (id: string) => {
-    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   };
 
   const openMarkup = async () => {
@@ -327,10 +367,12 @@ const TourPackagesDashboard: React.FC = () => {
             paxText(p),
             p.transport?.type,
             p.transport?.details,
+            p.description,
             (p.inclusions || []).join(" "),
             (p.exclusions || []).join(" "),
             shortPerServiceText(p),
             p.computedPrice?.calculation_basis,
+            p.markup_price_mode,
           ]
             .filter(Boolean)
             .join(" ")
@@ -358,7 +400,6 @@ const TourPackagesDashboard: React.FC = () => {
 
     setSavingMarkup(true);
     try {
-      // ✅ change to your real bulk markup endpoint
       await axios.put(
         `${process.env.NEXT_PUBLIC_API_BASE}tour-packages/bulk-markup`,
         {
@@ -368,7 +409,6 @@ const TourPackagesDashboard: React.FC = () => {
         }
       );
 
-      // optimistic update: current page + modal list
       setPackages((prev: any) =>
         prev.map((p: any) => {
           const pid = unwrapId(p._id);
@@ -430,8 +470,11 @@ const TourPackagesDashboard: React.FC = () => {
           sx={{ width: { xs: "100%", sm: 360 } }}
         />
 
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} sx={{ width: { xs: "100%", sm: "auto" } }}>
-          {/* ✅ Markup button */}
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1.25}
+          sx={{ width: { xs: "100%", sm: "auto" } }}
+        >
           <Button
             onClick={openMarkup}
             variant="outlined"
@@ -521,137 +564,148 @@ const TourPackagesDashboard: React.FC = () => {
         </Box>
       ) : (
         <>
-          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+          {/* ✅ CommonServiceCard grid */}
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: {
+                xs: "1fr",
+                sm: "repeat(2, minmax(0, 1fr))",
+                lg: "repeat(3, minmax(0, 1fr))",
+              },
+              gap: 2.5,
+            }}
+          >
             {filtered.map((p) => {
               const id = unwrapId(p._id);
+              const title = p.name || "Tour Package";
+
               const pricePP = perPersonPrice(p);
               const dur = durationText(p);
               const pax = paxText(p);
               const perService = shortPerServiceText(p);
 
+              const subtitleChip: ServiceChip = chip({
+                label: p.category || "Package",
+                icon: <CategoryIcon fontSize="small" />,
+                variant: "outlined",
+              });
+
+              const topLeftChips: ServiceChip[] = [
+                ...(pricePP !== "-"
+                  ? [
+                      chip({
+                        icon: <PriceChange fontSize="small" />,
+                        label: `${pricePP} / person`,
+                        color: "primary",
+                        sx: {
+                          bgcolor: "primary.main",
+                          color: "primary.contrastText",
+                        },
+                      }),
+                    ]
+                  : []),
+                ...(dur
+                  ? [
+                      chip({
+                        icon: <CalendarMonth fontSize="small" />,
+                        label: dur,
+                        color: "secondary",
+                      }),
+                    ]
+                  : []),
+                ...((p.isCustomizable ?? p.iscustomizable)
+                  ? [
+                      chip({
+                        icon: <Tune fontSize="small" />,
+                        label: "Customizable",
+                        color: "success",
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+              ];
+
+              const metaChips: ServiceChip[] = [
+                ...(pax
+                  ? [
+                      chip({
+                        icon: <PeopleAlt fontSize="small" />,
+                        label: pax,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+                ...(p.transport?.type
+                  ? [
+                      chip({
+                        icon: <DirectionsCar fontSize="small" />,
+                        label: p.transport.type,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+              ];
+
+              const minMaxLine =
+                p.computedPrice?.totalPrice_for_min_pax ||
+                p.computedPrice?.totalPrice_for_max_pax_if_all_booked_at_min_price
+                  ? [
+                      p.computedPrice?.totalPrice_for_min_pax
+                        ? `Min (${p.min_pax} pax): ${minTotalPrice(p)}`
+                        : "",
+                      p.computedPrice
+                        ?.totalPrice_for_max_pax_if_all_booked_at_min_price
+                        ? `Max: ${maxTotalPrice(p)}`
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" | ")
+                  : "";
+
+              const extra = [
+                p.description ? toText(p.description, 110) : "",
+                perService,
+                minMaxLine,
+                p.price_breakdown?.priceNote,
+              ]
+                .filter(Boolean)
+                .join(" • ");
+
               return (
-                <Card key={id || p.name || Math.random()} sx={{ width: 360 }}>
-                  <Box sx={{ position: "relative" }}>
-                    <CardMedia
-                      component="img"
-                      image={mainImage(p)}
-                      alt={p.name || "Tour package"}
-                      sx={{
-                        objectFit: "cover",
-                        width: "100%",
-                        height: 180,
-                        borderRadius: 1,
-                      }}
-                    />
-
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        left: 8,
-                        top: 8,
-                        display: "flex",
-                        gap: 0.5,
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      {pricePP !== "-" && (
-                        <Chip
-                          size="small"
-                          color="primary"
-                          icon={<PriceChange />}
-                          label={`${pricePP} / person`}
-                          sx={{
-                            bgcolor: "primary.main",
-                            color: "primary.contrastText",
-                          }}
-                        />
-                      )}
-
-                      {dur && (
-                        <Chip size="small" color="secondary" icon={<CalendarMonth />} label={dur} />
-                      )}
-
-                      {p.iscustomizable && (
-                        <Chip size="small" color="success" icon={<Tune fontSize="small" />} label="Customizable" />
-                      )}
-                    </Box>
-                  </Box>
-
-                  <CardContent sx={{ pb: 1 }}>
-                    <Stack direction="row" alignItems="center" justifyContent="space-between">
-                      <Typography variant="h6" noWrap title={p.name || "Tour Package"}>
-                        {p.name || "Tour Package"}
-                      </Typography>
-                      {p.category && <Chip size="small" icon={<CategoryIcon fontSize="small" />} label={p.category} />}
-                    </Stack>
-
-                    <Stack direction="row" spacing={1} mt={1} flexWrap="wrap" alignItems="center">
-                      {pax && <Chip size="small" icon={<PeopleAlt fontSize="small" />} label={pax} />}
-                      {p.transport?.type && <Chip size="small" icon={<DirectionsCar fontSize="small" />} label={p.transport.type} />}
-                    </Stack>
-
-                    {perService && (
-                      <Typography variant="caption" color="text.secondary" mt={1} display="block">
-                        {perService}
-                      </Typography>
-                    )}
-
-                    {(p.computedPrice?.totalPrice_for_min_pax ||
-                      p.computedPrice?.totalPrice_for_max_pax_if_all_booked_at_min_price) && (
-                      <Typography variant="caption" color="text.secondary" mt={0.5} display="block">
-                        {p.computedPrice?.totalPrice_for_min_pax && (
-                          <>
-                            Min ({p.min_pax} pax): {minTotalPrice(p)}{" "}
-                          </>
-                        )}
-                        {p.computedPrice?.totalPrice_for_min_pax &&
-                          p.computedPrice?.totalPrice_for_max_pax_if_all_booked_at_min_price &&
-                          " | "}
-                        {p.computedPrice?.totalPrice_for_max_pax_if_all_booked_at_min_price && (
-                          <>Max: {maxTotalPrice(p)}</>
-                        )}
-                      </Typography>
-                    )}
-
-                    {p.price_breakdown?.priceNote && (
-                      <Typography variant="caption" color="text.secondary" mt={0.5} display="block">
-                        {p.price_breakdown.priceNote}
-                      </Typography>
-                    )}
-                  </CardContent>
-
-                  <CardActions sx={{ justifyContent: "space-between", px: 2, pb: 2, pt: 0.5 }}>
-                    <Stack direction="row" spacing={1}>
-                      <Button
-                        component={Link as any}
-                        href={`/dashboard/tour-packages/edit-tourpackages`}
-                        onClick={() => handleEdit(p as any)}
-                        size="small"
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        color="error"
-                        size="small"
-                        onClick={() => {
-                          setSelected(p);
-                          setConfirmOpen(true);
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </Stack>
-                    <Typography variant="caption" color="text.secondary">
-                      {dur || "Package"}
-                    </Typography>
-                  </CardActions>
-                </Card>
+                <CommonServiceCard
+                  key={id || title}
+                  id={id}
+                  title={title}
+                  image={mainImage(p)}
+                  subtitleChip={subtitleChip}
+                  description={clampText(extra, 160)}
+                  topLeftChips={topLeftChips}
+                  metaChips={metaChips}
+                  editHref="/dashboard/tour-packages/edit-tourpackages"
+                  onEdit={() => handleEdit(p as any)}
+                  onDelete={() => {
+                    setSelected(p);
+                    setConfirmOpen(true);
+                  }}
+                  min_pax={p.min_pax}
+                  max_pax={p.max_pax}
+                  total_days={p.total_days}
+                  total_nights={p.total_nights}
+                  isCustomizable={p.isCustomizable ?? p.iscustomizable ?? false}
+                  markup_price_mode={p.markup_price_mode ?? "min"}
+                />
               );
             })}
           </Box>
 
           <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
-            <Pagination count={pages} page={page} onChange={(e, value) => setPage(value)} color="primary" />
+            <Pagination
+              count={pages}
+              page={page}
+              onChange={(e, value) => setPage(value)}
+              color="primary"
+            />
           </Box>
         </>
       )}
@@ -661,7 +715,8 @@ const TourPackagesDashboard: React.FC = () => {
         <DialogTitle>Delete Tour Package</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete <strong>{selected?.name || "this tour package"}</strong>? This action cannot be undone.
+            Delete <strong>{selected?.name || "this tour package"}</strong>?
+            This action cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -682,9 +737,22 @@ const TourPackagesDashboard: React.FC = () => {
       </Dialog>
 
       {/* ✅ MARKUP MODAL (CATEGORY FILTER) */}
-      <Dialog open={openMarkupModal} onClose={closeMarkup} fullScreen={isMobile} maxWidth="md" fullWidth>
+      <Dialog
+        open={openMarkupModal}
+        onClose={closeMarkup}
+        fullScreen={isMobile}
+        maxWidth="md"
+        fullWidth
+      >
         <DialogTitle sx={{ pb: 1 }}>
-          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 2,
+            }}
+          >
             <Box>
               <Typography variant="h6" sx={{ fontWeight: 900 }}>
                 Select Tour Packages
@@ -694,7 +762,11 @@ const TourPackagesDashboard: React.FC = () => {
               </Typography>
             </Box>
 
-            <Chip label={`Selected: ${selectedIds.length}`} variant="outlined" sx={{ fontWeight: 800 }} />
+            <Chip
+              label={`Selected: ${selectedIds.length}`}
+              variant="outlined"
+              sx={{ fontWeight: 800 }}
+            />
           </Box>
         </DialogTitle>
 
@@ -721,7 +793,11 @@ const TourPackagesDashboard: React.FC = () => {
               >
                 <FormControl size="small" fullWidth>
                   <InputLabel>Category</InputLabel>
-                  <Select label="Category" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                  <Select
+                    label="Category"
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                  >
                     <MenuItem value="">All</MenuItem>
                     {categoryOptions.map((c) => (
                       <MenuItem key={c} value={c}>
@@ -743,14 +819,27 @@ const TourPackagesDashboard: React.FC = () => {
                       </InputAdornment>
                     ),
                   }}
-                  sx={{ width: "100%", "& .MuiOutlinedInput-root": { borderRadius: 1.5, height: 40 } }}
+                  sx={{
+                    width: "100%",
+                    "& .MuiOutlinedInput-root": {
+                      borderRadius: 1.5,
+                      height: 40,
+                    },
+                  }}
                 />
               </Box>
 
               <Divider sx={{ mb: 2 }} />
 
               {modalLoading ? (
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", py: 6 }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    py: 6,
+                  }}
+                >
                   <CircularProgress />
                 </Box>
               ) : (
@@ -804,7 +893,12 @@ const TourPackagesDashboard: React.FC = () => {
                             image={cover}
                             alt={p.name || "Tour package"}
                             loading="lazy"
-                            sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                            sx={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                              display: "block",
+                            }}
                           />
                         </Box>
 
@@ -826,7 +920,12 @@ const TourPackagesDashboard: React.FC = () => {
                           <Typography
                             variant="body2"
                             color="text.secondary"
-                            sx={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                            sx={{
+                              fontSize: 12,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
                           >
                             {cat} • {pp !== "-" ? `${pp}/person` : "—"}
                           </Typography>
@@ -843,7 +942,9 @@ const TourPackagesDashboard: React.FC = () => {
 
                   {!modalPackages.length && !modalLoading && (
                     <Box sx={{ gridColumn: "1 / -1", py: 4, textAlign: "center" }}>
-                      <Typography color="text.secondary">No packages found.</Typography>
+                      <Typography color="text.secondary">
+                        No packages found.
+                      </Typography>
                     </Box>
                   )}
                 </Box>
@@ -851,17 +952,28 @@ const TourPackagesDashboard: React.FC = () => {
             </>
           ) : (
             <>
-              <Typography sx={{ fontWeight: 900, mb: 0.5 }}>Add markup for selected packages</Typography>
+              <Typography sx={{ fontWeight: 900, mb: 0.5 }}>
+                Add markup for selected packages
+              </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                This will update markup prices for <b>{selectedIds.length}</b> packages.
+                This will update markup prices for <b>{selectedIds.length}</b>{" "}
+                packages.
               </Typography>
 
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" }, gap: 2 }}>
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" },
+                  gap: 2,
+                }}
+              >
                 <TextField
                   label="Markup Min Price"
                   type="number"
                   value={markupMinPrice}
-                  onChange={(e) => setMarkupMinPrice(e.target.value ? Number(e.target.value) : "")}
+                  onChange={(e) =>
+                    setMarkupMinPrice(e.target.value ? Number(e.target.value) : "")
+                  }
                   inputProps={{ min: 0 }}
                   fullWidth
                 />
@@ -869,7 +981,9 @@ const TourPackagesDashboard: React.FC = () => {
                   label="Markup Max Price"
                   type="number"
                   value={markupMaxPrice}
-                  onChange={(e) => setMarkupMaxPrice(e.target.value ? Number(e.target.value) : "")}
+                  onChange={(e) =>
+                    setMarkupMaxPrice(e.target.value ? Number(e.target.value) : "")
+                  }
                   inputProps={{ min: 0 }}
                   fullWidth
                 />
@@ -888,7 +1002,12 @@ const TourPackagesDashboard: React.FC = () => {
             borderColor: "divider",
           }}
         >
-          <Button onClick={closeMarkup} color="inherit" variant="outlined" sx={{ borderRadius: 1.5, height: 36, fontWeight: 800 }}>
+          <Button
+            onClick={closeMarkup}
+            color="inherit"
+            variant="outlined"
+            sx={{ borderRadius: 1.5, height: 36, fontWeight: 800 }}
+          >
             Cancel
           </Button>
 
@@ -903,7 +1022,11 @@ const TourPackagesDashboard: React.FC = () => {
             </Button>
           ) : (
             <Box sx={{ display: "flex", gap: 1 }}>
-              <Button variant="outlined" onClick={() => setMarkupStep(0)} sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}>
+              <Button
+                variant="outlined"
+                onClick={() => setMarkupStep(0)}
+                sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
+              >
                 Back
               </Button>
               <Button

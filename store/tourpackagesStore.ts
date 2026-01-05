@@ -23,6 +23,8 @@ export interface PackageItineraryActivity {
   type?: string;
   note?: string;
   isOptional?: boolean;
+  markup_maxprice?:boolean;
+  markup_minprice?:boolean;
 }
 
 export interface PackageItineraryDay {
@@ -45,6 +47,8 @@ export interface HotelInclusionItem {
   isReplaceable?: boolean;
   isRemovable?: boolean;
   star_category?: number; // 1..5
+  markup_maxprice?:boolean;
+  markup_minprice?:boolean;
 }
 
 export interface BaseServiceInclusionItem {
@@ -57,6 +61,8 @@ export interface BaseServiceInclusionItem {
   duration?: number;
   isReplaceable?: boolean;
   isRemovable?: boolean;
+  markup_maxprice?:boolean;
+  markup_minprice?:boolean;
 }
 
 export interface NightlifeInclusionItem {
@@ -66,6 +72,8 @@ export interface NightlifeInclusionItem {
   duration?: number;
   isReplaceable?: boolean;
   isRemovable?: boolean;
+  markup_maxprice?:boolean;
+  markup_minprice?:boolean;
 }
 
 export interface MealInclusionItem {
@@ -74,12 +82,16 @@ export interface MealInclusionItem {
   time?: string; // string
   noOfPeople?: number;
   isRemovable?: boolean;
+  markup_maxprice?:boolean;
+  markup_minprice?:boolean;
 }
 
 export interface VehicleInclusionItem {
   serviceItemId?: IDType | null;
   vehicle_name?: string;
   seater?: string; // string
+  markup_maxprice?:boolean;
+  markup_minprice?:boolean;
   // strict:false in schema => backend can send extra keys; UI doesn't need them typed
 }
 
@@ -136,10 +148,10 @@ export interface PackageModel {
 
   total_days: number;
   total_nights: number;
-
+  markup_price_mode?:string;
   start_date?: string;
   end_date?: string;
-markup_min_price: number;
+  markup_min_price: number;
   markup_max_price: number;
   isCustomizable?: boolean;
 

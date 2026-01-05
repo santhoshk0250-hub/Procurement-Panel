@@ -10,13 +10,7 @@ import {
   Button,
   TextField,
   InputAdornment,
-  Card,
-  CardMedia,
-  CardContent,
-  CardActions,
-  IconButton,
   Chip,
-  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -33,24 +27,28 @@ import {
   ToggleButtonGroup,
   ToggleButton,
   useMediaQuery,
+  Card,
+  CardMedia,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import {
   Search,
-  ContentCopy,
   LocalOffer,
   Speed,
   AddCircleOutline,
   Route as RouteIcon,
   WorkspacePremium,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
 } from "@mui/icons-material";
 
 import type { Vehicle, IDType, Currency } from "@/store/rentalStore";
 import { useVehicleStore } from "@/store/rentalStore";
 
+import CommonServiceCard, { type ServiceChip } from "@/components/dashboard/CommonServiceCard";
+
 /* ================== Helpers ================== */
 const INR: Currency = "INR";
-
 const unwrapId = (id?: IDType) => (typeof id === "string" ? id : id?.$oid ?? "");
 
 const mainImage = (v: Vehicle) =>
@@ -79,10 +77,20 @@ const dayPrice = (v: Vehicle) => {
 const minDaysIfAny = (v: Vehicle) =>
   v.sellerPricing?.minDaysIfApplicable ?? v.vendorPricing?.minDaysIfApplicable;
 
+const clampText = (s: string, max = 140) => {
+  const t = (s || "").replace(/\s+/g, " ").trim();
+  if (!t) return "—";
+  return t.length > max ? `${t.slice(0, max).trim()}…` : t;
+};
+
+// ✅ prevents TS widening (string -> literal union)
+const chip = (c: ServiceChip) => c;
+
 /* ================== Component ================== */
 const VehiclesDashboard: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const router = useRouter();
 
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Vehicle | null>(null);
@@ -114,9 +122,7 @@ const VehiclesDashboard: React.FC = () => {
   const fetchAllRentalsForModal = async () => {
     setModalLoading(true);
     try {
-      const res = await axios.get(
-        `${process.env.NEXT_PUBLIC_API_BASE}rentals/fetchallrental`
-      );
+      const res = await axios.get(`${process.env.NEXT_PUBLIC_API_BASE}rentals/fetchallrental`);
       const fetched: Vehicle[] = res.data.items || res.data.data || [];
       setModalVehiclesRaw(Array.isArray(fetched) ? fetched : []);
       setModalFetchedOnce(true);
@@ -135,6 +141,7 @@ const VehiclesDashboard: React.FC = () => {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     if (!q) return vehicles;
+
     return vehicles.filter((v) => {
       const hay = [
         v.vehicleId,
@@ -142,7 +149,7 @@ const VehiclesDashboard: React.FC = () => {
         v.seaterCapacity,
         v.variant,
         v.mileage,
-        v.speedLimit,
+        (v as any).speedLimit,
         String((v as any).capacity ?? ""),
         (v as any).pickupLocations,
         (v as any).dropLocations,
@@ -157,12 +164,8 @@ const VehiclesDashboard: React.FC = () => {
   const handleDelete = async () => {
     if (!selected) return;
     try {
-      await axios.delete(
-        `${process.env.NEXT_PUBLIC_API_BASE}rentals/delete/${unwrapId(selected._id)}`
-      );
-      setVehicles((prev) =>
-        prev.filter((x) => unwrapId(x._id) !== unwrapId(selected._id))
-      );
+      await axios.delete(`${process.env.NEXT_PUBLIC_API_BASE}rentals/delete/${unwrapId(selected._id)}`);
+      setVehicles((prev) => prev.filter((x) => unwrapId(x._id) !== unwrapId(selected._id)));
       setSelected(null);
     } catch (e) {
       console.error("Delete failed:", e);
@@ -170,19 +173,12 @@ const VehiclesDashboard: React.FC = () => {
     }
   };
 
-  const copyVehicleId = async (id?: string) => {
-    try {
-      if (id) await navigator.clipboard.writeText(id);
-    } catch {}
-  };
-
-  /* ------- Delete dialog ------- */
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const handleEdit = (v: Vehicle) => {
     setVehicle(v);
   };
-const router = useRouter();
+
   // =========================
   // ✅ MARKUP MODAL
   // =========================
@@ -193,6 +189,9 @@ const router = useRouter();
   const [markupMaxPrice, setMarkupMaxPrice] = useState<number | "">("");
   const [savingMarkup, setSavingMarkup] = useState(false);
 
+  // ✅ modal search separate from dashboard search
+  const [modalSearch, setModalSearch] = useState("");
+
   // ✅ modal filter: 2-wheeler / 4-wheeler
   type WheelFilter = "all" | "2" | "4";
   const [wheelFilter, setWheelFilter] = useState<WheelFilter>("all");
@@ -202,23 +201,20 @@ const router = useRouter();
   const [modalLoading, setModalLoading] = useState(false);
   const [modalFetchedOnce, setModalFetchedOnce] = useState(false);
 
-  // ✅ Decide 2/4 wheeler using vehicleType text (supports many spellings)
   const wheelOf = (v: Vehicle): WheelFilter | "other" => {
     const t = (v.vehicleType || "").toString().trim().toLowerCase();
 
-    // 2 wheeler keywords
     const isTwo =
-      t.includes("2") && t.includes("wheel") ||
-      t.includes("two") && t.includes("wheel") ||
+      (t.includes("2") && t.includes("wheel")) ||
+      (t.includes("two") && t.includes("wheel")) ||
       t.includes("2w") ||
       t.includes("bike") ||
       t.includes("scooter") ||
       t.includes("motor");
 
-    // 4 wheeler keywords
     const isFour =
-      t.includes("4") && t.includes("wheel") ||
-      t.includes("four") && t.includes("wheel") ||
+      (t.includes("4") && t.includes("wheel")) ||
+      (t.includes("four") && t.includes("wheel")) ||
       t.includes("4w") ||
       t.includes("car") ||
       t.includes("sedan") ||
@@ -229,21 +225,16 @@ const router = useRouter();
     if (isTwo && !isFour) return "2";
     if (isFour && !isTwo) return "4";
 
-    // If explicit "2 wheeler"/"4 wheeler" missing, try seaterCapacity heuristic:
-    // bikes usually <= 2; cars usually >= 4 (optional; safe fallback)
     const seats = Number((v as any).seaterCapacity ?? NaN);
     if (!Number.isNaN(seats)) {
       if (seats <= 2) return "2";
       if (seats >= 4) return "4";
     }
-
     return "other";
   };
 
   const toggleVehicleSelection = (id: string) => {
-    setSelectedVehicleIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setSelectedVehicleIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
   const openMarkup = async () => {
@@ -252,7 +243,7 @@ const router = useRouter();
     setMarkupMinPrice("");
     setMarkupMaxPrice("");
     setWheelFilter("all");
-    setSearch("");
+    setModalSearch("");
     setOpenMarkupModal(true);
 
     if (!modalFetchedOnce) {
@@ -263,7 +254,7 @@ const router = useRouter();
   const closeMarkup = () => setOpenMarkupModal(false);
 
   const modalVehicles = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const term = modalSearch.trim().toLowerCase();
 
     const bySearch = !term
       ? modalVehiclesRaw
@@ -281,18 +272,11 @@ const router = useRouter();
           return hay.includes(term);
         });
 
-    const byWheel =
-      wheelFilter === "all"
-        ? bySearch
-        : bySearch.filter((v) => wheelOf(v) === wheelFilter);
+    const byWheel = wheelFilter === "all" ? bySearch : bySearch.filter((v) => wheelOf(v) === wheelFilter);
 
-    // sort: 2 -> 4 -> other
     const order: Record<string, number> = { "2": 0, "4": 1, other: 2 };
-
-    return [...byWheel].sort(
-      (a, b) => order[wheelOf(a) as any] - order[wheelOf(b) as any]
-    );
-  }, [modalVehiclesRaw, search, wheelFilter]);
+    return [...byWheel].sort((a, b) => order[wheelOf(a) as any] - order[wheelOf(b) as any]);
+  }, [modalVehiclesRaw, modalSearch, wheelFilter]);
 
   const handleSubmitMarkup = async () => {
     if (!selectedVehicleIds.length) return;
@@ -307,7 +291,6 @@ const router = useRouter();
 
     setSavingMarkup(true);
     try {
-      // ✅ update endpoint if your backend uses a different route
       await axios.put(`${process.env.NEXT_PUBLIC_API_BASE}rentals/bulk-markup`, {
         rentalIds: selectedVehicleIds,
         markup_min_price: min,
@@ -341,7 +324,6 @@ const router = useRouter();
       setOpenMarkupModal(false);
       router.push("/dashboard/rentals");
       router.refresh();
-
     } catch (e) {
       console.error("❌ bulk markup update error:", e);
       alert("Failed to update markup");
@@ -378,75 +360,53 @@ const router = useRouter();
           sx={{ width: { xs: "100%", sm: 360 } }}
         />
 
-       <Box
-  sx={{
-    display: "grid",
-    gridTemplateColumns: { xs: "1fr", sm: "repeat(3, auto)" },
-    gap: 1.5,
-    width: "100%",
-    alignItems: "center",
-  }}
->
-  <Button
-    onClick={openMarkup}
-    variant="outlined"
-    fullWidth
-    sx={{ height: 40, fontWeight: 700 }}
-  >
-    Markup
-  </Button>
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", sm: "repeat(3, auto)" },
+            gap: 1.5,
+            width: "100%",
+            alignItems: "center",
+          }}
+        >
+          <Button onClick={openMarkup} variant="outlined" fullWidth sx={{ height: 40, fontWeight: 700 }}>
+            Markup
+          </Button>
 
-  <Button
-    href="/dashboard/services?type=rentals"
-    component={Link as any}
-    variant="outlined"
-    startIcon={<AddCircleOutline />}
-    fullWidth
-    sx={{ height: 40, fontWeight: 700 }}
-  >
-    Add Services
-  </Button>
+          <Button
+            href="/dashboard/services?type=rentals"
+            component={Link as any}
+            variant="outlined"
+            startIcon={<AddCircleOutline />}
+            fullWidth
+            sx={{ height: 40, fontWeight: 700 }}
+          >
+            Add Services
+          </Button>
 
-  <Button
-    href="/dashboard/rentals/addrentals"
-    component={Link as any}
-    variant="contained"
-    startIcon={<AddCircleOutline />}
-    fullWidth
-    sx={{ height: 40, fontWeight: 700 }}
-  >
-    Add Rentals
-  </Button>
-</Box>
-
+          <Button
+            href="/dashboard/rentals/addrentals"
+            component={Link as any}
+            variant="contained"
+            startIcon={<AddCircleOutline />}
+            fullWidth
+            sx={{ height: 40, fontWeight: 700 }}
+          >
+            Add Rentals
+          </Button>
+        </Box>
       </Box>
 
       {/* Loader / Empty */}
       {loading ? (
-        <Box
-          sx={{
-            minHeight: "50vh",
-            display: "grid",
-            placeItems: "center",
-            textAlign: "center",
-            gap: 2,
-          }}
-        >
+        <Box sx={{ minHeight: "50vh", display: "grid", placeItems: "center", textAlign: "center", gap: 2 }}>
           <CircularProgress size={50} />
           <Typography variant="body1" color="text.secondary">
             Loading vehicles…
           </Typography>
         </Box>
       ) : filtered.length === 0 ? (
-        <Box
-          sx={{
-            minHeight: "40vh",
-            display: "grid",
-            placeItems: "center",
-            textAlign: "center",
-            gap: 1,
-          }}
-        >
+        <Box sx={{ minHeight: "40vh", display: "grid", placeItems: "center", textAlign: "center", gap: 1 }}>
           <Typography variant="h6">No vehicles found</Typography>
           <Typography variant="body2" color="text.secondary">
             Try a different search or add a new vehicle.
@@ -454,105 +414,118 @@ const router = useRouter();
         </Box>
       ) : (
         <>
-          {/* ✅ KEEP CARDS AS-IS (no changes) */}
-          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+          {/* ✅ CommonServiceCard grid */}
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: {
+                xs: "1fr",
+                sm: "repeat(2, minmax(0, 1fr))",
+                lg: "repeat(3, minmax(0, 1fr))",
+              },
+              gap: 2.5,
+            }}
+          >
             {filtered.map((v) => {
-              const id = unwrapId(v._id);
+              const id = unwrapId(v._id) || v.vehicleId || "";
               const pricePerDay = dayPrice(v);
               const currency = pickCurrency(v);
               const minDays = minDaysIfAny(v);
 
+              const title = v.variant || v.vehicleId || `${v.seaterCapacity} ${v.vehicleType}` || "Vehicle";
+              const desc = clampText(
+                [
+                  v.vehicleType ? `Type: ${v.vehicleType}` : "",
+                  v.seaterCapacity ? `Seats: ${v.seaterCapacity}` : "",
+                  (v as any).mileage ? `Mileage: ${(v as any).mileage}` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" • "),
+                140
+              );
+
+              const subtitleChip: ServiceChip = chip({
+                label: v.vehicleType || "Rental",
+                variant: "outlined",
+              });
+
+              const topLeftChips: ServiceChip[] = [
+                chip({
+                  icon: <LocalOffer fontSize="small" />,
+                  label: `${pricePerDay} / day`,
+                  color: "primary",
+                  sx: { bgcolor: "primary.main", color: "primary.contrastText" },
+                }),
+                ...(minDays
+                  ? [
+                      chip({
+                        label: `Min ${minDays} days`,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+              ];
+
+              const topRightChips: ServiceChip[] = [
+                ...((v as any).rating
+                  ? [
+                      chip({
+                        icon: <WorkspacePremium fontSize="small" />,
+                        label: Number((v as any).rating).toFixed(1),
+                        color: "success",
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+              ];
+
+              const metaChips: ServiceChip[] = [
+                ...((v as any).speedLimit
+                  ? [
+                      chip({
+                        icon: <Speed fontSize="small" />,
+                        label: `Speed: ${(v as any).speedLimit}`,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+                ...((v as any).distanceLimitPerDay
+                  ? [
+                      chip({
+                        icon: <RouteIcon fontSize="small" />,
+                        label: `Limit: ${(v as any).distanceLimitPerDay}/day`,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+                chip({
+                  label: currency,
+                  variant: "outlined",
+                }),
+                chip({
+                  label: wheelOf(v) === "2" ? "2 Wheeler" : wheelOf(v) === "4" ? "4 Wheeler" : "—",
+                  variant: "outlined",
+                }),
+              ];
+
               return (
-                <Card key={id || v.vehicleId || Math.random()} sx={{ width: 340 }}>
-                  <Box sx={{ position: "relative" }}>
-                    <CardMedia
-                      component="img"
-                      image={mainImage(v)}
-                      alt={v.variant || v.vehicleType}
-                      sx={{
-                        objectFit: "cover",
-                        width: "100%",
-                        height: 160,
-                        borderRadius: 1,
-                      }}
-                    />
-
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        left: 8,
-                        top: 8,
-                        display: "flex",
-                        gap: 0.5,
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <Chip
-                        size="small"
-                        color="primary"
-                        icon={<LocalOffer />}
-                        label={`${pricePerDay} / day`}
-                        sx={{ bgcolor: "primary.main", color: "primary.contrastText" }}
-                      />
-                    </Box>
-                  </Box>
-
-                  <CardContent sx={{ pb: 1 }}>
-                    <Stack direction="row" alignItems="center" justifyContent="space-between">
-                      <Typography variant="h6" noWrap title={v.variant || v.vehicleId || "Vehicle"}>
-                        {v.variant || v.vehicleId || `${v.seaterCapacity} ${v.vehicleType}`}
-                      </Typography>
-                      {!!(v as any).rating && (
-                        <Chip
-                          size="small"
-                          color="success"
-                          icon={<WorkspacePremium />}
-                          label={Number((v as any).rating).toFixed(1)}
-                        />
-                      )}
-                    </Stack>
-
-                    <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-                      {(v as any).speedLimit && (
-                        <Chip size="small" icon={<Speed fontSize="small" />} label={`Speed: ${(v as any).speedLimit}`} />
-                      )}
-                      {(v as any).distanceLimitPerDay && (
-                        <Chip
-                          size="small"
-                          icon={<RouteIcon fontSize="small" />}
-                          label={`Limit: ${(v as any).distanceLimitPerDay}/day`}
-                        />
-                      )}
-                    </Stack>
-                  </CardContent>
-
-                  <CardActions sx={{ justifyContent: "space-between", px: 2, pb: 2, pt: 0.5 }}>
-                    <Stack direction="row" spacing={1}>
-                      <Button
-                        key="edit"
-                        component={Link as any}
-                        href={`/dashboard/rentals/editrentals`}
-                        onClick={() => handleEdit(v)}
-                        size="small"
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        color="error"
-                        size="small"
-                        onClick={() => {
-                          setSelected(v);
-                          setConfirmOpen(true);
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </Stack>
-                    <Typography variant="caption" color="text.secondary">
-                      {minDays ? `Min ${minDays} days` : currency}
-                    </Typography>
-                  </CardActions>
-                </Card>
+                <CommonServiceCard
+                  key={id || title}
+                  id={id || title}
+                  title={title}
+                  image={mainImage(v)}
+                  subtitleChip={subtitleChip}
+                  description={desc}
+                  topLeftChips={topLeftChips}
+                  topRightChips={topRightChips}
+                  metaChips={metaChips}
+                  editHref="/dashboard/rentals/editrentals"
+                  onEdit={() => handleEdit(v)}
+                  onDelete={() => {
+                    setSelected(v);
+                    setConfirmOpen(true);
+                  }}
+                />
               );
             })}
           </Box>
@@ -589,13 +562,7 @@ const router = useRouter();
       </Dialog>
 
       {/* ✅ MARKUP MODAL (2 wheeler / 4 wheeler filter) */}
-      <Dialog
-        open={openMarkupModal}
-        onClose={closeMarkup}
-        fullScreen={isMobile}
-        maxWidth="md"
-        fullWidth
-      >
+      <Dialog open={openMarkupModal} onClose={closeMarkup} fullScreen={isMobile} maxWidth="md" fullWidth>
         <DialogTitle sx={{ pb: 1 }}>
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
             <Box>
@@ -623,7 +590,6 @@ const router = useRouter();
 
           {markupStep === 0 ? (
             <>
-              {/* ✅ 2/4 wheeler filter */}
               <Box
                 sx={{
                   display: "flex",
@@ -662,8 +628,8 @@ const router = useRouter();
               <TextField
                 size="small"
                 placeholder="Search rentals..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={modalSearch}
+                onChange={(e) => setModalSearch(e.target.value)}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -671,11 +637,7 @@ const router = useRouter();
                     </InputAdornment>
                   ),
                 }}
-                sx={{
-                  width: "100%",
-                  mb: 2,
-                  "& .MuiOutlinedInput-root": { borderRadius: 1.5, height: 40 },
-                }}
+                sx={{ width: "100%", mb: 2, "& .MuiOutlinedInput-root": { borderRadius: 1.5, height: 40 } }}
               />
 
               <Divider sx={{ mb: 2 }} />
@@ -696,13 +658,13 @@ const router = useRouter();
                   }}
                 >
                   {modalVehicles.map((v) => {
-                    const id = unwrapId(v._id) || v.vehicleId || Math.random().toString();
                     const vid = unwrapId(v._id);
+                    const key = vid || v.vehicleId || Math.random().toString();
                     const checked = selectedVehicleIds.includes(vid);
 
                     return (
                       <Card
-                        key={id}
+                        key={key}
                         onClick={() => toggleVehicleSelection(vid)}
                         sx={{
                           display: "flex",
@@ -718,16 +680,7 @@ const router = useRouter();
                           "&:hover": { borderColor: "primary.main" },
                         }}
                       >
-                        <Box
-                          sx={{
-                            width: 72,
-                            height: 56,
-                            borderRadius: 2,
-                            overflow: "hidden",
-                            flexShrink: 0,
-                            bgcolor: "grey.100",
-                          }}
-                        >
+                        <Box sx={{ width: 72, height: 56, borderRadius: 2, overflow: "hidden", flexShrink: 0, bgcolor: "grey.100" }}>
                           <CardMedia
                             component="img"
                             image={mainImage(v)}
@@ -752,16 +705,7 @@ const router = useRouter();
                             {v.variant || v.vehicleId || `${v.seaterCapacity} ${v.vehicleType}`}
                           </Typography>
 
-                          <Typography
-                            variant="body2"
-                            color="text.secondary"
-                            sx={{
-                              fontSize: 12,
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                            }}
-                          >
+                          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             {v.vehicleType || "—"} • {dayPrice(v)}/day
                           </Typography>
 
@@ -770,11 +714,7 @@ const router = useRouter();
                           </Typography>
                         </Box>
 
-                        <Checkbox
-                          checked={checked}
-                          onChange={() => toggleVehicleSelection(vid)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
+                        <Checkbox checked={checked} onChange={() => toggleVehicleSelection(vid)} onClick={(e) => e.stopPropagation()} />
                       </Card>
                     );
                   })}
@@ -789,20 +729,12 @@ const router = useRouter();
             </>
           ) : (
             <>
-              <Typography sx={{ fontWeight: 900, mb: 0.5 }}>
-                Add markup for selected rentals
-              </Typography>
+              <Typography sx={{ fontWeight: 900, mb: 0.5 }}>Add markup for selected rentals</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 This will update markup prices for <b>{selectedVehicleIds.length}</b> rentals.
               </Typography>
 
-              <Box
-                sx={{
-                  display: "grid",
-                  gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" },
-                  gap: 2,
-                }}
-              >
+              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" }, gap: 2 }}>
                 <TextField
                   label="Markup Min Price"
                   type="number"
@@ -839,29 +771,15 @@ const router = useRouter();
           </Button>
 
           {markupStep === 0 ? (
-            <Button
-              variant="contained"
-              disabled={!selectedVehicleIds.length || modalLoading}
-              onClick={() => setMarkupStep(1)}
-              sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
-            >
+            <Button variant="contained" disabled={!selectedVehicleIds.length || modalLoading} onClick={() => setMarkupStep(1)} sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}>
               Continue
             </Button>
           ) : (
             <Box sx={{ display: "flex", gap: 1 }}>
-              <Button
-                variant="outlined"
-                onClick={() => setMarkupStep(0)}
-                sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
-              >
+              <Button variant="outlined" onClick={() => setMarkupStep(0)} sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}>
                 Back
               </Button>
-              <Button
-                variant="contained"
-                onClick={handleSubmitMarkup}
-                disabled={savingMarkup}
-                sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
-              >
+              <Button variant="contained" onClick={handleSubmitMarkup} disabled={savingMarkup} sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}>
                 {savingMarkup ? "Saving..." : "Submit"}
               </Button>
             </Box>

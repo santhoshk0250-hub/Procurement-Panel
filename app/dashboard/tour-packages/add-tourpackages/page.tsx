@@ -35,6 +35,7 @@ interface ThumbnailUI {
   file: File | null;
   preview?: string;
 }
+type PriceMode = "min" | "max";
 
 interface ServiceUI {
   serviceId: string;
@@ -53,6 +54,8 @@ interface ItineraryActivityUI {
   serviceItemId: string;
   itemModel: string;
   isRemovable: boolean;
+  useMinPrice: boolean; // ✅ NEW
+  useMaxPrice: boolean; // ✅ NEW
 }
 
 interface DayTimeSlotUI {
@@ -92,7 +95,7 @@ interface TourPackageUI {
   descriptionHtml: string;
 
   thumbnail: ThumbnailUI;
-
+pricingMode: PriceMode;
   minPax: string;
   maxPax: string;
   totalDays: string;
@@ -603,6 +606,31 @@ const getItemModelForTitle = (title: string) => {
 /* =========================
    Card content mapping
    ========================= */
+const getMinMaxPrice = (item: ServiceMetaItem) => {
+  const min = typeof item.markup_min_price === "number" ? item.markup_min_price : undefined;
+  const max = typeof item.markup_max_price === "number" ? item.markup_max_price : undefined;
+  return { min, max };
+};
+
+const formatPriceLabelFromChecks = (item: ServiceMetaItem, useMin: boolean, useMax: boolean) => {
+  const { min, max } = getMinMaxPrice(item);
+
+  if (!useMin && !useMax) return ""; // nothing selected
+
+  if (useMin && useMax) {
+    if (min != null && max != null) return `₹${min} - ₹${max}`;
+    if (min != null) return `From ₹${min}`;
+    if (max != null) return `Up to ₹${max}`;
+    return "";
+  }
+
+  if (useMin) return min != null ? `From ₹${min}` : "";
+  if (useMax) return max != null ? `Up to ₹${max}` : "";
+
+  return "";
+};
+
+
 
 const getServiceCardContent = (categoryKey: string, item: ServiceMetaItem) => {
   const key = categoryKey || "";
@@ -808,6 +836,8 @@ const BLANK_IT_ACTIVITY: ItineraryActivityUI = {
   serviceItemId: "",
   itemModel: "",
   isRemovable: true,
+   useMinPrice: true,   // ✅ default can be anything, will be overridden on add
+  useMaxPrice: false,
 };
 
 const BLANK_IT_DAY: ItineraryDayUI = {
@@ -827,6 +857,7 @@ const BLANK_TOUR_PACKAGE: TourPackageUI = {
   category: "Luxury",
   descriptionHtml: "Experience luxury in Goa on a short getaway with this holiday package!",
   thumbnail: { file: null },
+   pricingMode: "min", // ✅ default
 markup_min_price: null,
   markup_max_price: null,
   minPax: "2",
@@ -890,6 +921,25 @@ export default function AddTourPackagePage() {
     if (!el) return;
     el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
   };
+
+
+  const setPricingMode = (mode: PriceMode) => {
+  setData((prev) => ({
+    ...prev,
+    pricingMode: mode,
+    itinerary: (prev.itinerary || []).map((day) => ({
+      ...day,
+      timeSlots: (day.timeSlots || []).map((slot) => ({
+        ...slot,
+        activities: (slot.activities || []).map((a) => ({
+          ...a,
+          useMinPrice: mode === "min",
+          useMaxPrice: mode === "max",
+        })),
+      })),
+    })),
+  }));
+};
 
   const [slotEditor, setSlotEditor] = useState<{
     open: boolean;
@@ -1234,14 +1284,22 @@ const nextActs: ItineraryActivityUI[] = selections.map((sel) => {
   const key = `${sel.categoryId}|${sel.itemId}|${itemModel}`;
   const prev = prevMap.get(key);
 
+  const defaultUseMin = prev?.useMinPrice ?? (data.pricingMode === "min");
+  const defaultUseMax = prev?.useMaxPrice ?? (data.pricingMode === "max");
+
   return {
     ...BLANK_IT_ACTIVITY,
     serviceId: sel.categoryId,
     serviceItemId: sel.itemId,
     itemModel,
-    isRemovable: prev?.isRemovable ?? true, // keep old toggle if it existed
+    isRemovable: prev?.isRemovable ?? true,
+
+    // ✅ default checks
+    useMinPrice: defaultUseMin,
+    useMaxPrice: defaultUseMax,
   };
 });
+
 
 // ✅ Replace (not append)
 return { ...slot, activities: nextActs };
@@ -1337,7 +1395,7 @@ return { ...slot, activities: nextActs };
         max_pax: Number(data.maxPax) || 0,
         total_days: Number(data.totalDays) || 0,
         total_nights: Number(data.totalNights) || 0,
-
+       markup_price_mode: data.pricingMode,
         services: servicesFromActivities.map((s) => ({
           serviceId: s.serviceId || undefined,
           serviceItemId: s.serviceItemId || undefined,
@@ -1369,14 +1427,17 @@ return { ...slot, activities: nextActs };
                 to: s.to,
 
                 // ✅ slot-wise activities
-                activities: (s.activities || [])
-                  .filter((a) => a.itemModel || a.serviceItemId)
-                  .map((a) => ({
-                    serviceId: a.serviceId || undefined,
-                    serviceItemId: a.serviceItemId || undefined,
-                    itemModel: a.itemModel || undefined,
-                    isRemovable: a.isRemovable ?? false,
-                  })),
+              activities: (s.activities || [])
+            .filter((a) => a.itemModel || a.serviceItemId)
+            .map((a) => ({
+              serviceId: a.serviceId || undefined,
+              serviceItemId: a.serviceItemId || undefined,
+              itemModel: a.itemModel || undefined,
+              isRemovable: a.isRemovable ?? false,
+              useMinPrice: !!a.useMinPrice,
+              useMaxPrice: !!a.useMaxPrice,
+            })),
+
               })),
           };
 
@@ -1621,6 +1682,42 @@ return { ...slot, activities: nextActs };
                       disabled={submitting}
                     />
                   </Field>
+                  <Field label="Service Price Mode">
+  <div className="inline-flex rounded-xl border border-gray-300 overflow-hidden shadow-sm">
+    <button
+      type="button"
+      disabled={submitting}
+      onClick={() => setPricingMode("min")}
+      className={[
+        "px-4 py-2 text-sm font-semibold transition",
+        data.pricingMode === "min"
+          ? "bg-emerald-600 text-white"
+          : "bg-white text-gray-700 hover:bg-gray-50",
+      ].join(" ")}
+    >
+      Min Markup Price
+    </button>
+
+    <button
+      type="button"
+      disabled={submitting}
+      onClick={() => setPricingMode("max")}
+      className={[
+        "px-4 py-2 text-sm font-semibold transition border-l border-gray-300",
+        data.pricingMode === "max"
+          ? "bg-emerald-600 text-white"
+          : "bg-white text-gray-700 hover:bg-gray-50",
+      ].join(" ")}
+    >
+      Max Markup Price
+    </button>
+  </div>
+
+  <p className="text-[11px] text-gray-500 mt-1">
+    Default checkboxes for newly added itinerary services.
+  </p>
+</Field>
+
                   <Field label="Markup Min Price (₹)">
                     <div className="relative">
                       <input
@@ -1967,9 +2064,16 @@ return { ...slot, activities: nextActs };
                                           (item) => item._id === a.serviceItemId
                                         );
 
-                                        const card = selectedItem
-                                          ? getServiceCardContent(metaKey, selectedItem)
-                                          : null;
+                                      const card = selectedItem
+                                        ? getServiceCardContent(metaKey, selectedItem)
+                                        : null;
+
+                                      // ✅ override price label using min/max checkboxes
+                                      const priceLabel =
+                                        selectedItem
+                                          ? (formatPriceLabelFromChecks(selectedItem, a.useMinPrice, a.useMaxPrice) || card?.priceLabel || "")
+                                          : (card?.priceLabel || "");
+
 
                                         return (
                                           <div
@@ -2024,11 +2128,12 @@ return { ...slot, activities: nextActs };
                                                 </p>
 
                                                 <div className="flex items-center gap-2 mt-2 flex-wrap">
-                                                  {card?.priceLabel && (
-                                                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                                                      {card.priceLabel}
-                                                    </span>
-                                                  )}
+                                               {priceLabel && (
+                                                  <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                                    {priceLabel}
+                                                  </span>
+                                                )}
+
 
                                                   <label className="inline-flex items-center gap-2 text-[11px] text-gray-700 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">
                                                     <input
@@ -2044,6 +2149,39 @@ return { ...slot, activities: nextActs };
                                                     />
                                                     Customer can remove
                                                   </label>
+                                                  <label className="inline-flex items-center gap-2 text-[11px] text-gray-700 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">
+                                  <input
+                                    type="checkbox"
+                                    className="h-3.5 w-3.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                                    checked={!!a.useMinPrice}
+                                    onChange={(e) =>
+                                      updateItineraryActivity(idx, slotIdx, aIdx, {
+                                        useMinPrice: e.target.checked,
+                                        useMaxPrice: e.target.checked ? false : a.useMaxPrice, // ✅ turn off max if min is turned on
+                                      })
+                                    }
+                                    disabled={submitting}
+                                  />
+
+                                    Min Markup price
+                                  </label>
+
+                                  <label className="inline-flex items-center gap-2 text-[11px] text-gray-700 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">
+                                  <input
+                                    type="checkbox"
+                                    className="h-3.5 w-3.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                                    checked={!!a.useMaxPrice}
+                                    onChange={(e) =>
+                                      updateItineraryActivity(idx, slotIdx, aIdx, {
+                                        useMaxPrice: e.target.checked,
+                                        useMinPrice: e.target.checked ? false : a.useMinPrice, // ✅ turn off min if max is turned on
+                                      })
+                                    }
+                                    disabled={submitting}
+                                  />
+                                    Max Markup price
+                                  </label>
+
                                                 </div>
                                               </div>
                                             </div>

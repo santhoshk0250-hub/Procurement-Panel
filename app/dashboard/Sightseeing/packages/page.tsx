@@ -10,10 +10,6 @@ import {
   Button,
   TextField,
   InputAdornment,
-  Card,
-  CardMedia,
-  CardContent,
-  CardActions,
   Chip,
   Dialog,
   DialogTitle,
@@ -32,9 +28,9 @@ import {
   Stepper,
   Step,
   StepLabel,
-  ToggleButtonGroup,
-  ToggleButton,
   useMediaQuery,
+  Card,
+  CardMedia,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import {
@@ -50,6 +46,8 @@ import {
   Star as StarIcon,
   AddCircleOutline,
 } from "@mui/icons-material";
+
+import CommonServiceCard, { type ServiceChip } from "@/components/dashboard/CommonServiceCard";
 import { useSightseeingPackageStore } from "@/store/usesightpackages";
 
 /* ================== Types ================== */
@@ -138,7 +136,6 @@ export interface SightseeingPackage {
   seller_charge?: number;
   price_regular?: number;
 
-  // ✅ markup fields (adjust names if backend differs)
   markupMinPrice?: number;
   markupMaxPrice?: number;
 
@@ -164,18 +161,14 @@ export interface SightseeingPackage {
 }
 
 /* ================== Helpers ================== */
-const unwrapId = (id?: IDType) =>
-  typeof id === "string" ? id : (id as any)?.$oid ?? "";
+const unwrapId = (id?: IDType) => (typeof id === "string" ? id : (id as any)?.$oid ?? "");
 
 const money = (n?: number) =>
-  typeof n === "number" && !isNaN(n)
-    ? new Intl.NumberFormat("en-IN").format(n)
-    : "—";
+  typeof n === "number" && !isNaN(n) ? new Intl.NumberFormat("en-IN").format(n) : "—";
 
 const FALLBACK_IMG =
   "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=1600&auto=format&fit=crop";
 
-// Prefer thumbnail → images → galleryImages → guestImages → fallback
 const heroImageFromPackage = (p: SightseeingPackage): string => {
   const sources = [
     p.thumbnail,
@@ -183,15 +176,24 @@ const heroImageFromPackage = (p: SightseeingPackage): string => {
     ...(Array.isArray(p.galleryImages) ? p.galleryImages : []),
     ...(Array.isArray(p.guestImages) ? p.guestImages : []),
   ].filter(Boolean) as string[];
-
   return sources[0] || FALLBACK_IMG;
 };
+
+const clampText = (s: string, max = 140) => {
+  const t = (s || "").replace(/\s+/g, " ").trim();
+  if (!t) return "—";
+  return t.length > max ? `${t.slice(0, max).trim()}…` : t;
+};
+
+// ✅ important: prevents TS widening (color becomes literal union not string)
+const chip = (c: ServiceChip) => c;
 
 /* ================== Component ================== */
 const SightseeingPackagesDashboard: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const router = useRouter();
+
   const [search, setSearch] = useState("");
   const [vehicleType, setVehicleType] = useState<string>("");
   const [onlyActive, setOnlyActive] = useState<boolean>(false);
@@ -214,11 +216,9 @@ const SightseeingPackagesDashboard: React.FC = () => {
   const [markupMaxPrice, setMarkupMaxPrice] = useState<number | "">("");
   const [savingMarkup, setSavingMarkup] = useState(false);
 
-  // ✅ modal filters
   const [modalSearch, setModalSearch] = useState("");
   const [modalVehicleType, setModalVehicleType] = useState<string>("");
 
-  // ✅ modal list (ALL packages)
   const [modalItemsRaw, setModalItemsRaw] = useState<SightseeingPackage[]>([]);
   const [modalLoading, setModalLoading] = useState(false);
   const [modalFetchedOnce, setModalFetchedOnce] = useState(false);
@@ -235,8 +235,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
       const url = `${process.env.NEXT_PUBLIC_API_BASE}packages/fetch?${params.toString()}`;
       const res = await axios.get(url);
 
-      const fetched: SightseeingPackage[] =
-        res.data.items || res.data.data || res.data || [];
+      const fetched: SightseeingPackage[] = res.data.items || res.data.data || res.data || [];
       const totalPages = res.data.totalPages ?? res.data.pagination?.pages ?? 1;
 
       setItems(Array.isArray(fetched) ? fetched : []);
@@ -248,18 +247,11 @@ const SightseeingPackagesDashboard: React.FC = () => {
     }
   };
 
-  // ✅ Modal: fetch ALL sightseeing packages
   const fetchAllPackagesForModal = async () => {
     setModalLoading(true);
     try {
-      // ✅ change to your real endpoint that returns ALL packages
-      // example: packages/fetchall OR packages/all
-      const res = await axios.get(
-        `${process.env.NEXT_PUBLIC_API_BASE}packages/fetchall`
-      );
-
-      const fetched: SightseeingPackage[] =
-        res.data.items || res.data.data || res.data || [];
+      const res = await axios.get(`${process.env.NEXT_PUBLIC_API_BASE}packages/fetchall`);
+      const fetched: SightseeingPackage[] = res.data.items || res.data.data || res.data || [];
       setModalItemsRaw(Array.isArray(fetched) ? fetched : []);
       setModalFetchedOnce(true);
     } catch (e) {
@@ -291,32 +283,11 @@ const SightseeingPackagesDashboard: React.FC = () => {
       const altTime = p.alternative_timings || p.alternativeTimings || "";
       const dest = p.destination || "";
       const cats = (p.category || []).join(" ");
-      const why = (p.whyChoose || [])
-        .map((w) => `${w.title} ${w.description}`)
-        .join(" ");
-      const expect = (p.whatToExpect || [])
-        .map((w) => `${w.title} ${w.description}`)
-        .join(" ");
-      const mentions = p.special_mentions || "";
-      const notes = p.notes || "";
       const placesNames =
         (p.placesToVisit || []).map((x) => x.name).join(" ") ||
         (p.places_to_visit_names || []).join(" ");
 
-      const hay = [
-        title,
-        dest,
-        veh,
-        regTime,
-        altTime,
-        cats,
-        p.description || "",
-        why,
-        expect,
-        mentions,
-        notes,
-        placesNames,
-      ]
+      const hay = [title, dest, veh, regTime, altTime, cats, p.description || "", placesNames]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -329,13 +300,9 @@ const SightseeingPackagesDashboard: React.FC = () => {
     if (!selected) return;
     try {
       await axios.delete(
-        `${process.env.NEXT_PUBLIC_API_BASE}packages/packages/${unwrapId(
-          selected._id
-        )}`
+        `${process.env.NEXT_PUBLIC_API_BASE}packages/packages/${unwrapId(selected._id)}`
       );
-      setItems((prev) =>
-        prev.filter((x) => unwrapId(x._id) !== unwrapId(selected._id))
-      );
+      setItems((prev) => prev.filter((x) => unwrapId(x._id) !== unwrapId(selected._id)));
       setSelected(null);
     } catch (e) {
       console.error("Delete failed:", e);
@@ -349,7 +316,6 @@ const SightseeingPackagesDashboard: React.FC = () => {
     setPackage(p as any);
   };
 
-  // collect unique vehicle types from both fields for dashboard filter options
   const vehicleOptions = useMemo(() => {
     const set = new Set<string>();
     items.forEach((p) => {
@@ -359,7 +325,6 @@ const SightseeingPackagesDashboard: React.FC = () => {
     return Array.from(set);
   }, [items]);
 
-  // collect unique vehicle types for modal filter (from ALL modal items)
   const modalVehicleOptions = useMemo(() => {
     const set = new Set<string>();
     modalItemsRaw.forEach((p) => {
@@ -407,12 +372,9 @@ const SightseeingPackagesDashboard: React.FC = () => {
           return hay.includes(term);
         });
 
-    const byVehicle =
-      modalVehicleType
-        ? bySearch.filter(
-            (p) => (p.vehicle_type || p.vehicleType || "") === modalVehicleType
-          )
-        : bySearch;
+    const byVehicle = modalVehicleType
+      ? bySearch.filter((p) => (p.vehicle_type || p.vehicleType || "") === modalVehicleType)
+      : bySearch;
 
     return byVehicle;
   }, [modalItemsRaw, modalSearch, modalVehicleType]);
@@ -430,17 +392,12 @@ const SightseeingPackagesDashboard: React.FC = () => {
 
     setSavingMarkup(true);
     try {
-      // ✅ update endpoint to your backend route
-      await axios.put(
-        `${process.env.NEXT_PUBLIC_API_BASE}packages/bulk-markup`,
-        {
-          packageIds: selectedPackageIds,
-          markupMinPrice: min,
-          markupMaxPrice: max,
-        }
-      );
+      await axios.put(`${process.env.NEXT_PUBLIC_API_BASE}packages/bulk-markup`, {
+        packageIds: selectedPackageIds,
+        markupMinPrice: min,
+        markupMaxPrice: max,
+      });
 
-      // ✅ update dashboard list
       setItems((prev) =>
         prev.map((p) => {
           const pid = unwrapId(p._id) || p.id || "";
@@ -453,7 +410,6 @@ const SightseeingPackagesDashboard: React.FC = () => {
         })
       );
 
-      // ✅ update modal list
       setModalItemsRaw((prev) =>
         prev.map((p) => {
           const pid = unwrapId(p._id) || p.id || "";
@@ -467,7 +423,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
       );
 
       setOpenMarkupModal(false);
-    await router.push("/dashboard/Sightseeing?tab=packages");
+      await router.push("/dashboard/Sightseeing?tab=packages");
     } catch (e) {
       console.error("❌ bulk markup update error:", e);
       alert("Failed to update markup");
@@ -504,18 +460,10 @@ const SightseeingPackagesDashboard: React.FC = () => {
           sx={{ width: { xs: "100%", sm: 360 } }}
         />
 
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={2}
-          alignItems={{ xs: "stretch", sm: "center" }}
-        >
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ xs: "stretch", sm: "center" }}>
           <FormControl size="small" sx={{ minWidth: 180 }}>
             <InputLabel>Vehicle Type</InputLabel>
-            <Select
-              label="Vehicle Type"
-              value={vehicleType}
-              onChange={(e) => setVehicleType(e.target.value)}
-            >
+            <Select label="Vehicle Type" value={vehicleType} onChange={(e) => setVehicleType(e.target.value)}>
               <MenuItem value="">All</MenuItem>
               {vehicleOptions.map((v) => (
                 <MenuItem key={v} value={v}>
@@ -525,13 +473,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
             </Select>
           </FormControl>
 
-          {/* ✅ Markup button */}
-          <Button
-            onClick={openMarkup}
-            variant="outlined"
-            fullWidth
-            sx={{ width: { xs: "100%", sm: "auto" } as any, height: 40, fontWeight: 800 }}
-          >
+          <Button onClick={openMarkup} variant="outlined" fullWidth sx={{ width: { xs: "100%", sm: "auto" } as any, height: 40, fontWeight: 800 }}>
             Markup
           </Button>
 
@@ -561,30 +503,14 @@ const SightseeingPackagesDashboard: React.FC = () => {
 
       {/* Loader / Empty */}
       {loading ? (
-        <Box
-          sx={{
-            minHeight: "50vh",
-            display: "grid",
-            placeItems: "center",
-            textAlign: "center",
-            gap: 2,
-          }}
-        >
+        <Box sx={{ minHeight: "50vh", display: "grid", placeItems: "center", textAlign: "center", gap: 2 }}>
           <CircularProgress size={50} />
           <Typography variant="body1" color="text.secondary">
             Loading packages…
           </Typography>
         </Box>
       ) : filtered.length === 0 ? (
-        <Box
-          sx={{
-            minHeight: "40vh",
-            display: "grid",
-            placeItems: "center",
-            textAlign: "center",
-            gap: 1,
-          }}
-        >
+        <Box sx={{ minHeight: "40vh", display: "grid", placeItems: "center", textAlign: "center", gap: 1 }}>
           <Typography variant="h6">No packages found</Typography>
           <Typography variant="body2" color="text.secondary">
             Try a different search or add a new package.
@@ -604,284 +530,134 @@ const SightseeingPackagesDashboard: React.FC = () => {
             }}
           >
             {filtered.map((p) => {
-              const id = unwrapId(p._id) || p.id;
+              const id = unwrapId(p._id) || p.id || "";
               const title = p.tour_name || p.title || "Untitled package";
-              const destination = p.destination || "Goa";
+              const destination = p.destination || "—";
+
               const veh = p.vehicle_type || p.vehicleType;
-              const pax =
-                (p.min_pax ?? p.minParticipants ?? 1) +
-                " - " +
-                (p.max_pax ?? p.maxParticipants ?? 1);
+              const paxMin = p.min_pax ?? p.minParticipants ?? 1;
+              const paxMax = p.max_pax ?? p.maxParticipants ?? paxMin;
               const duration = p.duration_hours;
-              const places =
-                (p.placesToVisit || []).map((x) => x.name) ||
-                p.places_to_visit_names ||
-                [];
+
               const categories = p.category || [];
+              const places = (p.placesToVisit || []).map((x) => x.name) || p.places_to_visit_names || [];
+
               const price =
                 p.priceBreakdown?.totalPrice ??
                 p.priceBreakdown?.basePrice ??
                 p.price_regular;
-              const rating = p.rating ?? 0;
+
+              const rating = typeof p.rating === "number" ? p.rating : undefined;
               const reviews = p.reviewCount ?? 0;
-              const booked = p.bookedCount ?? 0;
+
+              const description = clampText(p.description || "", 140);
+
+              const subtitleChip: ServiceChip = chip({
+                icon: <LocationIcon fontSize="small" />,
+                label: destination,
+              });
+
+              const topLeftChips: ServiceChip[] = [
+                ...(veh
+                  ? [
+                      chip({
+                        icon: <CarIcon fontSize="small" />,
+                        label: veh,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+
+                chip({
+                  icon: <PeopleIcon fontSize="small" />,
+                  label: `${paxMin}-${paxMax} pax`,
+                  variant: "outlined",
+                }),
+
+                ...(typeof duration === "number"
+                  ? [
+                      chip({
+                        icon: <AccessTimeIcon fontSize="small" />,
+                        label: `${duration} hrs`,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+
+                ...(rating != null && rating > 0
+                  ? [
+                      chip({
+                        icon: <StarIcon fontSize="small" />,
+                        label: `${rating.toFixed(1)}${reviews ? ` (${reviews})` : ""}`,
+                        color: "warning",
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+              ];
+
+              const topRightChips: ServiceChip[] = [
+                ...(typeof price === "number"
+                  ? [
+                      chip({
+                        icon: <RupeeIcon fontSize="small" />,
+                        label: `₹${money(price)} / person`,
+                        color: "primary",
+                        sx: { bgcolor: "primary.main", color: "primary.contrastText" },
+                      }),
+                    ]
+                  : []),
+              ];
+
+              const metaChips: ServiceChip[] = [
+                ...categories.slice(0, 3).map((c) =>
+                  chip({
+                    icon: <CategoryIcon fontSize="small" />,
+                    label: c,
+                  })
+                ),
+                ...(Array.isArray(places) && places.length
+                  ? [
+                      chip({
+                        label: `Stops: ${places.length}`,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+                ...(p.meetingTime
+                  ? [
+                      chip({
+                        label: `Meeting: ${p.meetingTime}`,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+              ];
 
               return (
-                <Card
+                <CommonServiceCard
                   key={id || title}
-                  sx={{
-                    borderRadius: 3,
-                    overflow: "hidden",
-                    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
-                    display: "flex",
-                    flexDirection: "column",
-                    bgColor: "background.paper",
+                  id={id || title}
+                  title={title}
+                  image={heroImageFromPackage(p)}
+                  subtitleChip={subtitleChip}
+                  description={description}
+                  topLeftChips={topLeftChips}
+                  topRightChips={topRightChips}
+                  metaChips={metaChips}
+                  editHref="/dashboard/Sightseeing/packages/editpackage"
+                  onEdit={() => handleEdit(p)}
+                  onDelete={() => {
+                    setSelected(p);
+                    setConfirmOpen(true);
                   }}
-                >
-                  <Box sx={{ position: "relative" }}>
-                    <CardMedia
-                      component="img"
-                      image={heroImageFromPackage(p)}
-                      alt={title}
-                      sx={{
-                        objectFit: "cover",
-                        width: "100%",
-                        height: 190,
-                      }}
-                    />
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        inset: 0,
-                        background:
-                          "linear-gradient(to top, rgba(0,0,0,0.65), transparent 50%)",
-                      }}
-                    />
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        left: 12,
-                        bottom: 12,
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 0.5,
-                      }}
-                    >
-                      <Chip
-                        size="small"
-                        icon={<LocationIcon sx={{ color: "inherit" }} fontSize="small" />}
-                        label={destination}
-                        sx={{
-                          color: "white",
-                          borderColor: "rgba(255,255,255,0.7)",
-                          borderWidth: 1,
-                          borderStyle: "solid",
-                          bgcolor: "rgba(15,23,42,0.4)",
-                        }}
-                      />
-                      <Stack direction="row" spacing={0.5} flexWrap="wrap">
-                        {categories.slice(0, 2).map((c) => (
-                          <Chip
-                            key={c}
-                            size="small"
-                            label={c}
-                            sx={{ color: "white", bgcolor: "rgba(15,23,42,0.6)" }}
-                          />
-                        ))}
-                        {categories.length > 2 && (
-                          <Chip
-                            size="small"
-                            label={`+${categories.length - 2}`}
-                            sx={{ color: "white", bgcolor: "rgba(15,23,42,0.6)" }}
-                          />
-                        )}
-                      </Stack>
-                    </Box>
-
-                    {rating > 0 && (
-                      <Box
-                        sx={{
-                          position: "absolute",
-                          top: 10,
-                          right: 10,
-                          px: 1,
-                          py: 0.5,
-                          borderRadius: 999,
-                          bgcolor: "rgba(15,23,42,0.8)",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 0.5,
-                          color: "white",
-                        }}
-                      >
-                        <StarIcon fontSize="small" />
-                        <Typography variant="body2" fontWeight={600}>
-                          {rating.toFixed(1)}
-                        </Typography>
-                        {reviews > 0 && (
-                          <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                            ({reviews})
-                          </Typography>
-                        )}
-                      </Box>
-                    )}
-                  </Box>
-
-                  <CardContent sx={{ pb: 1, flexGrow: 1 }}>
-                    <Stack spacing={0.5}>
-                      <Typography
-                        variant="h6"
-                        noWrap
-                        title={title}
-                        sx={{ fontWeight: 700 }}
-                      >
-                        {title}
-                      </Typography>
-                      {p.operatedBy && (
-                        <Typography variant="caption" color="text.secondary" noWrap>
-                          Operated by {p.operatedBy}
-                        </Typography>
-                      )}
-                    </Stack>
-
-                    <Stack
-                      direction="row"
-                      spacing={1}
-                      mt={1}
-                      flexWrap="wrap"
-                      alignItems="center"
-                    >
-                      {veh && (
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          icon={<CarIcon fontSize="small" />}
-                          label={veh}
-                        />
-                      )}
-                      <Chip
-                        size="small"
-                        variant="outlined"
-                        icon={<PeopleIcon fontSize="small" />}
-                        label={`${pax} pax`}
-                      />
-                      {typeof duration === "number" && (
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          icon={<AccessTimeIcon fontSize="small" />}
-                          label={`${duration} hrs`}
-                        />
-                      )}
-                    </Stack>
-
-                    <Stack
-                      direction="row"
-                      justifyContent="space-between"
-                      alignItems="center"
-                      mt={1.5}
-                    >
-                      <Stack spacing={0.2}>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ textTransform: "uppercase" }}
-                        >
-                          From
-                        </Typography>
-                        <Stack direction="row" alignItems="baseline" gap={0.5}>
-                          <RupeeIcon fontSize="small" />
-                          <Typography variant="h6" fontWeight={700}>
-                            {money(price)}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            per person
-                          </Typography>
-                        </Stack>
-                      </Stack>
-                    </Stack>
-
-                    {Array.isArray(places) && places.length > 0 && (
-                      <Stack spacing={0.5} mt={1.5}>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ textTransform: "uppercase", fontWeight: 600 }}
-                        >
-                          Key Stops
-                        </Typography>
-                        <Stack
-                          direction="row"
-                          spacing={0.5}
-                          flexWrap="wrap"
-                          sx={{ maxHeight: 72, overflow: "hidden" }}
-                        >
-                          {places.slice(0, 3).map((nm) => (
-                            <Chip
-                              key={nm}
-                              size="small"
-                              icon={<CategoryIcon fontSize="small" />}
-                              label={nm}
-                              sx={{ maxWidth: 200 }}
-                            />
-                          ))}
-                          {places.length > 3 && (
-                            <Chip size="small" label={`+${places.length - 3} more`} />
-                          )}
-                        </Stack>
-                      </Stack>
-                    )}
-                  </CardContent>
-
-                  <CardActions
-                    sx={{
-                      justifyContent: "space-between",
-                      px: 2,
-                      pb: 2,
-                      pt: 0.5,
-                    }}
-                  >
-                    <Stack direction="row" spacing={1}>
-                      <Button
-                        component={Link as any}
-                        href={`/dashboard/Sightseeing/packages/editpackage`}
-                        onClick={() => handleEdit(p)}
-                        size="small"
-                        startIcon={<EditIcon />}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        color="error"
-                        size="small"
-                        startIcon={<DeleteIcon />}
-                        onClick={() => {
-                          setSelected(p);
-                          setConfirmOpen(true);
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </Stack>
-
-                    {p.meetingTime && (
-                      <Typography variant="caption" color="text.secondary">
-                        Meeting: {p.meetingTime}
-                      </Typography>
-                    )}
-                  </CardActions>
-                </Card>
+                />
               );
             })}
           </Box>
 
           <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
-            <Pagination
-              count={pages}
-              page={page}
-              onChange={(e, value) => setPage(value)}
-              color="primary"
-            />
+            <Pagination count={pages} page={page} onChange={(e, value) => setPage(value)} color="primary" />
           </Box>
         </>
       )}
@@ -891,9 +667,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
         <DialogTitle>Delete Package</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete{" "}
-            <strong>{selected?.tour_name || selected?.title || "this package"}</strong>?
-            This action cannot be undone.
+            Delete <strong>{selected?.tour_name || selected?.title || "this package"}</strong>? This action cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -913,23 +687,10 @@ const SightseeingPackagesDashboard: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      {/* ✅ MARKUP MODAL (filter by vehicle type) */}
-      <Dialog
-        open={openMarkupModal}
-        onClose={closeMarkup}
-        fullScreen={isMobile}
-        maxWidth="md"
-        fullWidth
-      >
+      {/* ✅ MARKUP MODAL (unchanged) */}
+      <Dialog open={openMarkupModal} onClose={closeMarkup} fullScreen={isMobile} maxWidth="md" fullWidth>
         <DialogTitle sx={{ pb: 1 }}>
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 2,
-            }}
-          >
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
             <Box>
               <Typography variant="h6" sx={{ fontWeight: 900 }}>
                 Select Sightseeing Packages
@@ -939,11 +700,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
               </Typography>
             </Box>
 
-            <Chip
-              label={`Selected: ${selectedPackageIds.length}`}
-              variant="outlined"
-              sx={{ fontWeight: 800 }}
-            />
+            <Chip label={`Selected: ${selectedPackageIds.length}`} variant="outlined" sx={{ fontWeight: 800 }} />
           </Box>
         </DialogTitle>
 
@@ -959,7 +716,6 @@ const SightseeingPackagesDashboard: React.FC = () => {
 
           {markupStep === 0 ? (
             <>
-              {/* ✅ vehicle type filter */}
               <Box
                 sx={{
                   display: "grid",
@@ -971,11 +727,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
               >
                 <FormControl size="small" fullWidth>
                   <InputLabel>Vehicle Type</InputLabel>
-                  <Select
-                    label="Vehicle Type"
-                    value={modalVehicleType}
-                    onChange={(e) => setModalVehicleType(e.target.value)}
-                  >
+                  <Select label="Vehicle Type" value={modalVehicleType} onChange={(e) => setModalVehicleType(e.target.value)}>
                     <MenuItem value="">All</MenuItem>
                     {modalVehicleOptions.map((v) => (
                       <MenuItem key={v} value={v}>
@@ -997,24 +749,14 @@ const SightseeingPackagesDashboard: React.FC = () => {
                       </InputAdornment>
                     ),
                   }}
-                  sx={{
-                    width: "100%",
-                    "& .MuiOutlinedInput-root": { borderRadius: 1.5, height: 40 },
-                  }}
+                  sx={{ width: "100%", "& .MuiOutlinedInput-root": { borderRadius: 1.5, height: 40 } }}
                 />
               </Box>
 
               <Divider sx={{ mb: 2 }} />
 
               {modalLoading ? (
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    py: 6,
-                  }}
-                >
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", py: 6 }}>
                   <CircularProgress />
                 </Box>
               ) : (
@@ -1073,12 +815,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
                             image={heroImageFromPackage(p)}
                             alt={title}
                             loading="lazy"
-                            sx={{
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                              display: "block",
-                            }}
+                            sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
                           />
                         </Box>
 
@@ -1100,22 +837,13 @@ const SightseeingPackagesDashboard: React.FC = () => {
                           <Typography
                             variant="body2"
                             color="text.secondary"
-                            sx={{
-                              fontSize: 12,
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                            }}
+                            sx={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
                           >
                             {dest} • {veh} • ₹{money(base)}
                           </Typography>
                         </Box>
 
-                        <Checkbox
-                          checked={checked}
-                          onChange={() => togglePackageSelection(pid)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
+                        <Checkbox checked={checked} onChange={() => togglePackageSelection(pid)} onClick={(e) => e.stopPropagation()} />
                       </Card>
                     );
                   })}
@@ -1130,28 +858,17 @@ const SightseeingPackagesDashboard: React.FC = () => {
             </>
           ) : (
             <>
-              <Typography sx={{ fontWeight: 900, mb: 0.5 }}>
-                Add markup for selected packages
-              </Typography>
+              <Typography sx={{ fontWeight: 900, mb: 0.5 }}>Add markup for selected packages</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                This will update markup prices for <b>{selectedPackageIds.length}</b>{" "}
-                packages.
+                This will update markup prices for <b>{selectedPackageIds.length}</b> packages.
               </Typography>
 
-              <Box
-                sx={{
-                  display: "grid",
-                  gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" },
-                  gap: 2,
-                }}
-              >
+              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" }, gap: 2 }}>
                 <TextField
                   label="Markup Min Price"
                   type="number"
                   value={markupMinPrice}
-                  onChange={(e) =>
-                    setMarkupMinPrice(e.target.value ? Number(e.target.value) : "")
-                  }
+                  onChange={(e) => setMarkupMinPrice(e.target.value ? Number(e.target.value) : "")}
                   inputProps={{ min: 0 }}
                   fullWidth
                 />
@@ -1159,9 +876,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
                   label="Markup Max Price"
                   type="number"
                   value={markupMaxPrice}
-                  onChange={(e) =>
-                    setMarkupMaxPrice(e.target.value ? Number(e.target.value) : "")
-                  }
+                  onChange={(e) => setMarkupMaxPrice(e.target.value ? Number(e.target.value) : "")}
                   inputProps={{ min: 0 }}
                   fullWidth
                 />
@@ -1180,12 +895,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
             borderColor: "divider",
           }}
         >
-          <Button
-            onClick={closeMarkup}
-            color="inherit"
-            variant="outlined"
-            sx={{ borderRadius: 1.5, height: 36, fontWeight: 800 }}
-          >
+          <Button onClick={closeMarkup} color="inherit" variant="outlined" sx={{ borderRadius: 1.5, height: 36, fontWeight: 800 }}>
             Cancel
           </Button>
 
@@ -1200,11 +910,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
             </Button>
           ) : (
             <Box sx={{ display: "flex", gap: 1 }}>
-              <Button
-                variant="outlined"
-                onClick={() => setMarkupStep(0)}
-                sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}
-              >
+              <Button variant="outlined" onClick={() => setMarkupStep(0)} sx={{ borderRadius: 1.5, height: 36, fontWeight: 900 }}>
                 Back
               </Button>
               <Button

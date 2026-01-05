@@ -10,13 +10,7 @@ import {
   Button,
   TextField,
   InputAdornment,
-  Card,
-  CardMedia,
-  CardContent,
-  CardActions,
-  IconButton,
   Chip,
-  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -31,11 +25,12 @@ import {
   Step,
   StepLabel,
   useMediaQuery,
+  Card,
+  CardMedia,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import {
   Search,
-  ContentCopy,
   WorkspacePremium,
   LocalDining,
   Restaurant,
@@ -45,6 +40,8 @@ import {
   CheckCircle,
   Cancel,
 } from "@mui/icons-material";
+
+import CommonServiceCard, { type ServiceChip } from "@/components/dashboard/CommonServiceCard";
 
 import {
   useFoodServiceStore,
@@ -77,6 +74,9 @@ const mainImage = (f: { banner?: string | null; images?: string[] }) =>
 
 const money = (n?: number) =>
   typeof n === "number" && !Number.isNaN(n) ? `₹${n}` : "-";
+
+// ✅ THIS is the key: force chip objects to be typed properly (no "string" widening)
+const chip = (c: ServiceChip) => c;
 
 /* ================== Component ================== */
 const FoodServicesDashboard: React.FC = () => {
@@ -137,14 +137,7 @@ const FoodServicesDashboard: React.FC = () => {
     });
   }, [search, foods]);
 
-  const copyId = async (id?: string) => {
-    try {
-      if (id) await navigator.clipboard.writeText(id);
-    } catch {}
-  };
-
   const handleEdit = (apiItem: FoodAPIItem) => {
-    // Store full object so edit page has addonsFull
     setFromAPI(apiItem);
   };
 
@@ -176,16 +169,13 @@ const FoodServicesDashboard: React.FC = () => {
   const [markupMaxPrice, setMarkupMaxPrice] = useState<number | "">("");
   const [savingMarkup, setSavingMarkup] = useState(false);
 
-  // modal list
   const [modalFoodsRaw, setModalFoodsRaw] = useState<FoodAPIItem[]>([]);
   const [modalLoading, setModalLoading] = useState(false);
   const [modalFetchedOnce, setModalFetchedOnce] = useState(false);
 
-  // ✅ Modal: fetch ALL food items
   const fetchAllFoodsForModal = async () => {
     setModalLoading(true);
     try {
-      // NOTE: If your backend requires a special "fetchall" endpoint, change this.
       const res = await axios.get(
         `${process.env.NEXT_PUBLIC_API_BASE}food-services/getall`
       );
@@ -254,14 +244,15 @@ const FoodServicesDashboard: React.FC = () => {
 
     setSavingMarkup(true);
     try {
-      // ✅ CHANGE this route/payload if your backend uses different keys
-      await axios.put(`${process.env.NEXT_PUBLIC_API_BASE}food-services/bulk-markup`, {
-        foodIds: selectedFoodIds,
-        markup_min_price: min,
-        markup_max_price: max,
-      });
+      await axios.put(
+        `${process.env.NEXT_PUBLIC_API_BASE}food-services/bulk-markup`,
+        {
+          foodIds: selectedFoodIds,
+          markup_min_price: min,
+          markup_max_price: max,
+        }
+      );
 
-      // Optional optimistic update if your API returns these fields / you store them
       setFoods((prev: any) =>
         prev.map((f: any) =>
           selectedFoodIds.includes(unwrapId(f._id))
@@ -287,7 +278,7 @@ const FoodServicesDashboard: React.FC = () => {
       );
 
       setOpenMarkupModal(false);
-      router.push("/dashboard/Food-service"); // ✅ change if your route differs
+      router.push("/dashboard/Food-service");
       router.refresh();
     } catch (e) {
       console.error("❌ bulk markup update error:", e);
@@ -325,7 +316,6 @@ const FoodServicesDashboard: React.FC = () => {
           sx={{ width: { xs: "100%", sm: 420 } }}
         />
 
-        {/* ✅ Same layout style as Rentals dashboard (Markup + 2 buttons) */}
         <Box
           sx={{
             display: "grid",
@@ -413,235 +403,97 @@ const FoodServicesDashboard: React.FC = () => {
             }}
           >
             {filtered.map((f) => {
-              const id = unwrapId(f._id as any);
-              const price = money(f.price);
+              const id = unwrapId(f._id as any) || f.name || "";
+              const img = mainImage({
+                banner: f.banner ?? undefined,
+                images: f.images,
+              });
+
+              const category = asCategory(f.category);
+              const spice = asSpice(f.spiceLevel as any);
               const cuisine = f.cuisine?.join(", ");
               const allergens = f.allergens?.join(", ");
               const diet = f.dietaryInfo || {};
-              const spice = asSpice(f.spiceLevel as string);
-              const category = asCategory(f.category);
+
+              // ✅ Explicitly typed so TS won't widen to string
+              const spiceColor: ServiceChip["color"] =
+                spice === "hot" || spice === "extra-hot"
+                  ? "error"
+                  : spice === "medium"
+                  ? "warning"
+                  : "default";
+
+              const availabilityColor: ServiceChip["color"] = f.isAvailable
+                ? "success"
+                : "default";
+
+              // ✅ Fully typed arrays
+              const topLeftChips: ServiceChip[] = [
+                chip({
+                  icon: <Restaurant />,
+                  label: money(f.price),
+                  color: "primary",
+                  sx: { bgcolor: "primary.main", color: "primary.contrastText" },
+                }),
+                chip({ icon: <LocalDining />, label: category }),
+                chip({ icon: <LocalFireDepartment />, label: spice, color: spiceColor }),
+              ];
+
+              const metaChips: ServiceChip[] = [
+                ...(cuisine
+                  ? [chip({ icon: <Fastfood fontSize="small" />, label: cuisine, color: "secondary" })]
+                  : []),
+
+                ...(diet.vegetarian ? [chip({ label: "Vegetarian", color: "success" })] : []),
+                ...(diet.vegan ? [chip({ label: "Vegan", color: "success" })] : []),
+                ...(diet.glutenFree ? [chip({ label: "Gluten-Free", color: "success" })] : []),
+                ...(diet.halal ? [chip({ label: "Halal", color: "success" })] : []),
+
+                ...(allergens ? [chip({ label: "Allergens", color: "warning" })] : []),
+
+                ...(typeof f.preparationTime === "number"
+                  ? [chip({ label: `~${f.preparationTime} min` })]
+                  : []),
+
+                chip({
+                  icon: f.isAvailable ? (
+                    <CheckCircle fontSize="small" />
+                  ) : (
+                    <Cancel fontSize="small" />
+                  ),
+                  label: f.isAvailable ? "Available" : "Unavailable",
+                  color: availabilityColor,
+                }),
+
+                ...(f.addons?.length ? [chip({ label: `${f.addons.length} add-ons` })] : []),
+              ];
 
               return (
-                <Card
+                <CommonServiceCard
                   key={id || f.name}
-                  sx={{ width: "100%", maxWidth: 450, mx: "auto" }}
-                >
-                  <Box sx={{ position: "relative" }}>
-                    <CardMedia
-                      component="img"
-                      image={mainImage({
-                        banner: f.banner ?? undefined,
-                        images: f.images,
-                      })}
-                      alt={f.name || "Food item"}
-                      sx={{
-                        objectFit: "cover",
-                        width: "100%",
-                        height: { xs: 200, sm: 180, md: 170 },
-                        borderRadius: 1,
-                      }}
-                    />
-
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        left: 8,
-                        top: 8,
-                        display: "flex",
-                        gap: 0.5,
-                        flexWrap: "wrap",
-                        maxWidth: "calc(100% - 16px)",
-                      }}
-                    >
-                      <Chip
-                        size="small"
-                        color="primary"
-                        icon={<Restaurant />}
-                        label={`${price}`}
-                        sx={{
-                          bgcolor: "primary.main",
-                          color: "primary.contrastText",
-                        }}
-                      />
-                      {category && (
-                        <Chip
-                          size="small"
-                          icon={<LocalDining />}
-                          label={category}
-                        />
-                      )}
-                      {spice && (
-                        <Chip
-                          size="small"
-                          icon={<LocalFireDepartment />}
-                          label={spice}
-                          color={
-                            spice === "hot" || spice === "extra-hot"
-                              ? "error"
-                              : spice === "medium"
-                              ? "warning"
-                              : "default"
-                          }
-                        />
-                      )}
-                    </Box>
-                  </Box>
-
-                  <CardContent sx={{ pb: 1, px: { xs: 1.5, sm: 2 } }}>
-                    <Stack
-                      direction="row"
-                      alignItems="center"
-                      justifyContent="space-between"
-                      spacing={1}
-                    >
-                      <Typography
-                        variant="h6"
-                        sx={{
-                          fontSize: { xs: "1rem", sm: "1.15rem" },
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          flex: 1,
-                        }}
-                        title={f.name}
-                      >
-                        {f.name}
-                      </Typography>
-
-                      {!!f.rating && (
-                        <Chip
-                          size="small"
-                          color="success"
-                          icon={<WorkspacePremium />}
-                          label={Number(f.rating).toFixed(1)}
-                        />
-                      )}
-                    </Stack>
-
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      mt={1}
-                      sx={{
-                        display: "-webkit-box",
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
-                        overflow: "hidden",
-                      }}
-                      title={f.description}
-                      dangerouslySetInnerHTML={{ __html: f.description ?? "" }}
-                    />
-
-                    <Stack spacing={1} mt={1}>
-                      {cuisine && (
-                        <Chip
-                          size="medium"
-                          icon={<Fastfood fontSize="small" />}
-                          label={cuisine}
-                          color="secondary"
-                          sx={{
-                            alignSelf: "flex-start",
-                            fontWeight: 600,
-                            px: { xs: 1.2, sm: 1.8 },
-                            borderRadius: 999,
-                            boxShadow: 1,
-                            fontSize: { xs: "0.75rem", sm: "0.8125rem" },
-                          }}
-                        />
-                      )}
-
-                      <Stack
-                        direction="row"
-                        spacing={0.75}
-                        flexWrap="wrap"
-                        sx={{ gap: 0.75 }}
-                      >
-                        {diet.vegetarian && (
-                          <Chip size="small" color="success" label="Vegetarian" />
-                        )}
-                        {diet.vegan && (
-                          <Chip size="small" color="success" label="Vegan" />
-                        )}
-                        {diet.glutenFree && (
-                          <Chip size="small" color="success" label="Gluten-Free" />
-                        )}
-                        {diet.halal && (
-                          <Chip size="small" color="success" label="Halal" />
-                        )}
-                        {allergens && (
-                          <Tooltip title={`Allergens: ${allergens}`}>
-                            <Chip size="small" color="warning" label="Allergens" />
-                          </Tooltip>
-                        )}
-                        {typeof f.preparationTime === "number" && (
-                          <Chip size="small" label={`~${f.preparationTime} min`} />
-                        )}
-                        <Chip
-                          size="small"
-                          color={f.isAvailable ? "success" : "default"}
-                          icon={
-                            f.isAvailable ? (
-                              <CheckCircle fontSize="small" />
-                            ) : (
-                              <Cancel fontSize="small" />
-                            )
-                          }
-                          label={f.isAvailable ? "Available" : "Unavailable"}
-                        />
-                        {!!f.addons?.length && (
-                          <Chip size="small" label={`${f.addons.length} add-ons`} />
-                        )}
-                      </Stack>
-                    </Stack>
-                  </CardContent>
-
-                  <CardActions
-                    sx={{
-                      justifyContent: "space-between",
-                      px: { xs: 1.5, sm: 2 },
-                      pb: { xs: 1.5, sm: 2 },
-                      pt: 0.5,
-                      flexDirection: { xs: "column", sm: "row" },
-                      alignItems: { xs: "stretch", sm: "center" },
-                      gap: { xs: 1, sm: 0 },
-                    }}
-                  >
-                    <Stack
-                      direction="row"
-                      spacing={1}
-                      sx={{ width: { xs: "100%", sm: "auto" } }}
-                    >
-                      <Button
-                        component={Link as any}
-                        href={`/dashboard/Food-service/editfoodservice`}
-                        onClick={() => handleEdit(f)}
-                        size="small"
-                        sx={{ flex: { xs: 1, sm: "initial" } }}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        color="error"
-                        size="small"
-                        sx={{ flex: { xs: 1, sm: "initial" } }}
-                        onClick={() => {
-                          setSelected(f);
-                          setConfirmOpen(true);
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </Stack>
-
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ textAlign: { xs: "center", sm: "right" } }}
-                    >
-                      {f.reviewCount ? `${f.reviewCount} reviews` : ""}
-                    </Typography>
-                  </CardActions>
-                </Card>
+                  id={id || f.name || ""}
+                  title={f.name || "—"}
+                  image={img}
+                  topLeftChips={topLeftChips}
+                  subtitleChip={
+                    f.rating
+                      ? chip({
+                          icon: <WorkspacePremium />,
+                          label: Number(f.rating).toFixed(1),
+                          color: "success",
+                        })
+                      : undefined
+                  }
+                  descriptionHtml={f.description ?? ""}
+                  metaChips={metaChips}
+                  footerRightText={f.reviewCount ? `${f.reviewCount} reviews` : ""}
+                  editHref="/dashboard/Food-service/editfoodservice"
+                  onEdit={() => handleEdit(f)}
+                  onDelete={() => {
+                    setSelected(f);
+                    setConfirmOpen(true);
+                  }}
+                />
               );
             })}
           </Box>
@@ -666,14 +518,7 @@ const FoodServicesDashboard: React.FC = () => {
         fullWidth
       >
         <DialogTitle sx={{ pb: 1 }}>
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 2,
-            }}
-          >
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
             <Box>
               <Typography variant="h6" sx={{ fontWeight: 900 }}>
                 Select Food Items
@@ -683,11 +528,7 @@ const FoodServicesDashboard: React.FC = () => {
               </Typography>
             </Box>
 
-            <Chip
-              label={`Selected: ${selectedFoodIds.length}`}
-              variant="outlined"
-              sx={{ fontWeight: 800 }}
-            />
+            <Chip label={`Selected: ${selectedFoodIds.length}`} variant="outlined" sx={{ fontWeight: 800 }} />
           </Box>
         </DialogTitle>
 
@@ -725,14 +566,7 @@ const FoodServicesDashboard: React.FC = () => {
               <Divider sx={{ mb: 2 }} />
 
               {modalLoading ? (
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    py: 6,
-                  }}
-                >
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", py: 6 }}>
                   <CircularProgress />
                 </Box>
               ) : (
@@ -780,18 +614,10 @@ const FoodServicesDashboard: React.FC = () => {
                         >
                           <CardMedia
                             component="img"
-                            image={mainImage({
-                              banner: f.banner ?? undefined,
-                              images: f.images,
-                            })}
+                            image={mainImage({ banner: f.banner ?? undefined, images: f.images })}
                             alt={f.name || "Food"}
                             loading="lazy"
-                            sx={{
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                              display: "block",
-                            }}
+                            sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
                           />
                         </Box>
 
@@ -835,9 +661,7 @@ const FoodServicesDashboard: React.FC = () => {
 
                   {!modalFoods.length && !modalLoading && (
                     <Box sx={{ gridColumn: "1 / -1", py: 4, textAlign: "center" }}>
-                      <Typography color="text.secondary">
-                        No food items found.
-                      </Typography>
+                      <Typography color="text.secondary">No food items found.</Typography>
                     </Box>
                   )}
                 </Box>
@@ -849,8 +673,7 @@ const FoodServicesDashboard: React.FC = () => {
                 Add markup for selected food items
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                This will update markup prices for{" "}
-                <b>{selectedFoodIds.length}</b> items.
+                This will update markup prices for <b>{selectedFoodIds.length}</b> items.
               </Typography>
 
               <Box
@@ -940,8 +763,7 @@ const FoodServicesDashboard: React.FC = () => {
         <DialogTitle>Delete Item</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete <strong>{selected?.name || "this item"}</strong>? This action
-            cannot be undone.
+            Delete <strong>{selected?.name || "this item"}</strong>? This action cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

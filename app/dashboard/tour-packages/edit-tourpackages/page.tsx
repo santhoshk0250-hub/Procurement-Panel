@@ -35,7 +35,7 @@ interface ThumbnailUI {
   preview?: string; // object URL if user selects a new file
   existingUrl?: string; // existing thumbnail url from API/store
 }
-
+type PriceMode = "min" | "max";
 interface ServiceUI {
   serviceId: string;
   serviceItemId: string;
@@ -49,6 +49,8 @@ interface ItineraryActivityUI {
   serviceItemId: string;
   itemModel: string;
   isRemovable: boolean;
+    useMinPrice: boolean; // ✅ NEW
+  useMaxPrice: boolean; // ✅ NEW
 }
 
 interface DayTimeSlotUI {
@@ -81,7 +83,7 @@ interface TourPackageUI {
   name: string;
   category: string;
   descriptionHtml: string;
-
+pricingMode: PriceMode; // ✅ NEW
   thumbnail: ThumbnailUI;
 
   minPax: string;
@@ -279,6 +281,31 @@ const getItemModelForTitle = (title: string) => {
 /* =========================
    Card content mapping
    ========================= */
+const getMinMaxPrice = (item: ServiceMetaItem) => {
+  const min = typeof item.markup_min_price === "number" ? item.markup_min_price : undefined;
+  const max = typeof item.markup_max_price === "number" ? item.markup_max_price : undefined;
+  return { min, max };
+};
+
+const formatPriceLabelFromChecks = (item: ServiceMetaItem, useMin: boolean, useMax: boolean) => {
+  const { min, max } = getMinMaxPrice(item);
+
+  if (!useMin && !useMax) return ""; // nothing selected
+
+  if (useMin && useMax) {
+    if (min != null && max != null) return `₹${min} - ₹${max}`;
+    if (min != null) return `From ₹${min}`;
+    if (max != null) return `Up to ₹${max}`;
+    return "";
+  }
+
+  if (useMin) return min != null ? `From ₹${min}` : "";
+  if (useMax) return max != null ? `Up to ₹${max}` : "";
+
+  return "";
+};
+
+
 
 const getServiceCardContent = (categoryKey: string, item: ServiceMetaItem) => {
   const key = categoryKey || "";
@@ -454,6 +481,8 @@ const BLANK_IT_ACTIVITY: ItineraryActivityUI = {
   serviceItemId: "",
   itemModel: "",
   isRemovable: true,
+    useMinPrice: true,   // ✅ default can be anything, will be overridden on add
+  useMaxPrice: false,
 };
 
 const BLANK_IT_DAY: ItineraryDayUI = {
@@ -469,7 +498,7 @@ const BLANK_TOUR_PACKAGE: TourPackageUI = {
   category: "Luxury",
   descriptionHtml: "",
   thumbnail: { file: null, existingUrl: "" },
-
+pricingMode: "min", // ✅ default
   minPax: "1",
   maxPax: "0",
   totalDays: "1",
@@ -559,13 +588,27 @@ function mapStoreToUI(pkg: PackageModel): TourPackageUI {
           isRemovable = fromInclusions;
         }
 
+const rootMode: PriceMode = pkg?.markup_price_mode === "max" ? "max" : "min";
 
-        slot.activities.push({
-          serviceId: "", // categoryId will be resolved when user opens picker (optional)
-          serviceItemId: a?.serviceItemId || "",
-          itemModel: a?.type || "",
-          isRemovable,
-        });
+const useMin =
+  typeof a?.markup_minprice === "boolean"
+    ? a.markup_minprice
+    : rootMode === "min";
+
+const useMax =
+  typeof a?.markup_maxprice === "boolean"
+    ? a.markup_maxprice
+    : rootMode === "max";
+
+slot.activities.push({
+  serviceId: "", // can be inferred later
+  serviceItemId: a?.serviceItemId || "",
+  itemModel: a?.type || "",
+  isRemovable,
+  useMinPrice: useMin,
+  useMaxPrice: useMax,
+});
+
       }
 
       // If no activities, keep defaults
@@ -603,6 +646,7 @@ function mapStoreToUI(pkg: PackageModel): TourPackageUI {
     name: pkg?.name || "",
     category: pkg?.category || "Luxury",
     descriptionHtml: pkg?.description || "",
+    pricingMode: (pkg?.markup_price_mode === "max" ? "max" : "min"),
     thumbnail: {
       file: null,
       preview: undefined,
@@ -654,6 +698,27 @@ export default function EditTourPackagePage() {
     if (!el) return;
     el.scrollTo({ left: 0, behavior: "smooth" });
   };
+
+
+  const setPricingMode = (mode: PriceMode) => {
+  setData((prev) => ({
+    ...prev,
+    pricingMode: mode,
+    itinerary: (prev.itinerary || []).map((day) => ({
+      ...day,
+      timeSlots: (day.timeSlots || []).map((slot) => ({
+        ...slot,
+        activities: (slot.activities || []).map((a) => ({
+          ...a,
+          useMinPrice: mode === "min",
+          useMaxPrice: mode === "max",
+        })),
+      })),
+    })),
+  }));
+};
+
+
 
   const scrollTabsToEnd = () => {
     const el = tabsScrollRef.current;
@@ -954,18 +1019,31 @@ export default function EditTourPackagePage() {
   // ✅ Prefill selections from this SLOT's existing activities
   const day = data.itinerary?.[dayIdx];
   const slot = day?.timeSlots?.[slotIdx];
+const preselected =
+  (slot?.activities || [])
+    .filter((a) => a.serviceItemId)
+    .map((a) => {
+      // If serviceId exists, use it
+      let categoryId = a.serviceId;
 
-  const preselected =
-    (slot?.activities || [])
-      .filter((a) => a.serviceId && a.serviceItemId)
-      .map((a) => {
-        const cat = serviceCategories.find((c) => c._id === a.serviceId);
-        return {
-          categoryId: a.serviceId,
-          categoryTitle: cat?.title || "",
-          itemId: a.serviceItemId,
-        };
-      });
+      // Otherwise infer from itemModel
+      if (!categoryId && a.itemModel) {
+        const inferred = serviceCategories.find(
+          (c) => (ITEM_MODEL_BY_TITLE[c.title] ?? getItemModelForTitle(c.title)) === a.itemModel
+        );
+        if (inferred?._id) categoryId = inferred._id;
+      }
+
+      const cat = serviceCategories.find((c) => c._id === categoryId);
+
+      return {
+        categoryId: categoryId || "",
+        categoryTitle: cat?.title || "",
+        itemId: a.serviceItemId,
+      };
+    })
+    .filter((x) => x.categoryId && x.itemId);
+
 
   setServicePicker({
     open: true,
@@ -1002,11 +1080,22 @@ export default function EditTourPackagePage() {
           timeSlots: day.timeSlots.map((slot, sIdx) => {
             if (sIdx !== servicePicker.slotIdx) return slot;
 
-            const newActs: ItineraryActivityUI[] = selections.map((sel) => {
-              const cat = serviceCategories.find((c) => c._id === sel.categoryId);
-              const itemModel = cat ? ITEM_MODEL_BY_TITLE[cat.title] ?? getItemModelForTitle(cat.title) : "";
-              return { ...BLANK_IT_ACTIVITY, serviceId: sel.categoryId, serviceItemId: sel.itemId, itemModel };
-            });
+           const newActs: ItineraryActivityUI[] = selections.map((sel) => {
+  const cat = serviceCategories.find((c) => c._id === sel.categoryId);
+  const itemModel = cat ? (ITEM_MODEL_BY_TITLE[cat.title] ?? getItemModelForTitle(cat.title)) : "";
+
+  const mode: PriceMode = prev.pricingMode === "max" ? "max" : "min";
+
+  return {
+    ...BLANK_IT_ACTIVITY,
+    serviceId: sel.categoryId,
+    serviceItemId: sel.itemId,
+    itemModel,
+    useMinPrice: mode === "min",
+    useMaxPrice: mode === "max",
+  };
+});
+
 
             return { ...slot, activities: [...(slot.activities || []), ...newActs] };
           }),
@@ -1073,7 +1162,7 @@ export default function EditTourPackagePage() {
 
         start_date: data.startDate || undefined,
         end_date: data.endDate || undefined,
-
+markup_price_mode: data.pricingMode,
         min_pax: Number(data.minPax) || 0,
         max_pax: Number(data.maxPax) || 0,
         total_days: Number(data.totalDays) || 0,
@@ -1111,11 +1200,13 @@ export default function EditTourPackagePage() {
                 activities: (s.activities || [])
                   .filter((a) => a.itemModel || a.serviceItemId)
                   .map((a) => ({
-                    serviceId: a.serviceId || undefined,
-                    serviceItemId: a.serviceItemId || undefined,
-                    itemModel: a.itemModel || undefined,
-                    isRemovable: a.isRemovable,
-                  })),
+                      serviceId: a.serviceId || undefined,
+                      serviceItemId: a.serviceItemId || undefined,
+                      itemModel: a.itemModel || undefined,
+                      isRemovable: a.isRemovable,
+                      useMinPrice: !!a.useMinPrice,
+                      useMaxPrice: !!a.useMaxPrice,
+                    }))
               })),
           };
         }),
@@ -1323,6 +1414,43 @@ export default function EditTourPackagePage() {
                     disabled={submitting}
                   />
                 </Field>
+
+                <Field label="Service Price Mode">
+  <div className="inline-flex rounded-xl border border-gray-300 overflow-hidden shadow-sm">
+    <button
+      type="button"
+      disabled={submitting}
+      onClick={() => setPricingMode("min")}
+      className={[
+        "px-4 py-2 text-sm font-semibold transition",
+        data.pricingMode === "min"
+          ? "bg-emerald-600 text-white"
+          : "bg-white text-gray-700 hover:bg-gray-50",
+      ].join(" ")}
+    >
+      Min Markup Price
+    </button>
+
+    <button
+      type="button"
+      disabled={submitting}
+      onClick={() => setPricingMode("max")}
+      className={[
+        "px-4 py-2 text-sm font-semibold transition border-l border-gray-300",
+        data.pricingMode === "max"
+          ? "bg-emerald-600 text-white"
+          : "bg-white text-gray-700 hover:bg-gray-50",
+      ].join(" ")}
+    >
+      Max Markup Price
+    </button>
+  </div>
+
+  <p className="text-[11px] text-gray-500 mt-1">
+    Default checkboxes for newly added itinerary services.
+  </p>
+</Field>
+
                   <Field label="Markup Min Price (₹)">
                                     <div className="relative">
                                       <input
@@ -1605,7 +1733,17 @@ export default function EditTourPackagePage() {
                                       const itemsForCategory = metaKey && servicesMeta[metaKey] ? servicesMeta[metaKey] : [];
                                       const selectedItem = itemsForCategory.find((item) => item._id === a.serviceItemId);
 
-                                      const card = selectedItem ? getServiceCardContent(metaKey, selectedItem) : null;
+                                    
+                                      const card = selectedItem
+                                          ? getServiceCardContent(metaKey, selectedItem)
+                                          : null;
+
+                                        // ✅ override price label using min/max checkboxes
+                                        const priceLabel =
+                                          selectedItem
+                                            ? (formatPriceLabelFromChecks(selectedItem, a.useMinPrice, a.useMaxPrice) || card?.priceLabel || "")
+                                            : (card?.priceLabel || "");
+
 
                                       return (
                                         <div key={`${idx}-${slotIdx}-${aIdx}`} className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -1641,11 +1779,12 @@ export default function EditTourPackagePage() {
                                               </p>
 
                                               <div className="flex items-center gap-2 mt-2 flex-wrap">
-                                                {card?.priceLabel && (
-                                                  <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                                                    {card.priceLabel}
-                                                  </span>
-                                                )}
+                                              {priceLabel && (
+  <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+    {priceLabel}
+  </span>
+)}
+
 
                                                 <label className="inline-flex items-center gap-2 text-[11px] text-gray-700 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">
                                                   <input
@@ -1657,6 +1796,40 @@ export default function EditTourPackagePage() {
                                                   />
                                                   Customer can remove
                                                 </label>
+
+                                                <label className="inline-flex items-center gap-2 text-[11px] text-gray-700 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">
+<input
+  type="checkbox"
+  className="h-3.5 w-3.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+  checked={!!a.useMinPrice}
+onChange={(e) =>
+  updateItineraryActivity(idx, slotIdx, aIdx, {
+    useMinPrice: e.target.checked,
+    useMaxPrice: e.target.checked ? false : a.useMaxPrice,
+  })
+}
+  disabled={submitting}
+/>
+
+  Min Markup price
+</label>
+
+<label className="inline-flex items-center gap-2 text-[11px] text-gray-700 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">
+<input
+  type="checkbox"
+  className="h-3.5 w-3.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+  checked={!!a.useMaxPrice}
+onChange={(e) =>
+  updateItineraryActivity(idx, slotIdx, aIdx, {
+    useMaxPrice: e.target.checked,
+    useMinPrice: e.target.checked ? false : a.useMinPrice,
+  })
+}
+  disabled={submitting}
+/>
+  Max Markup price
+</label>
+
                                               </div>
                                             </div>
                                           </div>

@@ -9,13 +9,6 @@ import {
   Button,
   TextField,
   InputAdornment,
-  Card,
-  CardMedia,
-  CardContent,
-  CardActions,
-  IconButton,
-  Chip,
-  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -23,22 +16,22 @@ import {
   DialogActions,
   CircularProgress,
   Pagination,
-  Stack,
-  Rating,
 } from "@mui/material";
 import {
   Search,
   Place as PlaceIcon,
-  Map as MapIcon,
-  Image as ImageIcon,
   Category as CategoryIcon,
   AccessTime as AccessTimeIcon,
   AddCircleOutline,
-  ContentCopy,
-  Link as LinkIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
+  Star as StarIcon,
 } from "@mui/icons-material";
+
+import CommonServiceCard, {
+  type ServiceChip,
+} from "@/components/dashboard/CommonServiceCard";
+
 import { useSightseeingPlaceStore } from "@/store/usesightseeingplace";
 
 /* ================== Types ================== */
@@ -47,13 +40,11 @@ export type IDType = string | { $oid: string } | undefined;
 export interface SightPlace {
   _id?: IDType;
 
-  // Core
   name?: string;
-  type?: string;          // beach, fort, etc.
-  category?: string;      // heritage, nature, popular, etc.
+  type?: string;
+  category?: string;
   area?: string;
 
-  // Location
   location?: {
     city?: string;
     state?: string;
@@ -62,7 +53,6 @@ export interface SightPlace {
     longitude?: number;
   };
 
-  // Hours (new + legacy support)
   hours?:
     | string
     | {
@@ -72,11 +62,9 @@ export interface SightPlace {
         days?: string;
       };
 
-  // Map URLs (new + old)
   mapUrl?: string;
   map_url?: string;
 
-  // Duration (new + legacy)
   duration?:
     | string
     | {
@@ -86,12 +74,10 @@ export interface SightPlace {
       };
   estimated_duration?: string;
 
-  // Text fields (new + legacy)
   description?: string;
   desc?: string;
   history?: string;
 
-  // Price (new + legacy)
   price?:
     | string
     | {
@@ -102,7 +88,6 @@ export interface SightPlace {
   price_source?: string;
   source_citation?: string;
 
-  // Media / extras
   images?: string[];
   highlights?: string[];
   tips?: string[];
@@ -114,15 +99,6 @@ export interface SightPlace {
   };
   rating?: number;
   reviewCount?: number;
-  itinerary?: Array<{
-    time?: string;
-    title?: string;
-    description?: string;
-  }>;
-  nearbyPlaces?: Array<{
-    name?: string;
-    distance?: string;
-  }>;
 
   [key: string]: any;
 }
@@ -134,13 +110,9 @@ const unwrapId = (id?: IDType) =>
 const fallbackImg =
   "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?q=80&w=1600&auto=format&fit=crop";
 
-const heroImage = (p: SightPlace) =>
-  p.images?.[0] ? p.images[0] : fallbackImg;
+const heroImage = (p: SightPlace) => (p.images?.[0] ? p.images[0] : fallbackImg);
 
-const getMapUrl = (p: SightPlace) => p.mapUrl || p.map_url || "";
-
-const getDescription = (p: SightPlace) =>
-  p.desc || p.description || p.history || "";
+const getDescription = (p: SightPlace) => p.desc || p.description || p.history || "";
 
 const getDurationText = (p: SightPlace) => {
   if (typeof p.duration === "string") return p.duration;
@@ -152,11 +124,8 @@ const getHoursText = (p: SightPlace) => {
   if (typeof p.hours === "string") return p.hours;
   if (p.hours) {
     const parts: string[] = [];
-    if (p.hours.open && p.hours.close) {
-      parts.push(`${p.hours.open} – ${p.hours.close}`);
-    } else if (p.hours.open) {
-      parts.push(p.hours.open);
-    }
+    if (p.hours.open && p.hours.close) parts.push(`${p.hours.open} – ${p.hours.close}`);
+    else if (p.hours.open) parts.push(p.hours.open);
     if (p.hours.days) parts.push(p.hours.days);
     if (p.hours.note) parts.push(p.hours.note);
     return parts.join(" • ");
@@ -175,6 +144,9 @@ const getLocationText = (p: SightPlace) => {
   return [city, state, country].filter(Boolean).join(", ");
 };
 
+// ✅ prevents TS widening (color becomes literal union instead of string)
+const chip = (c: ServiceChip) => c;
+
 /* ================== Component ================== */
 const SightseeingDashboard: React.FC = () => {
   const [search, setSearch] = useState("");
@@ -183,7 +155,8 @@ const SightseeingDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState<number>(1);
   const [pages, setPages] = useState<number>(1);
-  const { setSightseeingPlace } = useSightseeingPlaceStore ();
+
+  const { setSightseeingPlace } = useSightseeingPlaceStore();
 
   const fetchPlaces = async (pageNum: number) => {
     setLoading(true);
@@ -193,12 +166,8 @@ const SightseeingDashboard: React.FC = () => {
       );
 
       const data = res.data;
-      const fetched: SightPlace[] = Array.isArray(data)
-        ? data
-        : data.items || data.data || [];
-
-      const totalPages =
-        data.totalPages ?? data.pagination?.pages ?? 1;
+      const fetched: SightPlace[] = Array.isArray(data) ? data : data.items || data.data || [];
+      const totalPages = data.totalPages ?? data.pagination?.pages ?? 1;
 
       setItems(Array.isArray(fetched) ? fetched : []);
       setPages(Number(totalPages) || 1);
@@ -246,27 +215,13 @@ const SightseeingDashboard: React.FC = () => {
     if (!selected) return;
     try {
       await axios.delete(
-        `${process.env.NEXT_PUBLIC_API_BASE}sightseeing-places/delete/${unwrapId(
-          selected._id
-        )}`
+        `${process.env.NEXT_PUBLIC_API_BASE}sightseeing-places/delete/${unwrapId(selected._id)}`
       );
-      setItems((prev) =>
-        prev.filter(
-          (x) => unwrapId(x._id) !== unwrapId(selected._id)
-        )
-      );
+      setItems((prev) => prev.filter((x) => unwrapId(x._id) !== unwrapId(selected._id)));
       setSelected(null);
     } catch (e) {
       console.error("Delete failed:", e);
       alert("Failed to delete place");
-    }
-  };
-
-  const copyId = async (id?: string) => {
-    try {
-      if (id) await navigator.clipboard.writeText(id);
-    } catch {
-      // no-op if clipboard unavailable
     }
   };
 
@@ -304,55 +259,12 @@ const SightseeingDashboard: React.FC = () => {
           sx={{ width: { xs: "100%", sm: 360 } }}
         />
 
-        {/* Mobile button */}
         <Button
           href="/dashboard/Sightseeing/places/addplaces"
           component={Link as any}
           variant="contained"
           startIcon={<AddCircleOutline />}
-          fullWidth
-          sx={{
-            display: { xs: "inline-flex", sm: "none" },
-            px: 2.25,
-            py: 1.1,
-            fontWeight: 600,
-            textTransform: "none",
-            borderRadius: 2.5,
-            background:
-              "linear-gradient(135deg, #1976D2 0%, #42A5F5 100%)",
-            boxShadow: "0 6px 18px rgba(25,118,210,0.25)",
-            ":hover": {
-              background:
-                "linear-gradient(135deg, #1565C0 0%, #1E88E5 100%)",
-              boxShadow: "0 8px 22px rgba(25,118,210,0.35)",
-            },
-          }}
-        >
-          Add Place
-        </Button>
-
-        {/* Desktop button */}
-        <Button
-          href="/dashboard/Sightseeing/places/addplaces"
-          component={Link as any}
-          variant="contained"
-          startIcon={<AddCircleOutline />}
-          sx={{
-            display: { xs: "none", sm: "inline-flex" },
-            px: 2.25,
-            py: 1.1,
-            fontWeight: 600,
-            textTransform: "none",
-            borderRadius: 2.5,
-            background:
-              "linear-gradient(135deg, #1976D2 0%, #42A5F5 100%)",
-            boxShadow: "0 6px 18px rgba(25,118,210,0.25)",
-            ":hover": {
-              background:
-                "linear-gradient(135deg, #1565C0 0%, #1E88E5 100%)",
-              boxShadow: "0 8px 22px rgba(25,118,210,0.35)",
-            },
-          }}
+          sx={{ height: 40, fontWeight: 700 }}
         >
           Add Place
         </Button>
@@ -393,14 +305,7 @@ const SightseeingDashboard: React.FC = () => {
             component={Link as any}
             variant="contained"
             startIcon={<AddCircleOutline />}
-            sx={{
-              mt: 2,
-              px: 2.25,
-              py: 1.1,
-              fontWeight: 600,
-              textTransform: "none",
-              borderRadius: 2.5,
-            }}
+            sx={{ mt: 2, height: 40, fontWeight: 700 }}
           >
             Add Your First Place
           </Button>
@@ -420,302 +325,121 @@ const SightseeingDashboard: React.FC = () => {
             }}
           >
             {filtered.map((p) => {
-              const id = unwrapId(p._id);
+              const id = unwrapId(p._id) || p.name || "";
               const img = heroImage(p);
+
               const hoursText = getHoursText(p);
               const durationText = getDurationText(p);
               const priceText = getPriceText(p);
-              const mapHref = getMapUrl(p);
-              const description = getDescription(p);
               const locationText = getLocationText(p);
 
+              const desc = (getDescription(p) || "").trim();
+              const descShort = desc.length > 140 ? `${desc.slice(0, 140).trim()}…` : desc || "—";
+
+              const topLeftChips: ServiceChip[] = [
+                ...(p.type
+                  ? [
+                      chip({
+                        icon: <CategoryIcon fontSize="small" />,
+                        label: p.type,
+                        color: "primary",
+                        sx: { bgcolor: "primary.main", color: "primary.contrastText" },
+                      }),
+                    ]
+                  : []),
+                ...(p.category
+                  ? [
+                      chip({
+                        label: p.category,
+                      }),
+                    ]
+                  : []),
+                ...(typeof p.rating === "number"
+                  ? [
+                      chip({
+                        icon: <StarIcon fontSize="small" />,
+                        label: `${p.rating.toFixed(1)}${
+                          p.reviewCount ? ` (${p.reviewCount.toLocaleString()})` : ""
+                        }`,
+                      }),
+                    ]
+                  : []),
+              ];
+
+              const subtitleChip: ServiceChip = chip({
+                icon: <PlaceIcon fontSize="small" />,
+                label: locationText || "—",
+              });
+
+              const metaChips: ServiceChip[] = [
+                ...(hoursText
+                  ? [
+                      chip({
+                        icon: <AccessTimeIcon fontSize="small" />,
+                        label: hoursText,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+                ...(durationText
+                  ? [
+                      chip({
+                        icon: <AccessTimeIcon fontSize="small" />,
+                        label: `Duration: ${durationText}`,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+                ...(priceText
+                  ? [
+                      chip({
+                        icon: <MapIconShim />,
+                        label: priceText,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+                ...(p.bestTimeToVisit
+                  ? [
+                      chip({
+                        label: p.bestTimeToVisit,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+                ...(p.accessibility?.difficultyLevel
+                  ? [
+                      chip({
+                        label: `Difficulty: ${p.accessibility.difficultyLevel}`,
+                        variant: "outlined",
+                      }),
+                    ]
+                  : []),
+              ];
+
               return (
-                <Card
-                  key={id || p.name || Math.random()}
-                  sx={{
-                    display: "flex",
-                    flexDirection: "column",
-                    borderRadius: 3,
-                    overflow: "hidden",
-                    boxShadow:
-                      "0 8px 24px rgba(15,23,42,0.08)",
-                    transition: "all 0.2s ease",
-                    "&:hover": {
-                      transform: "translateY(-3px)",
-                      boxShadow:
-                        "0 14px 32px rgba(15,23,42,0.16)",
-                    },
+                <CommonServiceCard
+                  key={id}
+                  id={id}
+                  title={p.name || "—"}
+                  image={img}
+                  subtitleChip={subtitleChip}
+                  description={descShort}
+                  topLeftChips={topLeftChips}
+                  topRightChips={[]}
+                  metaChips={metaChips}
+                  editHref="/dashboard/Sightseeing/places/editplaces"
+                  onEdit={() => handleEdit(p)}
+                  onDelete={() => {
+                    setSelected(p);
+                    setConfirmOpen(true);
                   }}
-                >
-                  <Box sx={{ position: "relative" }}>
-                    <CardMedia
-                      component="img"
-                      image={img}
-                      alt={p.name || "Place"}
-                      sx={{
-                        objectFit: "cover",
-                        width: "100%",
-                        height: 180,
-                      }}
-                    />
-
-                    {/* top-left chips */}
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        left: 8,
-                        top: 8,
-                        display: "flex",
-                        gap: 0.5,
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      {p.type && (
-                        <Chip
-                          size="small"
-                          color="primary"
-                          icon={<CategoryIcon />}
-                          label={p.type}
-                          sx={{ bgcolor: "primary.main" }}
-                        />
-                      )}
-                      {p.category && (
-                        <Chip
-                          size="small"
-                          color="default"
-                          label={p.category}
-                          sx={{
-                            bgcolor:
-                              "rgba(15,23,42,0.7)",
-                            color: "common.white",
-                          }}
-                        />
-                      )}
-                    </Box>
-
-                    {/* rating badge */}
-                    {typeof p.rating === "number" && (
-                      <Box
-                        sx={{
-                          position: "absolute",
-                          right: 8,
-                          bottom: 8,
-                          bgcolor: "rgba(0,0,0,0.7)",
-                          borderRadius: 999,
-                          px: 1.2,
-                          py: 0.4,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 0.5,
-                        }}
-                      >
-                        <Rating
-                          value={p.rating}
-                          precision={0.1}
-                          readOnly
-                          size="small"
-                        />
-                        <Typography
-                          variant="caption"
-                          color="common.white"
-                          sx={{ fontWeight: 600 }}
-                        >
-                          {p.rating.toFixed(1)}
-                          {p.reviewCount
-                            ? ` · ${p.reviewCount.toLocaleString()}`
-                            : ""}
-                        </Typography>
-                      </Box>
-                    )}
-                  </Box>
-
-                  <CardContent sx={{ pb: 1.5, flexGrow: 1 }}>
-                    {/* Title + id copy */}
-                    <Stack
-                      direction="row"
-                      alignItems="center"
-                      justifyContent="space-between"
-                      spacing={1}
-                    >
-                      <Box sx={{ minWidth: 0 }}>
-                        <Typography
-                          variant="h6"
-                          noWrap
-                          title={p.name || "Place"}
-                        >
-                          {p.name || "—"}
-                        </Typography>
-                        {locationText && (
-                          <Stack
-                            direction="row"
-                            spacing={0.5}
-                            alignItems="center"
-                            mt={0.3}
-                          >
-                            <PlaceIcon
-                              sx={{
-                                fontSize: 15,
-                                color: "text.secondary",
-                              }}
-                            />
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              noWrap
-                            >
-                              {locationText}
-                            </Typography>
-                          </Stack>
-                        )}
-                      </Box>
-                    </Stack>
-
-                    {/* Meta chips */}
-                    <Stack
-                      direction="row"
-                      spacing={1}
-                      mt={1}
-                      flexWrap="wrap"
-                      rowGap={0.75}
-                    >
-                      {hoursText && (
-                        <Chip
-                          size="small"
-                          icon={
-                            <AccessTimeIcon
-                              sx={{ fontSize: 16 }}
-                            />
-                          }
-                          label={hoursText}
-                          variant="outlined"
-                        />
-                      )}
-                      {durationText && (
-                        <Chip
-                          size="small"
-                          icon={
-                            <AccessTimeIcon
-                              sx={{ fontSize: 16 }}
-                            />
-                          }
-                          label={`Duration: ${durationText}`}
-                          variant="outlined"
-                        />
-                      )}
-                      {priceText && (
-                        <Chip
-                          size="small"
-                          icon={
-                            <ImageIcon
-                              sx={{ fontSize: 16 }}
-                            />
-                          }
-                          label={priceText}
-                          variant="outlined"
-                        />
-                      )}
-                      {p.bestTimeToVisit && (
-                        <Chip
-                          size="small"
-                          label={p.bestTimeToVisit}
-                          variant="outlined"
-                        />
-                      )}
-                      {p.accessibility?.difficultyLevel && (
-                        <Chip
-                          size="small"
-                          label={`Difficulty: ${p.accessibility.difficultyLevel}`}
-                          variant="outlined"
-                        />
-                      )}
-                    </Stack>
-
-                    {/* Highlights (few only) */}
-                    {p.highlights && p.highlights.length > 0 && (
-                      <Stack
-                        direction="row"
-                        spacing={0.75}
-                        mt={1}
-                        flexWrap="wrap"
-                        rowGap={0.75}
-                      >
-                        {p.highlights
-                          .slice(0, 3)
-                          .map((h, idx) => (
-                            <Chip
-                              key={idx}
-                              size="small"
-                              label={h}
-                              variant="filled"
-                              sx={{
-                                bgcolor:
-                                  "rgba(25,118,210,0.06)",
-                              }}
-                            />
-                          ))}
-                      </Stack>
-                    )}
-                  </CardContent>
-
-                  <CardActions
-                    sx={{
-                      justifyContent: "space-between",
-                      px: 2,
-                      pb: 2,
-                      pt: 0.5,
-                    }}
-                  >
-                    <Stack direction="row" spacing={1}>
-                      <Button
-                        key="edit"
-                        component={Link as any}
-                        href={`/dashboard/Sightseeing/places/editplaces`}
-                        onClick={() => handleEdit(p)}
-                        size="small"
-                        startIcon={<EditIcon />}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        color="error"
-                        size="small"
-                        startIcon={<DeleteIcon />}
-                        onClick={() => {
-                          setSelected(p);
-                          setConfirmOpen(true);
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </Stack>
-
-                    {mapHref ? (
-                      <Tooltip title="Open in Google Maps">
-                        <IconButton
-                          href={mapHref}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <MapIcon />
-                        </IconButton>
-                      </Tooltip>
-                    ) : (
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                      >
-                        &nbsp;
-                      </Typography>
-                    )}
-                  </CardActions>
-                </Card>
+                />
               );
             })}
           </Box>
 
-          <Box
-            sx={{ display: "flex", justifyContent: "center", mt: 4 }}
-          >
+          <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
             <Pagination
               count={pages}
               page={page}
@@ -727,23 +451,15 @@ const SightseeingDashboard: React.FC = () => {
       )}
 
       {/* Delete Confirmation */}
-      <Dialog
-        open={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
-      >
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
         <DialogTitle>Delete Place</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete{" "}
-            <strong>{selected?.name || "this place"}</strong>? This
-            action cannot be undone.
+            Delete <strong>{selected?.name || "this place"}</strong>? This action cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button
-            onClick={() => setConfirmOpen(false)}
-            color="inherit"
-          >
+          <Button onClick={() => setConfirmOpen(false)} color="inherit">
             Cancel
           </Button>
           <Button
@@ -763,3 +479,11 @@ const SightseeingDashboard: React.FC = () => {
 };
 
 export default SightseeingDashboard;
+
+/**
+ * ✅ Small shim icon so we don't import extra icons just for one chip.
+ * Replace with any icon you prefer (e.g. LocalOffer, Paid, etc).
+ */
+function MapIconShim() {
+  return <span style={{ display: "inline-block", width: 10 }} />;
+}
