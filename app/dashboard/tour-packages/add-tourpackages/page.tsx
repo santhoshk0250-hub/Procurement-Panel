@@ -31,6 +31,29 @@ import TinyMCETextEditor from "@/components/TinyMCETextEditor";
 
 type IDType = string | { $oid: string };
 
+type InclusionTabKey = "pickupanddrop" | "rentals" | "foodservices" ;
+type MealKey = "breakfast" | "lunch" | "dinner";
+
+type InclusionSingleSelection = {
+  serviceId: string;       // category id from /services
+  serviceItemId: string;   // selected item _id from servicesMeta
+  itemModel: string;       // mapped model
+  useMinPrice: boolean;    // ✅ NEW
+  useMaxPrice: boolean;    // ✅ NEW
+} | null;
+
+type FoodMealItemSelection = {
+  serviceItemId: string;
+  useMinPrice: boolean;
+  useMaxPrice: boolean;
+};
+
+type FoodDayPlanUI = {
+  dateIso: string; // YYYY-MM-DD
+  dayIndex: number; // 0-based
+  meals: Record<MealKey, FoodMealItemSelection[]>;
+};
+
 interface ThumbnailUI {
   file: File | null;
   preview?: string;
@@ -47,6 +70,25 @@ interface ServiceUI {
 
 
 
+type HotelRatePlanUI = {
+  plan_name: string;
+  price: number;
+  cancellation_policy?: string;
+};
+
+type SelectedHotelUI = {
+  hotelItemId: string;          // hotel._id from servicesMeta.hotels
+  hotel_id: string;             // hotel.hotel_id
+  property_name: string;
+
+  room_id: string;              // rooms[].room_id
+  room_type: string;            // rooms[].room_type
+  occupancy_min?: number;
+  occupancy_max?: number;
+
+  rate_plan: HotelRatePlanUI;   // chosen plan
+  currency: string;             // rooms[].pricing.currency
+};
 
 
 interface ItineraryActivityUI {
@@ -93,9 +135,8 @@ interface TourPackageUI {
   name: string;
   category: string;
   descriptionHtml: string;
-
   thumbnail: ThumbnailUI;
-pricingMode: PriceMode;
+  pricingMode: PriceMode;
   minPax: string;
   maxPax: string;
   totalDays: string;
@@ -103,16 +144,23 @@ pricingMode: PriceMode;
   surcharges: Surcharge[];
   startDate: string; // "YYYY-MM-DD"
   endDate: string;
+   useStartAsCheckIn: boolean; // ✅ NEW
+  checkInDate: string;
   services: ServiceUI[];
-markup_min_price: number;
+  markup_min_price: number;
   markup_max_price: number;
-
   itinerary: ItineraryDayUI[];
-
   exclusions: string[];
-
   hasTourGuide: boolean;
   hasTransport: boolean;
+   selectedHotelId: string | null;    
+  selectedHotelCategoryId: string | null;
+  selectedHotel: SelectedHotelUI | null; 
+    inclusions: {
+    pickupanddrop: InclusionSingleSelection;
+    rentals: InclusionSingleSelection;
+    foodPlan: FoodDayPlanUI[];
+  };
 }
 
 /* 🔹 services API response type */
@@ -225,6 +273,38 @@ const ITEM_MODEL_BY_TITLE: Record<string, string> = {
 /* =========================
    Robust helpers (fix Hotels not showing)
    ========================= */
+const isoToDate = (iso: string) => {
+  // avoid timezone shifting by pinning to midnight
+  return new Date(`${iso}T00:00:00`);
+};
+
+const calcInclusiveDays = (startIso?: string, endIso?: string) => {
+  if (!startIso || !endIso) return 0;
+  const start = isoToDate(startIso);
+  const end = isoToDate(endIso);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
+  if (end < start) return 0;
+
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const diff = Math.round((end.getTime() - start.getTime()) / MS_PER_DAY);
+  return diff + 1; // ✅ inclusive
+};
+
+// Ensure day has slots with stable ids (and avoid sharing slot objects across days)
+const ensureDaySlots = (day: ItineraryDayUI): ItineraryDayUI => {
+  const hasSlots = Array.isArray(day.timeSlots) && day.timeSlots.length > 0;
+  if (hasSlots) return day;
+
+  return {
+    ...day,
+    timeSlots: DEFAULT_DAY_SLOTS.map((s) => ({
+      id: crypto.randomUUID(), // fresh id
+      from: s.from,
+      to: s.to,
+      activities: [],
+    })),
+  };
+};
 
 const normalizeTitle = (t: string) => (t || "").trim().toLowerCase();
 
@@ -287,309 +367,6 @@ const normalizeKey = (v: string) =>
     .trim()
     .replace(/&/g, "and")
     .replace(/[^a-z0-9]+/g, "");
-
-function DayTimeSlotPicker({
-  value,
-  onChange,
-  onSlotAdded,   // ✅ NEW: open modal automatically
-  dayIdx,
-  disabled,
-}: {
-  value: DayTimeSlotUI[];
-  onChange: (next: DayTimeSlotUI[]) => void;
-  onSlotAdded: (dayIdx: number, slotIdx: number) => void;
-  dayIdx: number;
-  disabled?: boolean;
-}) {
-  const pad2 = (n: number) => String(n).padStart(2, "0");
-
-  const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
-  const MINUTES = Array.from({ length: 60 }, (_, i) => i);
-
-  // ✅ Track which slot is being edited
-  const [editIndex, setEditIndex] = React.useState<number | null>(null);
-  const [slotError, setSlotError] = React.useState<string>("");
-
-  // Picker state
-  const [fromHour, setFromHour] = React.useState<number>(10);
-  const [fromMinute, setFromMinute] = React.useState<number>(0);
-  const [fromAmpm, setFromAmpm] = React.useState<"AM" | "PM">("AM");
-
-  const [toHour, setToHour] = React.useState<number>(1);
-  const [toMinute, setToMinute] = React.useState<number>(30);
-  const [toAmpm, setToAmpm] = React.useState<"AM" | "PM">("PM");
-
-  const from = `${fromHour}:${pad2(fromMinute)} ${fromAmpm}`;
-  const to = `${toHour}:${pad2(toMinute)} ${toAmpm}`;
-
-  // ---- helpers ----
-  const parseTime = (t: string) => {
-    // expects "h:mm AM" or "hh:mm PM"
-    const m = t.trim().match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/i);
-    if (!m) return null;
-    return {
-      hour: Number(m[1]),
-      minute: Number(m[2]),
-      ampm: m[3].toUpperCase() as "AM" | "PM",
-    };
-  };
-
-  const loadSlotToPicker = (slot: DayTimeSlotUI) => {
-    const pFrom = parseTime(slot.from);
-    const pTo = parseTime(slot.to);
-    if (!pFrom || !pTo) return;
-
-    setFromHour(pFrom.hour);
-    setFromMinute(pFrom.minute);
-    setFromAmpm(pFrom.ampm);
-
-    setToHour(pTo.hour);
-    setToMinute(pTo.minute);
-    setToAmpm(pTo.ampm);
-  };
-
-  const resetEditor = () => {
-    setEditIndex(null);
-    // optional: reset to defaults after editing
-    setFromHour(10);
-    setFromMinute(0);
-    setFromAmpm("AM");
-    setToHour(1);
-    setToMinute(30);
-    setToAmpm("PM");
-  };
-
-  // ---- actions ----
-  const addSlot = () => {
-    setSlotError("");
-
-    const err = hasOverlappingSlot(value, from, to);
-    if (err) {
-      setSlotError(err);
-      return;
-    }
-
-    // if you ALSO want to block exact duplicates (same from-to), keep this:
-    const duplicate = value.some((s) => s.from === from && s.to === to);
-    if (duplicate) {
-      setSlotError("This exact slot already exists.");
-      return;
-    }
-
-    const next = [...value, { id: crypto.randomUUID(), from, to, activities: [] }];
-    onChange(next);
-    onSlotAdded(dayIdx, next.length - 1);
-  };
-
-  const updateSlot = () => {
-    if (editIndex === null) return;
-    setSlotError("");
-
-    const current = value[editIndex];
-    const err = hasOverlappingSlot(value, from, to, current?.id);
-    if (err) {
-      setSlotError(err);
-      return;
-    }
-
-    const next = value.map((s, idx) =>
-      idx === editIndex ? { ...s, from, to } : s
-    );
-    onChange(next);
-    resetEditor();
-  };
-
-
-  const removeSlot = (idx: number) => {
-    const next = value.filter((_, i) => i !== idx);
-    onChange(next);
-
-    // If removing the one being edited, exit edit mode
-    if (editIndex === idx) resetEditor();
-    if (editIndex !== null && idx < editIndex) setEditIndex(editIndex - 1);
-  };
-
-  const startEdit = (idx: number) => {
-    setEditIndex(idx);
-    loadSlotToPicker(value[idx]);
-  };
-
-  const TimeSelect = ({
-    hour,
-    setHour,
-    minute,
-    setMinute,
-    ampm,
-    setAmpm,
-  }: any) => (
-    <div className="grid grid-cols-3 gap-2">
-      <select
-        className="input w-full"
-        value={hour}
-        onChange={(e) => setHour(Number(e.target.value))}
-        disabled={disabled}
-      >
-        {HOURS.map((h) => (
-          <option key={h} value={h}>
-            {h}
-          </option>
-        ))}
-      </select>
-
-      <select
-        className="input w-full"
-        value={minute}
-        onChange={(e) => setMinute(Number(e.target.value))}
-        disabled={disabled}
-      >
-        {MINUTES.map((m) => (
-          <option key={m} value={m}>
-            {pad2(m)}
-          </option>
-        ))}
-      </select>
-
-      <select
-        className="input w-full"
-        value={ampm}
-        onChange={(e) => setAmpm(e.target.value as "AM" | "PM")}
-        disabled={disabled}
-      >
-        <option value="AM">AM</option>
-        <option value="PM">PM</option>
-      </select>
-    </div>
-  );
-
-  return (
-    <div className="rounded-xl border border-gray-300 bg-white px-3 py-2 shadow-sm">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <p className="text-xs font-semibold text-gray-700 mb-1">From</p>
-          <TimeSelect
-            hour={fromHour}
-            setHour={setFromHour}
-            minute={fromMinute}
-            setMinute={setFromMinute}
-            ampm={fromAmpm}
-            setAmpm={setFromAmpm}
-          />
-        </div>
-
-        <div>
-          <p className="text-xs font-semibold text-gray-700 mb-1">To</p>
-          <TimeSelect
-            hour={toHour}
-            setHour={setToHour}
-            minute={toMinute}
-            setMinute={setToMinute}
-            ampm={toAmpm}
-            setAmpm={setToAmpm}
-          />
-        </div>
-      </div>
-
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {editIndex === null ? (
-          <button
-            type="button"
-            onClick={addSlot}
-            disabled={disabled}
-            className={`px-3 py-2 text-xs font-semibold rounded-lg ${disabled
-              ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-              : "bg-emerald-600 text-white hover:bg-emerald-700"
-              }`}
-          >
-            Add slot
-          </button>
-        ) : (
-          <>
-            <button
-              type="button"
-              onClick={updateSlot}
-              disabled={disabled}
-              className={`px-3 py-2 text-xs font-semibold rounded-lg ${disabled
-                ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                : "bg-amber-600 text-white hover:bg-amber-700"
-                }`}
-            >
-              Update slot
-            </button>
-
-            <button
-              type="button"
-              onClick={resetEditor}
-              disabled={disabled}
-              className={`px-3 py-2 text-xs font-semibold rounded-lg border ${disabled
-                ? "border-gray-200 text-gray-400 cursor-not-allowed"
-                : "border-gray-300 text-gray-700 hover:bg-gray-50"
-                }`}
-            >
-              Cancel
-            </button>
-          </>
-        )}
-
-        <span className="text-[11px] text-gray-500">
-          Selected:{" "}
-          <span className="font-semibold">
-            {from} - {to}
-          </span>
-          {editIndex !== null && (
-            <span className="ml-2 text-[11px] font-semibold text-amber-700">
-              (Editing slot #{editIndex + 1})
-            </span>
-          )}
-        </span>
-      </div>
-
-      {value.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {value.map((s, idx) => {
-            const isEditing = editIndex === idx;
-            return (
-              <span
-                key={`${s.from}-${s.to}-${idx}`}
-                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs border cursor-pointer ${isEditing
-                  ? "bg-amber-50 text-amber-800 border-amber-300"
-                  : "bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200"
-                  }`}
-                onClick={() => {
-                  if (disabled) return;
-                  startEdit(idx); // ✅ click chip to edit
-                }}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (disabled) return;
-                  if (e.key === "Enter" || e.key === " ") startEdit(idx);
-                }}
-                title="Click to edit"
-              >
-                {s.from} - {s.to}
-
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation(); // ✅ don’t trigger edit when removing
-                    removeSlot(idx);
-                  }}
-                  disabled={disabled}
-                  className="flex items-center justify-center"
-                  title="Remove"
-                >
-                  <X className="w-3 h-3 text-gray-500 hover:text-gray-700" />
-                </button>
-              </span>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-
 
 
 const getItemModelForTitle = (title: string) => {
@@ -847,11 +624,6 @@ const BLANK_IT_DAY: ItineraryDayUI = {
   timeSlots: DEFAULT_DAY_SLOTS.map(s => ({ ...s, activities: [] })),
 };
 
-
-
-
-
-
 const BLANK_TOUR_PACKAGE: TourPackageUI = {
   name: "",
   category: "Luxury",
@@ -866,12 +638,22 @@ markup_min_price: null,
   totalNights: "3",
   startDate: "",
   endDate: "",
+  useStartAsCheckIn: true,  // ✅ default checked
+  checkInDate: "", 
   services: [],
   itinerary: [{ ...BLANK_IT_DAY, day: "1", title: "", description: "" }],
   surcharges: [DEFAULT_SURCHARGE],
   exclusions: ["Airfare", "Personal Expenses", "Anything not mentioned in inclusions"],
   hasTourGuide: false,
   hasTransport: false,
+  selectedHotelId: null,
+  selectedHotelCategoryId: null,
+  selectedHotel: null,
+   inclusions: {
+    pickupanddrop: null,
+    rentals: null,
+    foodPlan: [],
+  },
 };
 
 const STEPS = [
@@ -887,6 +669,52 @@ const sanitizeHtml = (html: string) => html.replace(/[\n\r]/g, "").replace(/>\s+
 const stripHtmlToText = (html: string) => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 
 
+const listInclusiveDates = (startIso?: string, endIso?: string) => {
+  const count = calcInclusiveDays(startIso, endIso);
+  if (!count || !startIso) return [];
+  const start = isoToDate(startIso);
+  return Array.from({ length: count }).map((_, i) => {
+    const d = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  });
+};
+
+const ensureFoodPlanForRange = (prev: TourPackageUI) => {
+  const dates = listInclusiveDates(prev.startDate, prev.endDate);
+  if (!dates.length) return prev;
+
+  const existing = prev.inclusions?.foodPlan || [];
+  const existingMap = new Map(existing.map((x) => [x.dateIso, x]));
+
+  const nextPlan: FoodDayPlanUI[] = dates.map((dateIso, idx) => {
+    const old = existingMap.get(dateIso);
+    return (
+      old || {
+        dateIso,
+        dayIndex: idx,
+        meals: { breakfast: [], lunch: [], dinner: [] },
+      }
+    );
+  });
+
+  // if same length and same dates, keep
+  const same =
+    existing.length === nextPlan.length &&
+    existing.every((x, i) => x.dateIso === nextPlan[i]?.dateIso);
+
+  if (same) return prev;
+
+  return {
+    ...prev,
+    inclusions: {
+      ...prev.inclusions,
+      foodPlan: nextPlan,
+    },
+  };
+};
 
 
 /* =========================
@@ -915,12 +743,171 @@ export default function AddTourPackagePage() {
     if (!el) return;
     el.scrollTo({ left: 0, behavior: "smooth" });
   };
+useEffect(() => {
+  setData((prev) => ensureFoodPlanForRange(prev));
+}, [data.startDate, data.endDate]);
 
   const scrollTabsToEnd = () => {
     const el = tabsScrollRef.current;
     if (!el) return;
     el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
   };
+
+const [hotelModal, setHotelModal] = useState({
+  open: false,
+  step: "hotel" as "hotel" | "room" | "plan",
+  hotelId: "" as string,     // servicesMeta.hotels item._id
+  roomId: "" as string,      // rooms[].room_id
+  planName: "" as string,    // rate_plans[].plan_name
+});
+
+const openHotelModal = () =>
+  setHotelModal({ open: true, step: "hotel", hotelId: "", roomId: "", planName: "" });
+
+const closeHotelModal = () =>
+  setHotelModal({ open: false, step: "hotel", hotelId: "", roomId: "", planName: "" });
+
+  const [hotelPicker, setHotelPicker] = useState<{ open: boolean }>({ open: false });
+
+const openHotelPicker = () => setHotelPicker({ open: true });
+const closeHotelPicker = () => setHotelPicker({ open: false });
+
+const catPickDrop = useMemo(
+  () => serviceCategories.find((c) => normalizeTitle(c.title) === "pick & drop") || null,
+  [serviceCategories]
+);
+
+const catRentals = useMemo(
+  () => serviceCategories.find((c) => normalizeTitle(c.title) === "rentals") || null,
+  [serviceCategories]
+);
+
+const catFood = useMemo(
+  () => serviceCategories.find((c) => normalizeTitle(c.title) === "food service") || null,
+  [serviceCategories]
+);
+
+
+const [inclusionModal, setInclusionModal] = useState<{
+  open: boolean;
+  tab: InclusionTabKey;
+}>({ open: false, tab: "pickupanddrop" });
+
+const openInclusionModal = () => setInclusionModal({ open: true, tab: "pickupanddrop" });
+const closeInclusionModal = () => setInclusionModal({ open: false, tab: "pickupanddrop" });
+
+const [foodMealPicker, setFoodMealPicker] = useState<{
+  open: boolean;
+  dateIso: string | null;
+  meal: MealKey | null;
+  selected: FoodMealItemSelection[];
+}>({ open: false, dateIso: null, meal: null, selected: [] });
+
+
+const openFoodMealPicker = (dateIso: string, meal: MealKey) => {
+  const day = data.inclusions.foodPlan.find((d) => d.dateIso === dateIso);
+  const raw = (day?.meals?.[meal] || []) as any[];
+
+  // ✅ Backward compatible: if old data is string[], convert to objects
+  const selected: FoodMealItemSelection[] = raw.map((x) => {
+    if (typeof x === "string") {
+      return {
+        serviceItemId: x,
+        useMinPrice: data.pricingMode === "min",
+        useMaxPrice: data.pricingMode === "max",
+      };
+    }
+    return {
+      serviceItemId: x.serviceItemId,
+      useMinPrice: !!x.useMinPrice,
+      useMaxPrice: !!x.useMaxPrice,
+    };
+  });
+
+  setFoodMealPicker({ open: true, dateIso, meal, selected });
+};
+
+
+const closeFoodMealPicker = () =>
+  setFoodMealPicker({ open: false, dateIso: null, meal: null, selected: [] });
+
+
+const toggleFoodMealItem = (serviceItemId: string) => {
+  setFoodMealPicker((prev) => {
+    const exists = prev.selected.some((x) => x.serviceItemId === serviceItemId);
+
+    if (exists) {
+      return { ...prev, selected: prev.selected.filter((x) => x.serviceItemId !== serviceItemId) };
+    }
+
+    // ✅ default min/max based on global pricing mode (same as itinerary)
+    return {
+      ...prev,
+      selected: [
+        ...prev.selected,
+        {
+          serviceItemId,
+          useMinPrice: data.pricingMode === "min",
+          useMaxPrice: data.pricingMode === "max",
+        },
+      ],
+    };
+  });
+};
+
+
+const saveFoodMealPicker = () => {
+  if (!foodMealPicker.dateIso || !foodMealPicker.meal) return closeFoodMealPicker();
+
+  setData((prev) => ({
+    ...prev,
+    inclusions: {
+      ...prev.inclusions,
+      foodPlan: (prev.inclusions.foodPlan || []).map((d) => {
+        if (d.dateIso !== foodMealPicker.dateIso) return d;
+        return {
+          ...d,
+          meals: {
+            ...d.meals,
+            [foodMealPicker.meal!]: [...foodMealPicker.selected],
+          },
+        };
+      }),
+    },
+  }));
+
+  closeFoodMealPicker();
+};
+
+
+// find “Hotels” category id (from /services)
+const hotelsCategory = useMemo(() => {
+  return serviceCategories.find((c) => normalizeTitle(c.title) === "hotels") || null;
+}, [serviceCategories]);
+
+// hotels list (from /services/meta)
+const hotelsList: any[] = (servicesMeta?.hotels || []) as any[];
+
+const selectedHotelObj = useMemo(() => {
+  return hotelsList.find((h) => h?._id === hotelModal.hotelId) || null;
+}, [hotelsList, hotelModal.hotelId]);
+
+const selectedRoomObj = useMemo(() => {
+  if (!selectedHotelObj) return null;
+  return (selectedHotelObj.rooms || []).find((r: any) => r.room_id === hotelModal.roomId) || null;
+}, [selectedHotelObj, hotelModal.roomId]);
+
+const selectedPlanObj = useMemo(() => {
+  if (!selectedRoomObj) return null;
+  return (selectedRoomObj?.pricing?.rate_plans || []).find(
+    (p: any) => p.plan_name === hotelModal.planName
+  ) || null;
+}, [selectedRoomObj, hotelModal.planName]);
+
+const selectedHotelItem = useMemo(() => {
+  if (!data.selectedHotelId) return null;
+  return hotelsList.find((h) => h._id === data.selectedHotelId) || null;
+}, [data.selectedHotelId, hotelsList]);
 
 
   const setPricingMode = (mode: PriceMode) => {
@@ -940,6 +927,112 @@ export default function AddTourPackagePage() {
     })),
   }));
 };
+
+const HOTEL_ITEM_MODEL = "Hotel_mains";
+
+function upsertHotelActivityInSlot(
+  slot: DayTimeSlotUI,
+  hotelServiceId: string,
+  hotelItemId: string,
+  pricingMode: PriceMode
+): DayTimeSlotUI {
+  const hotelActivity: ItineraryActivityUI = {
+    ...BLANK_IT_ACTIVITY,
+    serviceId: hotelServiceId,
+    serviceItemId: hotelItemId,
+    itemModel: HOTEL_ITEM_MODEL,
+    isRemovable: false,
+    useMinPrice: pricingMode === "min",
+    useMaxPrice: pricingMode === "max",
+  };
+
+  // ✅ remove ANY existing hotel activity (old hotel should not remain)
+  const nonHotel = (slot.activities || []).filter(
+    (a) => a.itemModel !== HOTEL_ITEM_MODEL
+  );
+
+  return { ...slot, activities: [hotelActivity, ...nonHotel] };
+}
+
+function applySelectedHotelToDefaultSlots(prev: TourPackageUI): TourPackageUI {
+  if (!prev.selectedHotel) return prev;
+  if (!prev.itinerary?.length) return prev;
+
+  const hotelServiceId = prev.selectedHotelCategoryId;
+  const hotelItemId = prev.selectedHotel.hotelItemId;
+
+  if (!hotelServiceId || !hotelItemId) return prev;
+
+  const lastDayIdx = prev.itinerary.length - 1;
+
+  // ✅ decide which day should contain the "check-in hotel"
+  const checkInIso = prev.useStartAsCheckIn ? prev.startDate : prev.checkInDate;
+  let checkInIdx = prev.useStartAsCheckIn
+    ? 0
+    : dayIndexFromStart(prev.startDate, checkInIso);
+
+  // clamp within itinerary
+  checkInIdx = Math.max(0, Math.min(checkInIdx, lastDayIdx));
+
+  const patchDayAtIndex = (day: ItineraryDayUI) => {
+    const slots = day.timeSlots?.length
+      ? day.timeSlots
+      : DEFAULT_DAY_SLOTS.map((s) => ({
+          id: crypto.randomUUID(),
+          from: s.from,
+          to: s.to,
+          activities: [],
+        }));
+
+    const slot0 = slots[0];
+
+    // ✅ if already has this hotel in slot0, don't change (prevents pointless re-renders)
+    const already =
+      (slot0.activities || []).length > 0 &&
+      slot0.activities[0].itemModel === HOTEL_ITEM_MODEL &&
+      slot0.activities[0].serviceItemId === hotelItemId &&
+      slot0.activities[0].serviceId === hotelServiceId;
+
+    if (already) return day;
+
+    const nextSlot0 = upsertHotelActivityInSlot(
+      slot0,
+      hotelServiceId,
+      hotelItemId,
+      prev.pricingMode
+    );
+
+    return { ...day, timeSlots: [nextSlot0, ...slots.slice(1)] };
+  };
+
+  const nextItinerary = prev.itinerary.map((d, idx) => {
+    if (idx === checkInIdx) return patchDayAtIndex(d);
+
+    // ✅ keep this if you still want hotel on checkout day
+    if (idx === lastDayIdx) return patchDayAtIndex(d);
+
+    return d;
+  });
+
+  // ✅ if no actual change, return prev
+  const same = nextItinerary === prev.itinerary;
+  return same ? prev : { ...prev, itinerary: nextItinerary };
+}
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function dayIndexFromStart(startIso?: string, targetIso?: string) {
+  if (!startIso || !targetIso) return 0;
+
+  const start = isoToDate(startIso);
+  const target = isoToDate(targetIso);
+
+  if (isNaN(start.getTime()) || isNaN(target.getTime())) return 0;
+
+  const diff = Math.round((target.getTime() - start.getTime()) / MS_PER_DAY);
+  return diff; // 0 => Day1, 1 => Day2, 2 => Day3...
+}
+
+
 
   const [slotEditor, setSlotEditor] = useState<{
     open: boolean;
@@ -1014,6 +1107,7 @@ export default function AddTourPackagePage() {
   );
 
 
+
   const addSurcharge = () =>
     setData((p) => ({ ...p, surcharges: [...p.surcharges, { ...DEFAULT_SURCHARGE }] }));
 
@@ -1086,6 +1180,18 @@ export default function AddTourPackagePage() {
     }
   };
 
+  useEffect(() => {
+  setData((prev) => applySelectedHotelToDefaultSlots(prev));
+}, [
+  data.useStartAsCheckIn,
+  data.checkInDate,
+  data.startDate,
+  data.endDate,
+  data.selectedHotel,
+  data.selectedHotelCategoryId,
+  data.pricingMode,
+]);
+
   const canGoNext = isStepValid(step.key);
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
 
@@ -1117,10 +1223,94 @@ export default function AddTourPackagePage() {
     e.target.value = "";
   };
 
+useEffect(() => {
+  const dayCount = calcInclusiveDays(data.startDate, data.endDate);
+  if (!dayCount) return; // start/end not ready or invalid range
+
+  setData((prev) => {
+    // if already correct, do nothing
+    if ((prev.itinerary?.length || 0) === dayCount) {
+      // still keep totals synced
+      const nextTotalsSame =
+        prev.totalDays === String(dayCount) &&
+        prev.totalNights === String(Math.max(0, dayCount - 1));
+      if (nextTotalsSame) return prev;
+
+      return {
+        ...prev,
+        totalDays: String(dayCount),
+        totalNights: String(Math.max(0, dayCount - 1)),
+      };
+    }
+
+    const existing = prev.itinerary || [];
+
+    // keep what user already entered (up to dayCount)
+    const kept = existing.slice(0, dayCount).map((d, idx) => {
+      const nextDay: ItineraryDayUI = ensureDaySlots(d);
+      return {
+        ...nextDay,
+        day: String(idx + 1), // ✅ re-number
+      };
+    });
+
+    // add missing days
+    const toAdd = dayCount - kept.length;
+    const added: ItineraryDayUI[] =
+      toAdd > 0
+        ? Array.from({ length: toAdd }).map((_, i) => {
+            const dayNum = kept.length + i + 1;
+            return {
+              ...BLANK_IT_DAY,
+              day: String(dayNum),
+              timeSlots: DEFAULT_DAY_SLOTS.map((s) => ({
+                id: crypto.randomUUID(),
+                from: s.from,
+                to: s.to,
+                activities: [],
+              })),
+            };
+          })
+        : [];
+
+    let next: TourPackageUI = {
+      ...prev,
+      totalDays: String(dayCount),
+      totalNights: String(Math.max(0, dayCount - 1)),
+      itinerary: [...kept, ...added],
+    };
+
+    // ✅ If you have selected hotel, re-apply to Day1 & LastDay Slot1
+    next = applySelectedHotelToDefaultSlots(next);
+
+    return next;
+  });
+
+  // open newly created days in UI (optional)
+  setOpenDays((prev) => {
+    const next = { ...prev };
+    for (let i = 0; i < dayCount; i++) next[i] = true;
+    return next;
+  });
+}, [data.startDate, data.endDate]);
 
 
+useEffect(() => {
+  setData((prev) => {
+    if (!prev.useStartAsCheckIn) return prev;
+    if (!prev.startDate) return prev;
+    if (prev.checkInDate === prev.startDate) return prev;
+    return { ...prev, checkInDate: prev.startDate };
+  });
+}, [data.startDate, data.useStartAsCheckIn]);
 
-
+const formatDateLabel = (iso?: string) => {
+  // iso: "YYYY-MM-DD" -> "DD-MM-YYYY"
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  if (!y || !m || !d) return iso;
+  return `${d}-${m}-${y}`;
+};
   /* ---------- Itinerary (days) ---------- */
   const [openDays, setOpenDays] = useState<Record<number, boolean>>({ 0: true });
 
@@ -1379,6 +1569,100 @@ return { ...slot, activities: nextActs };
       const checkInDay = 1;
       const checkOutDay = totalDaysCount;
 
+      // ✅ build inclusions payload (only send what user selected)
+const buildInclusionsPayload = () => {
+  const pick = data.inclusions.pickupanddrop;
+  const rent = data.inclusions.rentals;
+
+  const foodPlanSelectedDays =
+    (data.inclusions.foodPlan || [])
+      .map((d) => ({
+        // ✅ send "Day 1", "Day 2" instead of dateIso
+        day: `Day ${d.dayIndex + 1}`,
+
+        meals: {
+          breakfast: (d.meals?.breakfast || []).map((x: any) =>
+            typeof x === "string"
+              ? {
+                  serviceItemId: x,
+                  useMinPrice: data.pricingMode === "min",
+                  useMaxPrice: data.pricingMode === "max",
+                }
+              : {
+                  serviceItemId: x.serviceItemId,
+                  useMinPrice: !!x.useMinPrice,
+                  useMaxPrice: !!x.useMaxPrice,
+                }
+          ),
+
+          lunch: (d.meals?.lunch || []).map((x: any) =>
+            typeof x === "string"
+              ? {
+                  serviceItemId: x,
+                  useMinPrice: data.pricingMode === "min",
+                  useMaxPrice: data.pricingMode === "max",
+                }
+              : {
+                  serviceItemId: x.serviceItemId,
+                  useMinPrice: !!x.useMinPrice,
+                  useMaxPrice: !!x.useMaxPrice,
+                }
+          ),
+
+          dinner: (d.meals?.dinner || []).map((x: any) =>
+            typeof x === "string"
+              ? {
+                  serviceItemId: x,
+                  useMinPrice: data.pricingMode === "min",
+                  useMaxPrice: data.pricingMode === "max",
+                }
+              : {
+                  serviceItemId: x.serviceItemId,
+                  useMinPrice: !!x.useMinPrice,
+                  useMaxPrice: !!x.useMaxPrice,
+                }
+          ),
+        },
+      }))
+      .filter((d) => {
+        const b = d.meals.breakfast.length;
+        const l = d.meals.lunch.length;
+        const dn = d.meals.dinner.length;
+        return b + l + dn > 0;
+      });
+
+  const hasAnything =
+    !!pick?.serviceItemId || !!rent?.serviceItemId || foodPlanSelectedDays.length > 0;
+
+  if (!hasAnything) return undefined;
+
+  return {
+    pickupanddrop: pick?.serviceItemId
+      ? {
+          serviceId: pick.serviceId,
+          serviceItemId: pick.serviceItemId,
+          itemModel: pick.itemModel,
+          useMinPrice: !!pick.useMinPrice,
+          useMaxPrice: !!pick.useMaxPrice,
+        }
+      : undefined,
+
+    rentals: rent?.serviceItemId
+      ? {
+          serviceId: rent.serviceId,
+          serviceItemId: rent.serviceItemId,
+          itemModel: rent.itemModel,
+          useMinPrice: !!rent.useMinPrice,
+          useMaxPrice: !!rent.useMaxPrice,
+        }
+      : undefined,
+
+    foodPlan: foodPlanSelectedDays.length ? foodPlanSelectedDays : undefined,
+  };
+};
+
+
+
       const payload = {
         name: data.name.trim(),
         category: data.category.trim(),
@@ -1389,6 +1673,7 @@ return { ...slot, activities: nextActs };
         check_out_day: checkOutDay,
         start_date: data.startDate || undefined,
         end_date: data.endDate || undefined,
+        check_in_date: (data.useStartAsCheckIn ? data.startDate : data.checkInDate) || undefined,
      markup_min_price: data.markup_min_price,
         markup_max_price: data.markup_max_price,
         min_pax: Number(data.minPax) || 0,
@@ -1401,8 +1686,6 @@ return { ...slot, activities: nextActs };
           serviceItemId: s.serviceItemId || undefined,
           itemModel: s.itemModel || undefined,
         })),
-
-
         itinerary: data.itinerary.map((d, idx) => {
           const numericDay = Number(d.day) || idx + 1;
           const isFirstDay = idx === 0;
@@ -1427,16 +1710,34 @@ return { ...slot, activities: nextActs };
                 to: s.to,
 
                 // ✅ slot-wise activities
-              activities: (s.activities || [])
-            .filter((a) => a.itemModel || a.serviceItemId)
-            .map((a) => ({
-              serviceId: a.serviceId || undefined,
-              serviceItemId: a.serviceItemId || undefined,
-              itemModel: a.itemModel || undefined,
-              isRemovable: a.isRemovable ?? false,
-              useMinPrice: !!a.useMinPrice,
-              useMaxPrice: !!a.useMaxPrice,
-            })),
+          activities: (s.activities || [])
+  .filter((a) => a.itemModel || a.serviceItemId)
+  .map((a) => {
+    const isHotel = a.itemModel === "Hotel_mains";
+    const isFirstDay = idx === 0;
+    const isLastDay = idx === data.itinerary.length - 1;
+
+    const hotelExtras =
+      isHotel && (isFirstDay || isLastDay) && data.selectedHotel
+        ? {
+            room_id: data.selectedHotel.room_id,
+            room_type: data.selectedHotel.room_type,
+            rate_plan: data.selectedHotel.rate_plan, // (object)
+          }
+        : {};
+
+    return {
+      serviceId: a.serviceId || undefined,
+      serviceItemId: a.serviceItemId || undefined,
+      itemModel: a.itemModel || undefined,
+      isRemovable: a.isRemovable ?? false,
+      useMinPrice: !!a.useMinPrice,
+      useMaxPrice: !!a.useMaxPrice,
+
+      // ✅ inject only for hotel on Day1 + LastDay
+      ...hotelExtras,
+    };
+  }),
 
               })),
           };
@@ -1454,8 +1755,8 @@ return { ...slot, activities: nextActs };
             endDate: s.windowType === "range" ? s.endDate || undefined : undefined,
           }))
           .filter((s) => s.amount > 0),
-
         exclusions: data.exclusions,
+         inclusions: buildInclusionsPayload(),
       };
 
       const fd = new FormData();
@@ -1472,7 +1773,7 @@ return { ...slot, activities: nextActs };
       }
 
       alert("Tour package created successfully! 🎉");
-      router.push("/dashboard/tour-packages");
+      // router.push("/dashboard/tour-packages");
     } catch (err: any) {
       console.error(err);
       alert(`An error occurred: ${err?.message || err}`);
@@ -1501,17 +1802,6 @@ return { ...slot, activities: nextActs };
                 Create a Goa holiday package with services & dynamic pricing.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setData({ ...BLANK_TOUR_PACKAGE })}
-              disabled={submitting}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${submitting
-                ? "border-gray-200 text-gray-400"
-                : "border-gray-300 text-gray-700 hover:bg-gray-50"
-                }`}
-            >
-              Reset
-            </button>
           </div>
 
           {/* Stepper */}
@@ -1655,23 +1945,91 @@ return { ...slot, activities: nextActs };
                     />
                   </Field>
                   <Field label="Start Date *" required>
-                    <input
-                      type="date"
-                      className="input"
-                      value={data.startDate}
-                      min={today}                 // ✅ prevents past dates
-                      onChange={(e) => {
-                        const start = e.target.value;
-                        setTour({
+                  <input
+                    type="date"
+                    className="input"
+                    value={data.startDate}
+                    min={today}
+                    onChange={(e) => {
+                      const start = e.target.value;
+
+                      setData((prev) => {
+                        const nextEndDate = prev.endDate && prev.endDate < start ? "" : prev.endDate;
+
+                        return {
+                          ...prev,
                           startDate: start,
-                          // auto-clear endDate if it becomes invalid
-                          endDate:
-                            data.endDate && data.endDate < start ? "" : data.endDate,
-                        });
-                      }}
-                      disabled={submitting}
-                    />
-                  </Field>
+                          endDate: nextEndDate,
+
+                          // ✅ if using start as check-in, keep it synced
+                          checkInDate: prev.useStartAsCheckIn ? start : prev.checkInDate,
+                        };
+                      });
+                    }}
+                    disabled={submitting}
+                  />
+                </Field>
+
+
+          <Field label="Check-in Date">
+            <div className="rounded-xl border border-gray-200 bg-white p-3 sm:p-4 shadow-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                {/* Left: toggle */}
+                <label className="flex items-center gap-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                    checked={!!data.useStartAsCheckIn}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setData((prev) => ({
+                        ...prev,
+                        useStartAsCheckIn: checked,
+                        checkInDate: checked ? prev.startDate : (prev.checkInDate || ""),
+                      }));
+                    }}
+                    disabled={submitting}
+                  />
+
+                      <div className="leading-tight">
+                        <p className="text-sm font-semibold text-gray-900">
+                          Use Start Date
+                        </p>
+                        <p className="text-[11px] text-gray-500">
+                          If off, choose a custom check-in date.
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* Right: value / picker */}
+                    <div className="w-full sm:w-auto">
+                      {data.useStartAsCheckIn ? (
+                        <div className="h-10 w-full sm:w-[220px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 flex items-center justify-between">
+                          <span className="text-xs font-semibold text-emerald-800">
+                            Check-in
+                          </span>
+                          <span className="text-sm font-bold text-emerald-900 tabular-nums">
+                            {data.startDate ? formatDateLabel(data.startDate) : "—"}
+                          </span>
+                        </div>
+                      ) : (
+                        <input
+                          type="date"
+                          className="input w-full sm:w-[220px]"
+                          value={data.checkInDate}
+                          min={data.startDate || today}
+                          max={data.endDate || undefined}
+                          onChange={(e) => setTour({ checkInDate: e.target.value })}
+                          disabled={submitting}
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </Field>
+
+
+
                   <Field label="End Date *" required>
                     <input
                       type="date"
@@ -1755,6 +2113,89 @@ return { ...slot, activities: nextActs };
                       <IndianRupee className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                     </div>
                   </Field>
+          <Field label="Hotel">
+  <div className="rounded-xl border border-gray-200 bg-white p-3 sm:p-4 shadow-sm space-y-3">
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-sm font-semibold text-gray-900">Hotel Selection</p>
+        <p className="text-[11px] text-gray-500">Choose hotel + room + plan.</p>
+      </div>
+
+      <button
+        type="button"
+        onClick={openHotelModal}
+        disabled={submitting}
+        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+      >
+        <Plus className="size-3.5" />
+        {data.selectedHotel ? "Change Hotel" : "Add Hotel"}
+      </button>
+    </div>
+
+    {data.selectedHotel ? (
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">
+        <p className="font-semibold text-gray-900">{data.selectedHotel.property_name}</p>
+        <p className="mt-1">
+          Room: <span className="font-semibold">{data.selectedHotel.room_type}</span> • Plan:{" "}
+          <span className="font-semibold">{data.selectedHotel.rate_plan.plan_name}</span> •{" "}
+          <span className="font-semibold">
+            {data.selectedHotel.currency} {data.selectedHotel.rate_plan.price}
+          </span>
+        </p>
+
+        <button
+          type="button"
+          onClick={() => setTour({ selectedHotel: null })}
+          className="mt-2 inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+        >
+          <X className="size-3.5" /> Remove hotel
+        </button>
+      </div>
+    ) : (
+      <p className="text-xs text-gray-500">No hotel selected.</p>
+    )}
+  </div>
+</Field>
+
+<Field label="Inclusions">
+  <div className="rounded-xl border border-gray-200 bg-white p-3 sm:p-4 shadow-sm space-y-3">
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-sm font-semibold text-gray-900">Create Inclusions</p>
+        <p className="text-[11px] text-gray-500">
+          Pick & Drop, Rentals, Food Services, Tour Manager
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={openInclusionModal}
+        disabled={submitting}
+        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
+      >
+        <Plus className="size-3.5" />
+        Add Inclusion
+      </button>
+    </div>
+
+    {/* small summary */}
+    <div className="text-xs text-gray-700 space-y-1">
+      <p>
+        <span className="font-semibold">Pick & Drop:</span>{" "}
+        {data.inclusions.pickupanddrop?.serviceItemId ? "Selected" : "None"}
+      </p>
+      <p>
+        <span className="font-semibold">Rentals:</span>{" "}
+        {data.inclusions.rentals?.serviceItemId ? "Selected" : "None"}
+      </p>
+      <p>
+        <span className="font-semibold">Food Plan:</span>{" "}
+        {(data.inclusions.foodPlan?.length || 0) ? `${data.inclusions.foodPlan.length} day(s)` : "No dates yet"}
+      </p>
+    </div>
+  </div>
+</Field>
+
 
                 </div>
 
@@ -1831,52 +2272,62 @@ return { ...slot, activities: nextActs };
                         className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden"
                       >
                         {/* Day Header */}
-                        <div className=" py-3 border-b border-gray-100 bg-white sticky top-0 z-10">
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                            {/* Left: Day Toggle */}
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => toggleDayOpen(idx)}
-                                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition ${isOpen
-                                  ? "bg-emerald-50 border-emerald-500 text-emerald-700"
-                                  : "bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100"
-                                  }`}
-                                aria-expanded={isOpen}
-                              >
-                                <ChevronDown
-                                  className={`size-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
-                                />
-                                <span>Itinerary Day {idx + 1}</span>
-                              </button>
-                            </div>
-
-                            {/* Middle: Title */}
-                            <div className="flex-1">
-                              <input
-                                type="text"
-                                className="input"
-                                value={d.title}
-                                onChange={(e) => updateItineraryDay(idx, { title: e.target.value })}
-                                placeholder="Arrival in Goa"
-                                disabled={submitting}
-                              />
-                            </div>
-
-                            {/* Right: Actions */}
-                            <div className="flex gap-2 sm:justify-end">
-                              <button
-                                type="button"
-                                onClick={() => removeItineraryDay(idx)}
-                                disabled={submitting}
-                                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-3 py-2 text-xs font-semibold rounded-xl border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
-                              >
-                                <X className="size-3.5" />
-                                Remove
-                              </button>
-                            </div>
-                          </div>
-                        </div>
+                      <div className="py-3 border-b border-gray-100 bg-white sticky top-0 z-10">
+                                              {/* HEADER ROW */}
+                                              <div className="flex items-center justify-between gap-2 px-3">
+                                                {/* Left: Day toggle */}
+                                                <button
+                                                  type="button"
+                                                  onClick={() => toggleDayOpen(idx)}
+                                                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                                                    isOpen
+                                                      ? "bg-emerald-50 border-emerald-500 text-emerald-700"
+                                                      : "bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100"
+                                                  }`}
+                                                  aria-expanded={isOpen}
+                                                >
+                                                  <ChevronDown
+                                                    className={`size-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                                                  />
+                                                  <span>Itinerary Day {idx + 1}</span>
+                                                </button>
+                      
+                                                {/* Right corner: mobile trash */}
+                                                <button
+                                                  type="button"
+                                                  onClick={() => removeItineraryDay(idx)}
+                                                  disabled={submitting}
+                                                  className="sm:hidden inline-flex items-center justify-center size-9 rounded-xl border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                                                  aria-label={`Remove Itinerary Day ${idx + 1}`}
+                                                  title="Remove day"
+                                                >
+                                                  <Trash2 className="size-4" />
+                                                </button>
+                      
+                                                {/* Desktop remove */}
+                                                <button
+                                                  type="button"
+                                                  onClick={() => removeItineraryDay(idx)}
+                                                  disabled={submitting}
+                                                  className="hidden sm:inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold rounded-xl border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                                                >
+                                                  <Trash2 className="size-3.5" />
+                                                  Remove
+                                                </button>
+                                              </div>
+                      
+                                              {/* Title input row */}
+                                              <div className="px-3 mt-2">
+                                                <input
+                                                  type="text"
+                                                  className="input"
+                                                  value={d.title}
+                                                  onChange={(e) => updateItineraryDay(idx, { title: e.target.value })}
+                                                  placeholder="Arrival in Goa"
+                                                  disabled={submitting}
+                                                />
+                                              </div>
+                                            </div>
 
                         {/* Collapsible body */}
                         {isOpen && (
@@ -2560,7 +3011,7 @@ return { ...slot, activities: nextActs };
             const title = normalizeTitle(c?.title);
 
             // Always hide Tour Package
-           if (["tour packages", "hotels"].includes(title)) return false;
+           if (["tour packages", "hotels","rentals", "pick & drop","food service","tour manager",].includes(title)) return false;
 
 
             if (isDaytime) {
@@ -2944,6 +3395,845 @@ return { ...slot, activities: nextActs };
           );
         })()}
 
+        {hotelModal.open && (
+          <div className="fixed inset-0 z-[9999]" role="dialog" aria-modal="true">
+            <button className="absolute inset-0 bg-black/50" onClick={closeHotelModal} />
+
+            <div className="absolute inset-x-0 bottom-0 md:inset-0 md:flex md:items-center md:justify-center p-0 md:p-6">
+              <div className="relative w-full md:max-w-4xl bg-white rounded-3xl shadow-2xl max-h-[88vh] flex flex-col">
+                {/* Header */}
+                <div className="sticky top-0 bg-white/90 backdrop-blur border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">Select Hotel</p>
+                    <p className="text-[11px] text-gray-500">
+                      Step: {hotelModal.step === "hotel" ? "Hotel" : hotelModal.step === "room" ? "Room" : "Rate Plan"}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {hotelModal.step !== "hotel" && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setHotelModal((p) => ({
+                            ...p,
+                            step: p.step === "plan" ? "room" : "hotel",
+                            ...(p.step === "plan" ? { planName: "" } : { roomId: "", planName: "" }),
+                          }))
+                        }
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                      >
+                        Back
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={closeHotelModal}
+                      className="inline-flex items-center justify-center size-9 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto px-4 py-4">
+                  {/* STEP 1: HOTEL LIST */}
+                  {hotelModal.step === "hotel" && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {hotelsList.map((h: any) => {
+                        const isSelected = hotelModal.hotelId === h._id;
+                        const img = h?.thumbnail?.image || h?.media_gallery?.room?.[0] || "";
+
+                        return (
+                          <button
+                            key={h._id}
+                            type="button"
+                            onClick={() =>
+                              setHotelModal((p) => ({
+                                ...p,
+                                hotelId: h._id,
+                                roomId: "",
+                                planName: "",
+                                step: "room",
+                              }))
+                            }
+                            className={[
+                              "w-full text-left rounded-2xl border p-3 transition",
+                              isSelected ? "border-emerald-400 bg-emerald-50" : "border-gray-200 bg-white hover:bg-gray-50",
+                            ].join(" ")}
+                          >
+                            <div className="flex gap-3">
+                              <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-100 border border-gray-200 shrink-0">
+                                {img ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={img} alt={h.property_name} className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full grid place-items-center text-[10px] text-gray-400">N/A</div>
+                                )}
+                              </div>
+
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-gray-900 truncate">{h.property_name}</p>
+                                <p className="text-xs text-gray-500 truncate">
+                                  {h.location?.address || ""} • {h.location?.city || ""}
+                                </p>
+                                <p className="text-[11px] text-gray-600 mt-1">
+                                  Markup: ₹{h.markup_min_price} - ₹{h.markup_max_price}
+                                </p>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* STEP 2: ROOM TYPES */}
+                  {hotelModal.step === "room" && selectedHotelObj && (
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-sm font-semibold text-gray-900">{selectedHotelObj.property_name}</p>
+                        <p className="text-[11px] text-gray-600">
+                          {selectedHotelObj.location?.city} • Check-in {selectedHotelObj.check_in_time} • Check-out{" "}
+                          {selectedHotelObj.check_out_time}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {(selectedHotelObj.rooms || []).map((r: any) => {
+                          const isSelected = hotelModal.roomId === r.room_id;
+                          const img = r?.image_link?.[0] || selectedHotelObj?.media_gallery?.room?.[0] || "";
+
+                          return (
+                            <button
+                              key={r.room_id}
+                              type="button"
+                              onClick={() =>
+                                setHotelModal((p) => ({
+                                  ...p,
+                                  roomId: r.room_id,
+                                  planName: "",
+                                  step: "plan",
+                                }))
+                              }
+                              className={[
+                                "w-full text-left rounded-2xl border p-3 transition",
+                                isSelected ? "border-emerald-400 bg-emerald-50" : "border-gray-200 bg-white hover:bg-gray-50",
+                              ].join(" ")}
+                            >
+                              <div className="flex gap-3">
+                                <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-100 border border-gray-200 shrink-0">
+                                  {img ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={img} alt={r.room_type} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full grid place-items-center text-[10px] text-gray-400">N/A</div>
+                                  )}
+                                </div>
+
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-semibold text-gray-900 truncate">{r.room_type}</p>
+                                  <p className="text-xs text-gray-500">
+                                    Occupancy: {r.occupancy_min}-{r.occupancy_max}
+                                  </p>
+                                  <p className="text-[11px] text-gray-600 mt-1">
+                                    Currency: {r?.pricing?.currency || "INR"}
+                                  </p>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* STEP 3: RATE PLANS */}
+                  {hotelModal.step === "plan" && selectedHotelObj && selectedRoomObj && (
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-sm font-semibold text-gray-900">{selectedHotelObj.property_name}</p>
+                        <p className="text-[11px] text-gray-600">
+                          Room: <span className="font-semibold">{selectedRoomObj.room_type}</span> • Occupancy{" "}
+                          {selectedRoomObj.occupancy_min}-{selectedRoomObj.occupancy_max}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        {(selectedRoomObj?.pricing?.rate_plans || []).map((p: any) => {
+                          const isSelected = hotelModal.planName === p.plan_name;
+                          return (
+                            <button
+                              key={p.plan_name}
+                              type="button"
+                              onClick={() => setHotelModal((x) => ({ ...x, planName: p.plan_name }))}
+                              className={[
+                                "w-full text-left rounded-xl border p-3 transition",
+                                isSelected ? "border-emerald-400 bg-emerald-50" : "border-gray-200 bg-white hover:bg-gray-50",
+                              ].join(" ")}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="text-sm font-semibold text-gray-900">{p.plan_name}</p>
+                                  {p.cancellation_policy && (
+                                    <p className="text-[11px] text-gray-600 mt-0.5">{p.cancellation_policy}</p>
+                                  )}
+                                </div>
+                                <p className="text-sm font-bold text-gray-900 whitespace-nowrap">
+                                  {selectedRoomObj?.pricing?.currency || "INR"} {p.price}
+                                </p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="sticky bottom-0 bg-white/90 backdrop-blur border-t border-gray-100 px-4 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={closeHotelModal}
+                      className="px-4 py-2 text-xs font-semibold rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={!(selectedHotelObj && selectedRoomObj && selectedPlanObj)}
+                     onClick={() => {
+  if (!(selectedHotelObj && selectedRoomObj && selectedPlanObj)) return;
+
+  const currency = selectedRoomObj?.pricing?.currency || "INR";
+  const hotelCategoryId = hotelsCategory?._id || null;
+
+  setData((prev) => {
+    const next: TourPackageUI = {
+      ...prev,
+      selectedHotelCategoryId: hotelCategoryId, // ✅ save category id
+      selectedHotel: {
+        hotelItemId: selectedHotelObj._id,
+        hotel_id: selectedHotelObj.hotel_id,
+        property_name: selectedHotelObj.property_name,
+
+        room_id: selectedRoomObj.room_id,
+        room_type: selectedRoomObj.room_type,
+        occupancy_min: selectedRoomObj.occupancy_min,
+        occupancy_max: selectedRoomObj.occupancy_max,
+
+        rate_plan: {
+          plan_name: selectedPlanObj.plan_name,
+          price: Number(selectedPlanObj.price) || 0,
+          cancellation_policy: selectedPlanObj.cancellation_policy,
+        },
+        currency,
+      },
+    };
+
+    // ✅ auto place in Day1 Slot1 and LastDay Slot1
+    return applySelectedHotelToDefaultSlots(next);
+  });
+
+  closeHotelModal();
+}}
+
+                      className={[
+                        "px-4 py-2 text-xs font-semibold rounded-xl text-white",
+                        selectedHotelObj && selectedRoomObj && selectedPlanObj
+                          ? "bg-emerald-600 hover:bg-emerald-700"
+                          : "bg-emerald-300 cursor-not-allowed",
+                      ].join(" ")}
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+    {inclusionModal.open && (
+  <div className="fixed inset-0 z-[9999]" role="dialog" aria-modal="true">
+    <button className="absolute inset-0 bg-black/50" onClick={closeInclusionModal} />
+
+    <div className="absolute inset-x-0 bottom-0 md:inset-0 md:flex md:items-center md:justify-center p-0 md:p-6">
+      <div className="relative w-full md:max-w-5xl bg-white rounded-3xl shadow-2xl max-h-[88vh] flex flex-col">
+        {/* Header */}
+        <div className="sticky top-0 bg-white/90 backdrop-blur border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Add Inclusions</p>
+            <p className="text-[11px] text-gray-500">
+              Select items per tab. Food is day-wise meals.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={closeInclusionModal}
+            className="inline-flex items-center justify-center size-9 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="px-4 pt-3">
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+            {[
+              { key: "pickupanddrop", label: "Pick & Drop" },
+              { key: "rentals", label: "Rentals" },
+              { key: "foodservices", label: "Food Services" },
+            ].map((t) => {
+              const active = inclusionModal.tab === (t.key as InclusionTabKey);
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() =>
+                    setInclusionModal((p) => ({ ...p, tab: t.key as InclusionTabKey }))
+                  }
+                  className={[
+                    "px-3 py-1.5 rounded-full border text-xs font-semibold whitespace-nowrap",
+                    active
+                      ? "bg-emerald-50 border-emerald-400 text-emerald-700"
+                      : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100",
+                  ].join(" ")}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          {/* --- Pick & Drop / Rentals (single select) --- */}
+          {inclusionModal.tab !== "foodservices" &&
+            (() => {
+              const tab = inclusionModal.tab;
+
+              const cat =
+                tab === "pickupanddrop"
+                  ? catPickDrop
+                  : tab === "rentals"
+                  ? catRentals
+                  : null;
+
+              if (!cat) {
+                return <p className="text-sm text-gray-600">Category not found.</p>;
+              }
+
+              const metaKey = SERVICE_META_KEY_BY_TITLE[cat.title] || "";
+              const items = metaKey ? servicesMeta?.[metaKey] || [] : [];
+
+              const current =
+                tab === "pickupanddrop"
+                  ? data.inclusions.pickupanddrop
+                  : tab === "rentals"
+                  ? data.inclusions.rentals
+                  : null;
+
+              return (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-gray-900">{cat.title}</p>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setData((prev) => ({
+                          ...prev,
+                          inclusions: {
+                            ...prev.inclusions,
+                            ...(tab === "pickupanddrop"
+                              ? { pickupanddrop: null }
+                              : { rentals: null }),
+                          },
+                        }));
+                      }}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                    >
+                      Clear
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {items.map((item: any) => {
+                      if (!item?._id) return null;
+
+                      const isSelected = current?.serviceItemId === item._id;
+                      const card = getServiceCardContent(metaKey, item);
+const priceLabel =
+  isSelected
+    ? (formatPriceLabelFromChecks(item, !!current?.useMinPrice, !!current?.useMaxPrice) || card.priceLabel || "")
+    : (card.priceLabel || "");
+
+                      return (
+                        <button
+                          key={item._id}
+                          type="button"
+                          onClick={() => {
+                            const itemModel = getItemModelForTitle(cat.title);
+                            setData((prev) => ({
+                              ...prev,
+                              inclusions: {
+                                ...prev.inclusions,
+                                ...(tab === "pickupanddrop"
+  ? {
+      pickupanddrop: {
+        serviceId: cat._id,
+        serviceItemId: item._id,
+        itemModel,
+        useMinPrice: data.pricingMode === "min", // ✅ follow global mode
+        useMaxPrice: data.pricingMode === "max",
+      },
+    }
+  : {
+      rentals: {
+        serviceId: cat._id,
+        serviceItemId: item._id,
+        itemModel,
+        useMinPrice: data.pricingMode === "min",
+        useMaxPrice: data.pricingMode === "max",
+      },
+    }),
+                              },
+                            }));
+                          }}
+                          className={[
+                            "w-full text-left rounded-2xl border p-3 transition",
+                            isSelected
+                              ? "border-emerald-400 bg-emerald-50 shadow-sm"
+                              : "border-gray-200 bg-white hover:bg-gray-50",
+                          ].join(" ")}
+                        >
+                          <div className="flex gap-3">
+                            <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-100 border border-gray-200 shrink-0">
+                              {card.mediaUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={card.mediaUrl}
+                                  alt={card.title}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full grid place-items-center text-[10px] text-gray-400">
+                                  N/A
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-gray-900 truncate">
+                                    {card.title}
+                                  </p>
+                                  {card.subtitle && (
+                                    <p className="text-xs text-gray-500 truncate">
+                                      {card.subtitle}
+                                    </p>
+                                  )}
+                                  {isSelected && (
+  <div className="mt-2 flex flex-wrap gap-2">
+    <label className="inline-flex items-center gap-2 text-[11px] text-gray-700 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">
+      <input
+        type="checkbox"
+        className="h-3.5 w-3.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+        checked={!!current?.useMinPrice}
+        onChange={(e) => {
+          const checked = e.target.checked;
+          setData((prev) => ({
+            ...prev,
+            inclusions: {
+              ...prev.inclusions,
+              ...(tab === "pickupanddrop"
+                ? {
+                    pickupanddrop: prev.inclusions.pickupanddrop
+                      ? {
+                          ...prev.inclusions.pickupanddrop,
+                          useMinPrice: checked,
+                          useMaxPrice: checked ? false : prev.inclusions.pickupanddrop.useMaxPrice,
+                        }
+                      : null,
+                  }
+                : {
+                    rentals: prev.inclusions.rentals
+                      ? {
+                          ...prev.inclusions.rentals,
+                          useMinPrice: checked,
+                          useMaxPrice: checked ? false : prev.inclusions.rentals.useMaxPrice,
+                        }
+                      : null,
+                  }),
+            },
+          }));
+        }}
+      />
+      Min Markup price
+    </label>
+
+    <label className="inline-flex items-center gap-2 text-[11px] text-gray-700 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">
+      <input
+        type="checkbox"
+        className="h-3.5 w-3.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+        checked={!!current?.useMaxPrice}
+        onChange={(e) => {
+          const checked = e.target.checked;
+          setData((prev) => ({
+            ...prev,
+            inclusions: {
+              ...prev.inclusions,
+              ...(tab === "pickupanddrop"
+                ? {
+                    pickupanddrop: prev.inclusions.pickupanddrop
+                      ? {
+                          ...prev.inclusions.pickupanddrop,
+                          useMaxPrice: checked,
+                          useMinPrice: checked ? false : prev.inclusions.pickupanddrop.useMinPrice,
+                        }
+                      : null,
+                  }
+                : {
+                    rentals: prev.inclusions.rentals
+                      ? {
+                          ...prev.inclusions.rentals,
+                          useMaxPrice: checked,
+                          useMinPrice: checked ? false : prev.inclusions.rentals.useMinPrice,
+                        }
+                      : null,
+                  }),
+            },
+          }));
+        }}
+      />
+      Max Markup price
+    </label>
+  </div>
+)}
+
+                               
+                                  {priceLabel && (
+  <p className="text-[11px] text-emerald-700 font-semibold mt-1">{priceLabel}</p>
+)}
+
+                                </div>
+
+                                <div className="shrink-0">
+                                  {isSelected ? (
+                                    <CheckCircle2 className="size-5 text-emerald-600" />
+                                  ) : (
+                                    <span className="size-5 rounded-full border border-gray-300 inline-block" />
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
+          {/* --- Food Services (day-wise meals) --- */}
+          {inclusionModal.tab === "foodservices" &&
+            (() => {
+              const cat = catFood;
+              const metaKey = cat ? SERVICE_META_KEY_BY_TITLE[cat.title] : "foodservices";
+              const foodItems = metaKey ? servicesMeta?.[metaKey] || [] : [];
+
+              if (!data.startDate || !data.endDate) {
+                return (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    Please select Start Date and End Date to build day-wise Food Services.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-gray-900">
+                      Food Services (optional per meal)
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setData((prev) => ({
+                          ...prev,
+                          inclusions: {
+                            ...prev.inclusions,
+                            foodPlan: (prev.inclusions.foodPlan || []).map((d) => ({
+                              ...d,
+                              meals: { breakfast: [], lunch: [], dinner: [] },
+                            })),
+                          },
+                        }));
+                      }}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                    >
+                      Clear all meals
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {(data.inclusions.foodPlan || []).map((d) => (
+                      <div
+                        key={d.dateIso}
+                        className="rounded-2xl border border-gray-200 bg-white p-3"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-semibold text-gray-900">
+                            Day {d.dayIndex + 1} •{" "}
+                            <span className="text-gray-600">
+                              {formatDateLabel(d.dateIso)}
+                            </span>
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                          {(["breakfast", "lunch", "dinner"] as MealKey[]).map((meal) => {
+                          const selectedItems = (d.meals?.[meal] || []) as FoodMealItemSelection[];
+                            return (
+                              <div
+                                key={meal}
+                                className="rounded-xl border border-gray-200 bg-gray-50 p-2"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <p className="text-xs font-semibold text-gray-800 capitalize">
+                                    {meal}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => openFoodMealPicker(d.dateIso, meal)}
+                                    className="px-2 py-1 text-[11px] font-semibold rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                                  >
+                                    Pick
+                                  </button>
+                                </div>
+
+                                {selectedItems.length ? (
+                                  <div className="mt-2 flex flex-wrap gap-1">
+{selectedItems.map((sel) => {
+  const it = foodItems.find((x: any) => x._id === sel.serviceItemId);
+  const label = it?.metaTitle || it?.name || "Food item";
+  const priceLabel = it
+    ? (formatPriceLabelFromChecks(it, sel.useMinPrice, sel.useMaxPrice) || "")
+    : "";
+  return (
+    <span
+      key={sel.serviceItemId}
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border text-[11px] text-gray-700"
+      title={priceLabel || undefined}
+    >
+      {label}
+      {priceLabel ? <span className="text-[10px] text-emerald-700 font-semibold">({priceLabel})</span> : null}
+    </span>
+  );
+})}
+                                  </div>
+                                ) : (
+                                  <p className="mt-2 text-[11px] text-gray-500">
+                                    No items selected (optional).
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+        </div>
+
+        {/* Footer */}
+        <div className="sticky bottom-0 bg-white/90 backdrop-blur border-t border-gray-100 px-4 py-3 flex justify-end">
+          <button
+            type="button"
+            onClick={closeInclusionModal}
+            className="px-4 py-2 text-xs font-semibold rounded-xl bg-emerald-600 text-white hover:bg-emerald-700"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+
+{foodMealPicker.open && (
+  <div className="fixed inset-0 z-[10000]" role="dialog" aria-modal="true">
+    <button className="absolute inset-0 bg-black/50" onClick={closeFoodMealPicker} />
+
+    <div className="absolute inset-x-0 bottom-0 md:inset-0 md:flex md:items-center md:justify-center p-0 md:p-6">
+      <div className="relative w-full md:max-w-4xl bg-white rounded-3xl shadow-2xl max-h-[88vh] flex flex-col">
+        <div className="sticky top-0 bg-white/90 backdrop-blur border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">
+              Select Food • {foodMealPicker.meal?.toUpperCase()} • {foodMealPicker.dateIso ? formatDateLabel(foodMealPicker.dateIso) : ""}
+            </p>
+            <p className="text-[11px] text-gray-500">Multi-select allowed. This meal is optional.</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={closeFoodMealPicker}
+            className="inline-flex items-center justify-center size-9 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          {(() => {
+            const cat = catFood;
+            const metaKey = cat ? SERVICE_META_KEY_BY_TITLE[cat.title] : "foodservices";
+            const items = metaKey ? (servicesMeta?.[metaKey] || []) : [];
+
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {items.map((item: any) => {
+                  if (!item?._id) return null;
+                  const sel = foodMealPicker.selected.find((x) => x.serviceItemId === item._id);
+                  const isSelected = !!sel;
+                  const card = getServiceCardContent(metaKey, item);
+
+                  return (
+                    <button
+                      key={item._id}
+                      type="button"
+                      onClick={() => toggleFoodMealItem(item._id)}
+                      className={[
+                        "w-full text-left rounded-2xl border p-3 transition",
+                        isSelected ? "border-emerald-400 bg-emerald-50 shadow-sm" : "border-gray-200 bg-white hover:bg-gray-50",
+                      ].join(" ")}
+                    >
+                      <div className="flex gap-3">
+                        <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-100 border border-gray-200 shrink-0">
+                          {card.mediaUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={card.mediaUrl} alt={card.title} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full grid place-items-center text-[10px] text-gray-400">N/A</div>
+                          )}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-gray-900 truncate">{card.title}</p>
+                              {card.subtitle && <p className="text-xs text-gray-500 truncate">{card.subtitle}</p>}
+                              {card.priceLabel && <p className="text-[11px] text-emerald-700 font-semibold mt-1">{card.priceLabel}</p>}
+                              
+                            </div>
+                            
+
+                            <div className="shrink-0">
+                           {isSelected && (
+  <div className="mt-2 flex flex-wrap gap-2">
+    <label className="inline-flex items-center gap-2 text-[11px] text-gray-700 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">
+      <input
+        type="checkbox"
+        className="h-3.5 w-3.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+        checked={!!sel?.useMinPrice}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => {
+          const checked = e.target.checked;
+          setFoodMealPicker((prev) => ({
+            ...prev,
+            selected: prev.selected.map((x) =>
+              x.serviceItemId !== item._id
+                ? x
+                : {
+                    ...x,
+                    useMinPrice: checked,
+                    useMaxPrice: checked ? false : x.useMaxPrice,
+                  }
+            ),
+          }));
+        }}
+      />
+      Min Markup
+    </label>
+
+    <label className="inline-flex items-center gap-2 text-[11px] text-gray-700 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">
+      <input
+        type="checkbox"
+        className="h-3.5 w-3.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+        checked={!!sel?.useMaxPrice}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => {
+          const checked = e.target.checked;
+          setFoodMealPicker((prev) => ({
+            ...prev,
+            selected: prev.selected.map((x) =>
+              x.serviceItemId !== item._id
+                ? x
+                : {
+                    ...x,
+                    useMaxPrice: checked,
+                    useMinPrice: checked ? false : x.useMinPrice,
+                  }
+            ),
+          }));
+        }}
+      />
+      Max Markup
+    </label>
+  </div>
+)}
+
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+
+        <div className="sticky bottom-0 bg-white/90 backdrop-blur border-t border-gray-100 px-4 py-3 flex items-center justify-between">
+          <p className="text-xs text-gray-600">
+            Selected: <span className="font-semibold text-gray-900">{foodMealPicker.selected.length}</span>
+          </p>
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={closeFoodMealPicker}
+              className="px-4 py-2 text-xs font-semibold rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={saveFoodMealPicker}
+              className="px-4 py-2 text-xs font-semibold rounded-xl bg-emerald-600 text-white hover:bg-emerald-700"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
 
       {/* Sticky footer nav */}

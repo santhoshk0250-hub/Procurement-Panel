@@ -433,7 +433,7 @@ const SightseeingPackagesDashboard: React.FC = () => {
   };
 
   return (
-    <Box sx={{ p: 3, backgroundColor: "#f5f7fb", minHeight: "70vh" }}>
+    <Box sx={{ p: 3, backgroundColor: "#f5f7fb", minHeight: "70vh",padding:"10" }}>
       {/* Top bar */}
       <Box
         sx={{

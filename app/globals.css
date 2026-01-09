@@ -198,17 +198,17 @@ select {
   }
   
   .space-y-4 > * + * {
-    margin-top: 0.75rem;
+    margin-top: -0.25rem;
   }
   
   /* Reduce section padding on mobile */
   section {
-    padding: 0.75rem;
+    padding: -0.25rem;
   }
   
   /* Optimize form spacing */
   form > * + * {
-    margin-top: 0.75rem;
+    margin-top: -0.25rem;
   }
   
   /* Better use of viewport */

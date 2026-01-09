@@ -33,7 +33,7 @@ export default function Sidebar() {
 
   const items: Item[] = useMemo(
     () => [
-      { label: "Hotels",            href: "/dashboard/calendar",         icon: Hotel, category: "Main" },
+      { label: "Hotels",            href: "/dashboard/hotel",         icon: Hotel, category: "Main" },
       { label: "Review",            href: "/dashboard/review",           icon: MessageSquareShare, category: "Management" },
       { label: "Profitability",     href: "/dashboard/profitability",    icon: LineChart, category: "Management" },
       { label: "Coupons",           href: "/dashboard/coupons",          icon: TicketPercent, category: "Management" },

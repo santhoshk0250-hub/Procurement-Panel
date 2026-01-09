@@ -333,7 +333,7 @@ const VehiclesDashboard: React.FC = () => {
   };
 
   return (
-    <Box sx={{ p: 3, backgroundColor: "white", minHeight: "70vh" }}>
+    <Box sx={{ p: 3, backgroundColor: "white", minHeight: "70vh",padding:"10" }}>
       {/* Top bar */}
       <Box
         sx={{

@@ -120,7 +120,7 @@ const LoginPage: React.FC = () => {
         const { token, user } = res.data;
         const { setAuth } = useAuthStore.getState();
         setAuth(user, token);
-        router.push("/dashboard/calendar");
+        router.push("/dashboard/hotel");
       } else {
         alert(res.data.error || "Login failed");
       }

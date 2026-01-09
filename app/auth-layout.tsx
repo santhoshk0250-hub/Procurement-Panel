@@ -31,7 +31,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     if (!hasToken && !isPublic) {
       router.replace("/login");
     } else if (hasToken && isPublic) {
-      router.replace("/dashboard/calendar");
+      router.replace("/dashboard/hotel");
     }
 
     setReady(true);

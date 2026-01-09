@@ -378,7 +378,8 @@ const [galleryMedia, setGalleryMedia] = useState<GalleryMedia>({
   thumbnail: null,
   videos: null,
 });
-
+const [cafesNearby, setCafesNearby] = useState<string>("");
+const [activitiesNearby, setActivitiesNearby] = useState<string>("");
 const [galleryPreviews, setGalleryPreviews] = useState<GalleryPreviews>({
   thumbnail: "",
   videos: null,
@@ -930,7 +931,7 @@ const handleAddRatePlan = (roomIdx: number) => {
 
       const existingPlans = room.pricing?.rate_plans ?? [];
       const newPlan = {
-        plan_name: `Room only`, // <-- default text (or use Plan ${existingPlans.length + 1})
+        plan_name: ``, // <-- default text (or use Plan ${existingPlans.length + 1})
         price: 0,
         cancellation_policy: "",
       };
@@ -1226,6 +1227,12 @@ if (markupMaxPrice !== "") formData.append("markup_max_price", String(markupMaxP
           : undefined,
         popular_landmarks_nearby: landmarks
           ? landmarks.split(",").map((l) => l.trim())
+          : [],
+            popular_cafe_nearby: cafesNearby
+          ? cafesNearby.split(",").map((l) => l.trim())
+          : [],
+           popular_activities_nearby: activitiesNearby
+          ? activitiesNearby.split(",").map((l) => l.trim())
           : [],
         distance_from_railway_station: railwayStations.filter(
           (rs) => rs.name && rs.distance_km > 0
@@ -1559,7 +1566,7 @@ if (petPolicy) {
    axios.post( process.env.NEXT_PUBLIC_API_BASE + "hotels/addhotel",formData, { withCredentials: true, headers: { "Content-Type": "multipart/form-data" },})
       .then((res) => {
       showToast.success("Hotel added successfully!");
-        router.push("/dashboard/calendar");
+        router.push("/dashboard/hotel");
       })
       .catch((err) => {
         setTruebutton(false);
@@ -1595,6 +1602,26 @@ const handleSpaChange = (field: keyof Wellness['spa'], value: any) => {
 
    const yearOptions = Array.from({ length: new Date().getFullYear() - 2000 + 1 }, (_, i) => 2000 + i);
   const [activeTab, setActiveTab] = useState<"about" |"gallery" |"location" | "features" | "media" | "rooms"|"availability"|"pricing"|"dining"|"services"|"events"|"experiences"|"policies" >("about");
+const tabIds = tabs.map((t) => t.id);
+const activeIndex = tabIds.indexOf(activeTab);
+const isFirstTab = activeIndex === 0;
+const isLastTab = activeIndex === tabIds.length - 1;
+
+const goNext = () => {
+  if (isLastTab) return;
+  setActiveTab(tabIds[activeIndex + 1]);
+  // optional: scroll to top when changing tab
+  window?.scrollTo({ top: 0, behavior: "smooth" });
+};
+
+const goBack = () => {
+  if (isFirstTab) return;
+  setActiveTab(tabIds[activeIndex - 1]);
+  window?.scrollTo({ top: 0, behavior: "smooth" });
+};
+
+
+
 
 const handleAddBlock = (roomIdx: number) => {
   const updatedRooms = [...rooms];
@@ -2279,6 +2306,32 @@ const handleSpecialBlackoutChange = (
         className="mt-1 w-full rounded-lg border px-3 py-2.5 sm:py-2 focus:ring-2 focus:ring-blue-500 text-base touch-manipulation"
       />
     </div>
+
+        {/* Cafes Nearby */}
+<div>
+  <label className="block text-sm font-medium text-gray-700">Cafes Nearby</label>
+  <input
+    type="text"
+    placeholder="Comma separated"
+    value={cafesNearby}
+    onChange={(e) => setCafesNearby(e.target.value)}
+    className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+  />
+  <p className="mt-1 text-xs text-gray-500">Example: Café XYZ, Blue Tokai, Third Wave</p>
+</div>
+
+{/* Activities Nearby */}
+<div>
+  <label className="block text-sm font-medium text-gray-700">Activities Nearby</label>
+  <input
+    type="text"
+    placeholder="Comma separated"
+    value={activitiesNearby}
+    onChange={(e) => setActivitiesNearby(e.target.value)}
+    className="mt-1 w-full rounded-lg border px-3 py-2 focus:ring-2 focus:ring-blue-500"
+  />
+  <p className="mt-1 text-xs text-gray-500">Example: Kayaking, Trekking, Heritage walk</p>
+</div>
 
     {/* Railway Stations */}
     <div>
@@ -5106,13 +5159,43 @@ const handleSpecialBlackoutChange = (
 )}
    
           {/* ---------------- Submit ---------------- */}
-<button
-  type="submit"
-  disabled={!isFormValid() || isMutating || Loader}
-  className="w-full rounded-lg bg-blue-600 py-2.5 sm:py-3 font-semibold text-white hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation text-sm sm:text-base transition-colors"
->
-  {isMutating || Loader ? "Adding Hotel, please wait..." : "Add Hotel"}
-</button>
+{/* ---------------- Back / Continue / Submit ---------------- */}
+<div className="flex items-center justify-between gap-3">
+  {/* Back */}
+  <button
+    type="button"
+    onClick={goBack}
+    disabled={isFirstTab}
+    className="rounded-lg border px-4 py-2.5 font-semibold text-gray-700 hover:bg-gray-50
+               disabled:opacity-50 disabled:cursor-not-allowed"
+  >
+    Back
+  </button>
+
+  {/* Continue (all tabs except last) */}
+  {!isLastTab && (
+    <button
+      type="button"
+      onClick={goNext}
+      className="ml-auto rounded-lg bg-blue-600 px-6 py-2.5 font-semibold text-white hover:bg-blue-700"
+    >
+      Continue
+    </button>
+  )}
+
+  {/* Add Hotel (only last tab) */}
+  {isLastTab && (
+    <button
+      type="submit"
+      disabled={!isFormValid() || isMutating || Loader}
+      className="ml-auto rounded-lg bg-blue-600 px-6 py-2.5 font-semibold text-white hover:bg-blue-700
+                 disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      {isMutating || Loader ? "Adding Hotel, please wait..." : "Add Hotel"}
+    </button>
+  )}
+</div>
+
         </form>
       </div>
     </div>

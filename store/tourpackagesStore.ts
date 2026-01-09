@@ -151,6 +151,7 @@ export interface PackageModel {
   markup_price_mode?:string;
   start_date?: string;
   end_date?: string;
+  check_in_date?:string;
   markup_min_price: number;
   markup_max_price: number;
   isCustomizable?: boolean;

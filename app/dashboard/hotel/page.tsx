@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, MouseEvent, useMemo } from "react";
 import axios from "axios";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Box,
@@ -9,12 +10,6 @@ import {
   Button,
   TextField,
   InputAdornment,
-  Card,
-  CardMedia,
-  CardContent,
-  IconButton,
-  Menu,
-  MenuItem,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -22,7 +17,6 @@ import {
   DialogActions,
   CircularProgress,
   Pagination,
-  CardActions,
   Stack,
   Checkbox,
   Chip,
@@ -34,19 +28,16 @@ import {
   ToggleButton,
   Tooltip,
   useMediaQuery,
+  Card,
+  CardMedia,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import { AddCircleOutline } from "@mui/icons-material";
-import {
-  PlaylistAddRounded,
-  Search,
-  MoreVert,
-  Flight,
-} from "@mui/icons-material";
-import Link from "next/link";
+import { AddCircleOutline, PlaylistAddRounded, Search, Flight } from "@mui/icons-material";
+
+import CommonServiceCard, { type ServiceChip } from "@/components/dashboard/CommonServiceCard";
 import { useHotelStore } from "@/store/hotelStore";
 
-// Interfaces
+/* ================== Interfaces ================== */
 interface HotelRoom {
   room_id: string;
   room_type: string;
@@ -66,7 +57,7 @@ interface HotelData {
   _id: string;
   property_name: string;
   chain_brand: string;
-  star_category: number; // keep as-is (no change)
+  star_category: number | string;
   location: {
     city: string;
     country: string;
@@ -77,20 +68,50 @@ interface HotelData {
     room: string[];
     lobby: string[];
   };
-  // ✅ added (safe optional) to support markup UI without changing cards
   markup_min_price?: number;
   markup_max_price?: number;
 }
 
-// ✅ for modal filtering (supports hostel if API returns it sometimes)
+// ✅ for modal filtering
 type StarFilter = "all" | "hostel" | "2" | "3" | "4";
 
+/* ================== Helpers ================== */
+const chip = (c: ServiceChip) => c;
+
+const money = (n?: number) =>
+  typeof n === "number" && !Number.isNaN(n) ? `₹${n}` : "-";
+
+const mainImage = (h: HotelData) =>
+  h.media_gallery?.room?.[0] ||
+  h.rooms?.[0]?.image_link?.[0] ||
+  "https://picsum.photos/300/200";
+
+const unwrapId = (id: any) => (typeof id === "string" ? id : id?._id ?? "");
+
+const normalizedStar = (v: any): "hostel" | "2" | "3" | "4" | "other" => {
+  if (v == null) return "other";
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "hostel") return "hostel";
+    if (s.startsWith("2")) return "2";
+    if (s.startsWith("3")) return "3";
+    if (s.startsWith("4")) return "4";
+    return "other";
+  }
+  const n = Number(v);
+  if (n === 2) return "2";
+  if (n === 3) return "3";
+  if (n === 4) return "4";
+  return "other";
+};
+
+/* ================== Component ================== */
 const CalendarDetails: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const router = useRouter();
 
   const [searchTerm, setSearchTerm] = useState<string>("");
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedHotel, setSelectedHotel] = useState<HotelData | null>(null);
   const [hotels, setHotels] = useState<HotelData[]>([]);
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
@@ -98,10 +119,8 @@ const CalendarDetails: React.FC = () => {
   const [page, setPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
   const { setHotel } = useHotelStore();
-  const open = Boolean(anchorEl);
-  const router = useRouter();
 
-  // ✅ MARKUP MODAL STATES (added)
+  // ✅ MARKUP MODAL STATES
   const [openMarkupModal, setOpenMarkupModal] = useState(false);
   const [markupStep, setMarkupStep] = useState<0 | 1>(0);
   const [selectedHotelIds, setSelectedHotelIds] = useState<string[]>([]);
@@ -130,7 +149,6 @@ const CalendarDetails: React.FC = () => {
     }
   };
 
-  // ✅ fetch all hotels for modal (added)
   const fetchAllHotelsForModal = async () => {
     setModalLoading(true);
     try {
@@ -148,20 +166,11 @@ const CalendarDetails: React.FC = () => {
 
   useEffect(() => {
     fetchHotels(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
-
-  const handleMoreClick = (event: MouseEvent<HTMLElement>, hotel: HotelData) => {
-    setAnchorEl(event.currentTarget);
-    setSelectedHotel(hotel);
-  };
-
-  const handleCloseMenu = () => {
-    setAnchorEl(null);
-  };
 
   const handleEdit = (hotel: HotelData) => {
     setHotel(hotel);
-    handleCloseMenu();
   };
 
   const handleDelete = (hotel: HotelData) => {
@@ -184,33 +193,17 @@ const CalendarDetails: React.FC = () => {
     }
   };
 
-  const filteredHotels = hotels.filter((hotel) =>
-    hotel.property_name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredHotels = useMemo(() => {
+    const q = searchTerm.toLowerCase().trim();
+    if (!q) return hotels;
+    return hotels.filter((hotel) =>
+      (hotel.property_name || "").toLowerCase().includes(q)
+    );
+  }, [hotels, searchTerm]);
 
-  // =========================
-  // ✅ MARKUP MODAL HELPERS (added)
-  // =========================
-
-  const normalizedStar = (
-    v: any
-  ): "hostel" | "2" | "3" | "4" | "other" => {
-    if (v == null) return "other";
-    if (typeof v === "string") {
-      const s = v.trim().toLowerCase();
-      if (s === "hostel") return "hostel";
-      if (s.startsWith("2")) return "2";
-      if (s.startsWith("3")) return "3";
-      if (s.startsWith("4")) return "4";
-      return "other";
-    }
-    const n = Number(v);
-    if (n === 2) return "2";
-    if (n === 3) return "3";
-    if (n === 4) return "4";
-    return "other";
-  };
-
+  /* =========================
+     MARKUP MODAL HELPERS
+  ========================= */
   const toggleHotelSelection = (id: string) => {
     setSelectedHotelIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -245,7 +238,9 @@ const CalendarDetails: React.FC = () => {
     const byStar =
       starFilter === "all"
         ? bySearch
-        : bySearch.filter((h) => normalizedStar((h as any).star_category) === starFilter);
+        : bySearch.filter(
+            (h) => normalizedStar((h as any).star_category) === starFilter
+          );
 
     const order: Record<string, number> = {
       hostel: 0,
@@ -281,7 +276,6 @@ const CalendarDetails: React.FC = () => {
         markup_max_price: max,
       });
 
-      // update local lists
       setHotels((prev) =>
         prev.map((h) =>
           selectedHotelIds.includes(h._id)
@@ -307,8 +301,7 @@ const CalendarDetails: React.FC = () => {
       );
 
       setOpenMarkupModal(false);
-    await router.replace("/dashboard/calendar");
-
+      await router.replace("/dashboard/hotel");
     } catch (err) {
       console.error("❌ bulk markup update error:", err);
       alert("Failed to update markup");
@@ -320,12 +313,13 @@ const CalendarDetails: React.FC = () => {
   return (
     <Box
       sx={{
-        p: { xs: 2, sm: 3 },
+      
         backgroundColor: "white",
         minHeight: "70vh",
         maxWidth: { xs: "100%", sm: "100%", md: "1400px" },
         mx: "auto",
         width: "100%",
+        padding:"10"
       }}
     >
       {/* Top bar */}
@@ -360,7 +354,6 @@ const CalendarDetails: React.FC = () => {
           }}
         />
 
-        {/* ✅ MARKUP BUTTON (added) */}
         <Button
           onClick={openMarkup}
           fullWidth
@@ -382,11 +375,11 @@ const CalendarDetails: React.FC = () => {
         </Button>
 
         <Link
-          href="/dashboard/calendar/Addhotel"
+          href="/dashboard/hotel/Addhotel"
           style={{ width: "100%", display: "block" }}
         >
           <Button
-            fullWidth={true}
+            fullWidth
             sx={{
               width: { xs: "100%", sm: "auto" },
               minHeight: { xs: "44px", sm: "40px" },
@@ -434,6 +427,7 @@ const CalendarDetails: React.FC = () => {
         </Box>
       ) : (
         <>
+          {/* ✅ Hotels rendered using CommonServiceCard */}
           <Box
             sx={{
               display: "grid",
@@ -448,152 +442,51 @@ const CalendarDetails: React.FC = () => {
             }}
           >
             {filteredHotels.map((hotel) => {
-              const mainImage =
-                hotel.media_gallery?.room?.[0] ||
-                hotel.rooms[0]?.image_link?.[0] ||
-                "https://picsum.photos/200";
+              const img = mainImage(hotel);
+
+              const currency = hotel.rooms?.[0]?.pricing?.currency || "₹";
+              const basePrice = hotel.rooms?.[0]?.pricing?.hotel_bf_price ?? 0;
+
+              const topLeftChips: ServiceChip[] = [
+                chip({
+                  label: `${currency} ${basePrice}`,
+                  color: "primary",
+                  sx: { bgcolor: "primary.main", color: "primary.contrastText" },
+                }),
+                chip({ label: `${String(hotel.star_category)}⭐` }),
+              ];
+
+              const metaChips: ServiceChip[] = [
+                ...(hotel.chain_brand ? [chip({ label: hotel.chain_brand, color: "secondary" })] : []),
+                chip({ label: `${hotel.location?.city || "-"}, ${hotel.location?.country || "-"}` }),
+                chip({ label: `Rooms: ${hotel.rooms?.length ?? 0}` }),
+                ...(hotel.rooms?.[0]?.bed_type ? [chip({ label: `Bed: ${hotel.rooms[0].bed_type}` })] : []),
+                ...(typeof hotel.markup_min_price === "number"
+                  ? [chip({ label: `Min Markup: ${money(hotel.markup_min_price)}`, color: "success" })]
+                  : []),
+                ...(typeof hotel.markup_max_price === "number"
+                  ? [chip({ label: `Max Markup: ${money(hotel.markup_max_price)}`, color: "success" })]
+                  : []),
+              ];
 
               return (
-                <Card
+                <CommonServiceCard
                   key={hotel._id}
-                  sx={{
-                    width: "100%",
-                    display: "flex",
-                    flexDirection: "column",
-                    borderRadius: { xs: 2, sm: 2 },
-                    boxShadow: { xs: "0 2px 8px rgba(0,0,0,0.1)", sm: 2 },
-                    overflow: "hidden",
-                    transition: "transform 0.2s, box-shadow 0.2s",
-                    "&:hover": {
-                      transform: { xs: "none", sm: "translateY(-2px)" },
-                      boxShadow: { xs: "0 2px 8px rgba(0,0,0,0.1)", sm: 4 },
-                    },
-                  }}
-                >
-                  <Box
-                    sx={{
-                      width: "100%",
-                      height: { xs: 180, sm: 200, md: 220 },
-                      overflow: "hidden",
-                      flexShrink: 0,
-                      backgroundColor: "#f5f5f5",
-                    }}
-                  >
-                    <CardMedia
-                      component="img"
-                      image={mainImage}
-                      alt={hotel.property_name}
-                      sx={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                        display: "block",
-                      }}
-                    />
-                  </Box>
-
-                  <CardContent
-                    sx={{
-                      p: { xs: 2, sm: 2.5 },
-                      flex: 1,
-                      display: "flex",
-                      flexDirection: "column",
-                      backgroundColor: "white",
-                      minHeight: 0,
-                      overflow: "visible",
-                    }}
-                  >
-                    <Typography
-                      variant="h6"
-                      sx={{
-                        fontSize: { xs: "16px", sm: "18px" },
-                        fontWeight: 600,
-                        mb: 0.5,
-                        lineHeight: 1.3,
-                        display: "-webkit-box",
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
-                        overflow: "hidden",
-                      }}
-                    >
-                      {hotel.property_name}
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{
-                        fontSize: { xs: "12px", sm: "14px" },
-                        mb: 0.5,
-                      }}
-                    >
-                      {hotel?.chain_brand} • {hotel?.star_category}⭐
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{
-                        fontSize: { xs: "12px", sm: "14px" },
-                        mb: 1,
-                      }}
-                    >
-                      {hotel?.location?.city}, {hotel?.location?.country}
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{
-                        fontSize: { xs: "12px", sm: "14px" },
-                        mb: 1.5,
-                      }}
-                    >
-                      Rooms: {hotel?.rooms?.length} | Bed:{" "}
-                      {hotel?.rooms[0]?.bed_type || "-"} | Price:{" "}
-                      {hotel.rooms[0]?.pricing?.currency}{" "}
-                      {hotel.rooms[0]?.pricing?.hotel_bf_price || 0}
-                    </Typography>
-
-                    <CardActions
-                      sx={{
-                        justifyContent: "space-between",
-                        px: 0,
-                        pb: 0,
-                        pt: 0,
-                        mt: "auto",
-                      }}
-                    >
-                      <Stack direction="row" spacing={1} sx={{ width: "100%" }}>
-                        <Button
-                          key="edit"
-                          component={Link as any}
-                          href={`/dashboard/calendar/Edithotel`}
-                          onClick={() => handleEdit(hotel)}
-                          size="small"
-                          sx={{
-                            flex: 1,
-                            fontSize: { xs: "13px", sm: "14px" },
-                            py: { xs: 1, sm: 0.75 },
-                            minHeight: { xs: "40px", sm: "36px" },
-                          }}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          color="error"
-                          size="small"
-                          onClick={() => handleDelete(hotel)}
-                          sx={{
-                            flex: 1,
-                            fontSize: { xs: "13px", sm: "14px" },
-                            py: { xs: 1, sm: 0.75 },
-                            minHeight: { xs: "40px", sm: "36px" },
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </Stack>
-                    </CardActions>
-                  </CardContent>
-                </Card>
+                  id={hotel._id}
+                  title={hotel.property_name || "—"}
+                  image={img}
+                  topLeftChips={topLeftChips}
+                  descriptionHtml={
+                    hotel.location?.address
+                      ? `<div>${hotel.location.address}</div>`
+                      : ""
+                  }
+                  metaChips={metaChips}
+                  footerRightText={""}
+                  editHref="/dashboard/hotel/Edithotel"
+                  onEdit={() => handleEdit(hotel)}
+                  onDelete={() => handleDelete(hotel)}
+                />
               );
             })}
           </Box>
@@ -645,7 +538,7 @@ const CalendarDetails: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      {/* ✅ MARKUP MODAL (added) */}
+      {/* ✅ MARKUP MODAL */}
       <Dialog
         open={openMarkupModal}
         onClose={closeMarkup}
@@ -654,14 +547,7 @@ const CalendarDetails: React.FC = () => {
         fullWidth
       >
         <DialogTitle sx={{ pb: 1 }}>
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 2,
-            }}
-          >
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
             <Box>
               <Typography variant="h6" sx={{ fontWeight: 900 }}>
                 Select Hotels
@@ -671,11 +557,7 @@ const CalendarDetails: React.FC = () => {
               </Typography>
             </Box>
 
-            <Chip
-              label={`Selected: ${selectedHotelIds.length}`}
-              variant="outlined"
-              sx={{ fontWeight: 800 }}
-            />
+            <Chip label={`Selected: ${selectedHotelIds.length}`} variant="outlined" sx={{ fontWeight: 800 }} />
           </Box>
         </DialogTitle>
 
@@ -755,14 +637,7 @@ const CalendarDetails: React.FC = () => {
               <Divider sx={{ mb: 2 }} />
 
               {modalLoading ? (
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    py: 6,
-                  }}
-                >
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", py: 6 }}>
                   <CircularProgress />
                 </Box>
               ) : (
@@ -777,11 +652,7 @@ const CalendarDetails: React.FC = () => {
                   }}
                 >
                   {modalHotels.map((hotel) => {
-                    const mainImage =
-                      hotel.media_gallery?.room?.[0] ||
-                      hotel.rooms?.[0]?.image_link?.[0] ||
-                      "https://picsum.photos/300/200";
-
+                    const img = mainImage(hotel);
                     const checked = selectedHotelIds.includes(hotel._id);
 
                     return (
@@ -814,15 +685,10 @@ const CalendarDetails: React.FC = () => {
                         >
                           <CardMedia
                             component="img"
-                            image={mainImage}
+                            image={img}
                             alt={hotel.property_name}
                             loading="lazy"
-                            sx={{
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                              display: "block",
-                            }}
+                            sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
                             onError={(e: any) => {
                               e.currentTarget.src = "https://picsum.photos/300/200";
                             }}
@@ -857,9 +723,7 @@ const CalendarDetails: React.FC = () => {
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
                             {String((hotel as any).star_category)}{" "}
-                            {normalizedStar((hotel as any).star_category) === "hostel"
-                              ? ""
-                              : "⭐"}
+                            {normalizedStar((hotel as any).star_category) === "hostel" ? "" : "⭐"}
                           </Typography>
                         </Box>
 
@@ -886,8 +750,7 @@ const CalendarDetails: React.FC = () => {
                 Add markup for selected hotels
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                This will update markup prices for <b>{selectedHotelIds.length}</b>{" "}
-                hotels.
+                This will update markup prices for <b>{selectedHotelIds.length}</b> hotels.
               </Typography>
 
               <Box
@@ -901,9 +764,7 @@ const CalendarDetails: React.FC = () => {
                   label="Markup Min Price"
                   type="number"
                   value={markupMinPrice}
-                  onChange={(e) =>
-                    setMarkupMinPrice(e.target.value ? Number(e.target.value) : "")
-                  }
+                  onChange={(e) => setMarkupMinPrice(e.target.value ? Number(e.target.value) : "")}
                   inputProps={{ min: 0 }}
                   fullWidth
                 />
@@ -911,9 +772,7 @@ const CalendarDetails: React.FC = () => {
                   label="Markup Max Price"
                   type="number"
                   value={markupMaxPrice}
-                  onChange={(e) =>
-                    setMarkupMaxPrice(e.target.value ? Number(e.target.value) : "")
-                  }
+                  onChange={(e) => setMarkupMaxPrice(e.target.value ? Number(e.target.value) : "")}
                   inputProps={{ min: 0 }}
                   fullWidth
                 />

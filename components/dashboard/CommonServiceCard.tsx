@@ -107,16 +107,30 @@ const CommonServiceCard: React.FC<CommonServiceCardProps> = ({
       }}
     >
       <Box sx={{ position: "relative" }}>
-        <CardMedia
-          component="img"
-          image={image}
-          alt={title}
-          sx={{
-            objectFit: "cover",
-            width: "100%",
-            height: { xs: 190, sm: 175, md: 170 },
-          }}
-        />
+    <Box
+    sx={{
+      width: "100%",
+      aspectRatio: { xs: "16 / 10", sm: "16 / 9" }, // keep consistent card image ratio
+      bgcolor: "grey.100",
+      overflow: "hidden",
+    }}
+  >
+    <CardMedia
+      component="img"
+      image={image}
+      alt={title}
+      loading="lazy"
+      sx={{
+        width: "100%",
+        height: "100%",
+        objectFit: "cover", // crop nicely
+        display: "block",
+      }}
+      onError={(e: any) => {
+        e.currentTarget.src = "https://picsum.photos/600/400";
+      }}
+    />
+  </Box>
 
         {/* TOP LEFT CHIPS */}
         {!!topLeftChips.length && (

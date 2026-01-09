@@ -11,7 +11,7 @@ export default function Home() {
     console.log(token,"tokentoken");
     
     if (token) {
-      router.replace("/dashboard/calendar");
+      router.replace("/dashboard/hotel");
     } else {
       router.replace("/login");
     }

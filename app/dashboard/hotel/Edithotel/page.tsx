@@ -1539,7 +1539,7 @@ if (galleryMedia.video) {
    );
 
     showToast.success("Hotel updated successfully!");
-    router.push("/dashboard/calendar");
+    router.push("/dashboard/hotel");
   } catch (err: any) {
 
     if (err.response?.data?.error?.includes("Cast to ObjectId failed for value")) {
@@ -1776,13 +1776,19 @@ const formatDate = (date: string | Date | undefined) => {
   // prevents submit until user reaches the last tab; jumps them there if they try
 const guardedSubmit: React.FormEventHandler<HTMLFormElement> = (e) => {
   e.preventDefault();
-  if (!isOnLastTab) {
-    setActiveTab(lastTabId);
-    requestAnimationFrame(() => scrollActiveTabIntoView(lastTabId!));
+
+  const idx = Math.max(0, tabs.findIndex((t) => t.id === activeTab));
+  const last = idx === tabs.length - 1;
+
+  if (!last) {
+    goNext(); // ✅ just move forward
     return;
   }
-  handleSubmit(e);
+
+  handleSubmit(e); // ✅ only submit on last tab
 };
+
+
 
 const addSurcharge = (modelIdx: number) => {
   setEventsConferences(prev => {
@@ -1840,21 +1846,25 @@ const updateSurcharge = (
 };
 
 
-const currentIndex = tabs.findIndex(t => t.id === activeTab);
+
+const currentIndex = Math.max(0, tabs.findIndex((t) => t.id === activeTab));
+const isFirstTab = currentIndex === 0;
+const isLastTab = currentIndex === tabs.length - 1;
+
+const goToTab = (id: TabId) => {
+  setActiveTab(id);
+  requestAnimationFrame(() => scrollActiveTabIntoView(id));
+};
+
 const goPrev = () => {
-  if (currentIndex > 0) {
-    const id = tabs[currentIndex - 1].id;
-    setActiveTab(id);
-    requestAnimationFrame(() => scrollActiveTabIntoView(id));
-  }
+  if (!isFirstTab) goToTab(tabs[currentIndex - 1].id);
 };
+
 const goNext = () => {
-  if (currentIndex < tabs.length - 1) {
-    const id = tabs[currentIndex + 1].id;
-    setActiveTab(id);
-    requestAnimationFrame(() => scrollActiveTabIntoView(id));
-  }
+  if (!isLastTab) goToTab(tabs[currentIndex + 1].id);
 };
+
+
 
 // map each tab id -> its button element
 const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -1883,24 +1893,7 @@ useEffect(() => {
     <div className="flex min-h-screen items-center justify-center bg-gray-100 px-0 sm:px-4 md:px-4">
       <div className="w-full max-w-6xl ml-auto rounded-none sm:rounded-2xl bg-white p-4 sm:p-6 md:p-8 shadow-none sm:shadow-lg min-h-screen sm:min-h-0">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6 text-center">Edit Hotel</h1>
-        <div className="flex justify-between gap-2 mb-4 sm:mt-6">
-          <button
-            type="button"
-            onClick={goPrev}
-            disabled={currentIndex === 0}
-            className="px-3 sm:px-4 py-2 rounded-lg bg-gray-200 text-gray-800 disabled:opacity-50 text-sm sm:text-base touch-manipulation"
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            onClick={goNext}
-            disabled={currentIndex === tabs.length - 1}
-            className="px-3 sm:px-4 py-2 rounded-lg bg-gray-800 text-white disabled:opacity-50 text-sm sm:text-base touch-manipulation"
-          >
-            Next
-          </button>
-        </div>
+
       <form onSubmit={guardedSubmit} className="bg-white rounded-none sm:rounded-2xl shadow-none sm:shadow-md space-y-4 sm:space-y-6">
   {/* ---------------- Tabs ---------------- */}
 <div className="relative">
@@ -5275,22 +5268,48 @@ useEffect(() => {
 )}
           {/* ---------------- Submit ---------------- */}
      
-            <button
-    type="submit"
-    disabled={!isOnLastTab || isMutating || Loader}
-    aria-disabled={!isOnLastTab || isMutating || Loader}
-    title={!isOnLastTab ? "Finish all tabs to enable saving" : undefined}
-    className={`w-full rounded-lg py-2 font-semibold text-white mt-4
-                ${!isOnLastTab || isMutating || Loader
-                  ? "bg-blue-600/60 cursor-not-allowed"
-                  : "bg-blue-600 hover:bg-blue-700"}`}
+      <div className="flex justify-between gap-3 mt-6">
+  <button
+    type="button"
+    onClick={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      goPrev();
+    }}
+    disabled={isFirstTab}
+    className="px-4 py-2 rounded-lg bg-gray-200 text-gray-800 disabled:opacity-50"
   >
-    {isMutating || Loader
-      ? "Updating please wait..."
-      : !isOnLastTab
-        ? "Complete all tabs to save"
-        : "Save Changes"}
+    Back
   </button>
+
+  {!isLastTab ? (
+    <button
+      type="button" // ✅ IMPORTANT: NEVER SUBMIT
+      onClick={(e) => {
+        e.preventDefault();      // ✅ prevent form submit
+        e.stopPropagation();
+        goNext();
+      }}
+      className="px-4 py-2 rounded-lg bg-gray-800 text-white"
+    >
+      Continue
+    </button>
+  ) : (
+    <button
+      type="submit" // ✅ submit only on last tab
+      disabled={isMutating || Loader}
+      className={`px-4 py-2 rounded-lg text-white ${
+        isMutating || Loader
+          ? "bg-blue-600/60 cursor-not-allowed"
+          : "bg-blue-600 hover:bg-blue-700"
+      }`}
+    >
+      {isMutating || Loader ? "Updating..." : "Update Hotel"}
+    </button>
+  )}
+</div>
+
+
         </form>
       </div>
     </div>
