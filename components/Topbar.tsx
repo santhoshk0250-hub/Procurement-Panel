@@ -37,7 +37,7 @@ export default function Topbar() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [admin, setAdmin] = useState<AdminProfile | null>(null);
-  console.log(admin,"adminn");
+
   
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();

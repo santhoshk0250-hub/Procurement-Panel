@@ -8,7 +8,6 @@ export default function Home() {
 
   useEffect(() => {
     const token = localStorage.getItem("token");
-    console.log(token,"tokentoken");
     
     if (token) {
       router.replace("/dashboard/hotel");

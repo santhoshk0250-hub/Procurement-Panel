@@ -391,7 +391,7 @@ export default function EditActivityFormMobile() {
 
   const [data, setData] = useState<ActivityFormData>(BLANK);
   const [stepIndex, setStepIndex] = useState(0);
-  console.log(stepIndex,"stepIndexstepIndex");
+
   
   const step = STEPS[stepIndex];
   const [submitting, setSubmitting] = useState(false);

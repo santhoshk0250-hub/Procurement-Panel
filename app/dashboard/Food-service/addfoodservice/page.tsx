@@ -753,7 +753,16 @@ const totalPriceNum = Math.max(0, taxable + taxAmountNum);
 
   /* --------------------------------- Render -------------------------------- */
   return (
-    <form className="min-h-screen bg-gray-50" onSubmit={handleSubmit}>
+    <form className="min-h-screen bg-gray-50"  onSubmit={(e) => {
+    // prevent accidental submit from intermediate steps
+    if (step.key !== "segregatedMedia") {
+      e.preventDefault();
+      e.stopPropagation();
+      goNext();
+      return;
+    }
+    handleSubmit(e);
+  }}>
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-gray-200">
         <div className="px-4 py-3 sm:px-6 max-w-3xl mx-auto">
@@ -1656,46 +1665,56 @@ const totalPriceNum = Math.max(0, taxable + taxAmountNum);
                 {isStepValid(step.key as StepKey) ? "Looks good" : "Complete required fields"}
               </span>
 
-              <div className="flex w-full sm:w-auto gap-2 sm:ml-auto">
-                <button
-                  type="button"
-                  onClick={goBack}
-                  disabled={stepIndex === 0 || submitting}
-                  className={`flex-1 sm:flex-none px-4 py-3 text-sm font-medium rounded-xl border ${
-                    stepIndex === 0 || submitting ? "border-gray-200 text-gray-400" : "border-gray-300 text-gray-700 hover:bg-gray-50"
-                  }`}
-                >
-                  Back
-                </button>
+             <div className="flex w-full sm:w-auto gap-2 sm:ml-auto">
+  <button
+    type="button"
+    onClick={goBack}
+    disabled={stepIndex === 0 || submitting}
+    className={`flex-1 sm:flex-none px-4 py-3 text-sm font-medium rounded-xl border ${
+      stepIndex === 0 || submitting
+        ? "border-gray-200 text-gray-400"
+        : "border-gray-300 text-gray-700 hover:bg-gray-50"
+    }`}
+  >
+    Back
+  </button>
 
-                {stepIndex < LAST ? (
-                  <button
-                    type="button"
-                    onClick={goNext}
-                    disabled={!isStepValid(step.key as StepKey) || submitting}
-                    className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
-                      !isStepValid(step.key as StepKey) || submitting
-                        ? "bg-blue-300 cursor-not-allowed"
-                        : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
-                    }`}
-                  >
-                    Continue
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={!canSubmit || submitting}
-                    className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
-                      !canSubmit || submitting ? "bg-blue-300" : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
-                    }`}
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      {submitting && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-                      {submitting ? "Creating..." : "Create Food Item"}
-                    </span>
-                  </button>
-                )}
-              </div>
+  {step.key !== "segregatedMedia" ? (
+   <button
+  type="button"
+  onClick={(e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    goNext();
+  }}
+  disabled={!isStepValid(step.key as StepKey) || submitting}
+  className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
+    !isStepValid(step.key as StepKey) || submitting
+      ? "bg-blue-300 cursor-not-allowed"
+      : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
+  }`}
+>
+  Continue
+</button>
+
+  ) : (
+    <button
+      type="submit"
+      disabled={!canSubmit || submitting}
+      className={`flex-1 sm:flex-none px-5 py-3 text-sm font-semibold rounded-xl text-white ${
+        !canSubmit || submitting
+          ? "bg-blue-300"
+          : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
+      }`}
+    >
+      <span className="inline-flex items-center gap-2">
+        {submitting && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+        {submitting ? "Creating..." : "Create Food Item"}
+      </span>
+    </button>
+  )}
+</div>
+
             </div>
           </div>
         </div>
